@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# generated at build time, not source
+public/version.json
+
 # production
 /build
 

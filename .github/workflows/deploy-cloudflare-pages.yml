@@ -1,0 +1,62 @@
+name: Deploy to Cloudflare Pages
+
+# Push to main -> production. Cloudflare's own Git integration is deliberately not
+# used, matching the other Vizsoft Pages projects: Actions builds the bundle here and
+# uploads the finished output with wrangler.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# One deploy at a time; a newer push supersedes an in-flight build.
+concurrency:
+  group: cloudflare-pages-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # "output: export" means this writes the whole site to out/ plus public/version.json.
+      - name: Build static export
+        run: npm run build
+
+      # Keeps the workflow green (with a warning) until the token is added,
+      # instead of failing every push in the meantime.
+      - name: Check for the deploy token
+        id: token
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN is not set, so the deploy was skipped. Add it under Settings > Secrets and variables > Actions."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        if: steps.token.outputs.present == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4.86.0'
+          command: pages deploy out --project-name azya-admin-2026 --branch ${{ github.ref_name }}
