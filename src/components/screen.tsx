@@ -15,6 +15,8 @@ const Analytics = dynamic(() => import("./dashboard").then((m) => m.Analytics), 
 import { InventoryActions, MediaUpload, NotifyBox, OrderActions, ReturnActions, RoleEditor, UserActions } from "./actions";
 import { ProductsPage } from "./products-page";
 import { ProductEditor } from "./product-editor";
+import { LoginSwitches } from "./login-switches";
+import { WaitlistPage } from "./waitlist-page";
 
 export function RouteScreen({ route }: { route: AdminRoute }) {
   const { allowed, lang } = useAuth();
@@ -25,6 +27,7 @@ export function RouteScreen({ route }: { route: AdminRoute }) {
   }
   if (route.path === "product-edit") return productId ? <ProductEditor key={productId} id={productId} /> : <ProductsPage />;
   if (route.path === "products") return <ProductsPage />;
+  if (route.path === "customer-waitlist") return <WaitlistPage />;
   if (route.path === "products-grid") return <ProductsPage view="grid" />;
   if (route.view === "dashboard") return <Dashboard />;
   if (route.view === "analytics" && route.collection) return <Analytics collectionName={route.collection} />;
@@ -48,6 +51,7 @@ export function RouteScreen({ route }: { route: AdminRoute }) {
   return (
     <div>
       {note && <p className="mb-2 text-sm text-[#757575]">{note}</p>}
+      {route.path === "settings" && <LoginSwitches />}
       <RecordPanel
         route={route}
         extra={(row, setRowNote) => {
