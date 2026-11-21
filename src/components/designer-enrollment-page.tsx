@@ -208,7 +208,7 @@ function ApplicationReview({
 
       onDone(
         result.email
-          ? `Approved ${name}. Their designer ID is ${result.designerId} and the approval email to ${result.email} is on its way.`
+          ? `Approved ${name}. Their designer ID is ${result.designerId} and an approval email to ${result.email} has been queued.`
           : `Approved ${name}. Their designer ID is ${result.designerId}. No approval email was sent because the application has no email address.`,
       );
     } catch (err) {
