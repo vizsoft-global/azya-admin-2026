@@ -75,7 +75,7 @@ export const adminRoutes: AdminRoute[] = [
   { path: "creator-active", flutterName: "Creator-Active", title: "Creators active", group: "Users", permission: "creator", view: "users", collection: "users", filters: { user_role: "Creator", status: "Published" } },
   { path: "creator-pending", flutterName: "Creator-Pending", title: "Creators pending", group: "Users", permission: "creator", view: "users", collection: "users", filters: { user_role: "Creator", status: "Pending" } },
   { path: "creator-rejected", flutterName: "Creator-Rejected", title: "Creators rejected", group: "Users", permission: "creator", view: "users", collection: "users", filters: { user_role: "Creator", status: "Rejected" } },
-  { path: "creator-promotions", flutterName: "Creator-Promotions", title: "Creator promotions", group: "Users", permission: "creator", view: "collection", collection: "coupon" },
+  { path: "creator-promotions", flutterName: "Creator-Promotions", title: "Creator promotions", group: "Users", permission: "creator", view: "collection", collection: "users" },
   { path: "designers", flutterName: "Designers", title: "Designers", group: "Users", permission: "designer", view: "users", collection: "users", filters: { user_role: "Designer" } },
   { path: "designer-active", flutterName: "Designer-Active", title: "Designers active", group: "Users", permission: "designer", view: "users", collection: "users", filters: { user_role: "Designer", status: "Published" } },
   { path: "designer-pending", flutterName: "Designer-Pending", title: "Designers pending", group: "Users", permission: "designer", view: "users", collection: "users", filters: { user_role: "Designer", status: "Pending" } },
