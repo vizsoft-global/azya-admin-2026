@@ -395,7 +395,7 @@ function RejectForm({
   );
 }
 
-function Detail({ label, value, ltr, wide }: { label: string; value: string; ltr?: boolean; wide?: boolean }) {
+export function Detail({ label, value, ltr, wide }: { label: string; value: string; ltr?: boolean; wide?: boolean }) {
   return (
     <div className={wide ? "sm:col-span-2 lg:col-span-3" : undefined}>
       <dt className="text-xs text-[#757575]">{label}</dt>
@@ -417,7 +417,7 @@ function Upload({ label, file, onView }: { label: string; file: UploadedFile | n
 }
 
 /** A picture thumbnail that opens larger in the page. Falls back to a link if it will not load as a picture. */
-function FileTile({ file, onView }: { file: UploadedFile; onView: (file: UploadedFile) => void }) {
+export function FileTile({ file, onView }: { file: UploadedFile; onView: (file: UploadedFile) => void }) {
   const [broken, setBroken] = useState(false);
   if (broken) return <FileLink file={file} />;
   return (
@@ -436,7 +436,7 @@ function FileLink({ file }: { file: UploadedFile }) {
   );
 }
 
-function ImageViewer({ file, onClose }: { file: UploadedFile; onClose: () => void }) {
+export function ImageViewer({ file, onClose }: { file: UploadedFile; onClose: () => void }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
