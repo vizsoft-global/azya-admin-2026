@@ -17,6 +17,7 @@ import { ProductsPage } from "./products-page";
 import { ProductEditor } from "./product-editor";
 import { LoginSwitches } from "./login-switches";
 import { WaitlistPage } from "./waitlist-page";
+import { DesignerEnrollmentPage } from "./designer-enrollment-page";
 
 export function RouteScreen({ route }: { route: AdminRoute }) {
   const { allowed, lang } = useAuth();
@@ -28,6 +29,7 @@ export function RouteScreen({ route }: { route: AdminRoute }) {
   if (route.path === "product-edit") return productId ? <ProductEditor key={productId} id={productId} /> : <ProductsPage />;
   if (route.path === "products") return <ProductsPage />;
   if (route.path === "customer-waitlist") return <WaitlistPage />;
+  if (route.path === "designer-pending") return <DesignerEnrollmentPage />;
   if (route.path === "products-grid") return <ProductsPage view="grid" />;
   if (route.view === "dashboard") return <Dashboard />;
   if (route.view === "analytics" && route.collection) return <Analytics collectionName={route.collection} />;
