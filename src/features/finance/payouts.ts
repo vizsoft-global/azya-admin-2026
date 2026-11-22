@@ -19,6 +19,13 @@ export type PaymentForm = {
 
 export type PaymentErrors = Partial<Record<keyof PaymentForm, string>>;
 
+/** Why an amount cannot be recorded, or "" when it can: it must be a real number above zero. */
+export function amountProblem(amount: unknown): string {
+  if (typeof amount !== "number" || !Number.isFinite(amount)) return "The amount is not a number.";
+  if (!(amount > 0)) return "The amount must be more than zero.";
+  return "";
+}
+
 /** Smallest amount that can be recorded: one fils. */
 const ONE_FILS = 0.001;
 
@@ -29,6 +36,7 @@ const ONE_FILS = 0.001;
 export function validatePayment(form: PaymentForm, limit: number, now: Date, limitLabel = "payable balance"): PaymentErrors {
   const errors: PaymentErrors = {};
   if (form.amount == null) errors.amount = "Enter the amount that was paid.";
+  else if (amountProblem(form.amount)) errors.amount = amountProblem(form.amount);
   else if (form.amount < ONE_FILS) errors.amount = "The amount must be more than zero.";
   else if (round3(form.amount) !== form.amount) errors.amount = "Use at most three decimals.";
   else if (form.amount > round3(limit)) errors.amount = `This is more than the ${limitLabel} of ${formatMoney(round3(limit))}.`;
@@ -161,6 +169,32 @@ export function payoutRecord(input: PayoutRecordInput): Record<string, unknown> 
 /** Top-level fields set on the person's `sales_history` record. Nothing inside `sale_history[]` is touched. */
 export function salesHistoryPayoutUpdate(input: { now: unknown; amount: number; paidAt: Date }): Record<string, unknown> {
   return { last_payout_date: input.paidAt, last_payout_amount: round3(input.amount), updated_at: input.now };
+}
+
+/**
+ * The payout figures on the person's `users` record, updated the way the
+ * Flutter admin's "Add Amount" did (`add_amount_widget.dart`), so the profile
+ * cards that read them stay right:
+ * - creators: `creator_main_info.creator_payout_info` gets `last_payout_amount`,
+ *   `last_payout_date`, `completed_payout` + amount, `total_payout` + amount, `updated_at`;
+ * - designers: `designer_main_info.designer_payout_info` gets the same four
+ *   without `updated_at` (Flutter did not write it for designers).
+ * `pending_payout` is left alone: Flutter took the amount off it, but nothing
+ * ever adds to it, so it would only go negative.
+ * `stored` is that payout-info map as read inside the transaction.
+ */
+export function payoutInfoUpdate(role: PartnerRole, stored: unknown, input: { now: unknown; amount: number; paidAt: Date }): Record<string, unknown> {
+  const info = (stored && typeof stored === "object" ? stored : {}) as Record<string, unknown>;
+  const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const base = role === "creator" ? "creator_main_info.creator_payout_info" : "designer_main_info.designer_payout_info";
+  const amount = round3(input.amount);
+  return {
+    [`${base}.last_payout_amount`]: amount,
+    [`${base}.last_payout_date`]: input.paidAt,
+    [`${base}.completed_payout`]: round3(number(info.completed_payout) + amount),
+    [`${base}.total_payout`]: round3(number(info.total_payout) + amount),
+    ...(role === "creator" ? { [`${base}.updated_at`]: input.now } : {}),
+  };
 }
 
 /* ---------- Status of a payout record ---------- */

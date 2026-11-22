@@ -20,17 +20,20 @@ import type { RoleScope } from "@/lib/role-scope";
 import { StoreValleyConfig } from "@/lib/store-valley/config";
 import { isComplete as intakeStored, isFulfillComplete } from "@/lib/store-valley/intake-tracking";
 import { isRestock } from "@/lib/store-valley/request-type";
-import { cancelEnquiryWrites, raiseEnquiryWrites, receiveEnquiryWrites } from "./enquiry";
-import { readAddress, storedProductName, type Patch, type RequestView, type Row } from "./model";
-import { pickupBatchProblem, pickupDeliveryDoc, pickupRequestPatch, planPickup, readPickupResult, type PickupLine, type ProxyCall, type ProxyResult } from "./pickup";
+import { inventoryDocId as warehouseCacheDocId, storeValleyInventoryCollection } from "@/lib/store-valley/inventory";
+import { cancelEnquiryBlocked, cancelEnquiryWrites, raiseEnquiryBlocked, raiseEnquiryWrites, receiveEnquiryBlocked, receiveEnquiryWrites } from "./enquiry";
+import { readAddress, readRequest, storedProductName, type Patch, type RequestView, type Row } from "./model";
+import { freshPickupProblem, pickupBatchProblem, pickupDeliveryDoc, pickupRequestPatch, planPickup, readPickupResult, type PickupLine, type ProxyCall, type ProxyResult } from "./pickup";
 import {
-  cancelPatch,
+  cancelBlocked,
+  cancelWrites,
   collectRequestDoc,
   completedPatch,
-  inventoryClearedPatch,
   inventoryRaisedPatch,
   newRequestDoc,
+  returnHoldsStock,
   type RequestProduct,
+  type StockState,
 } from "./requests";
 import { lowStockNotification, thresholdPatch } from "./stock";
 import { liveStatusPatch, readLiveTracking, trackingIdOf, type LogisticsView } from "./tracking";
@@ -132,21 +135,61 @@ export function patchRequest(id: string, patch: Patch) {
   return updateDoc(requestRef(id), resolved(patch));
 }
 
+/** The request as it is in the database right now. */
+async function freshRequest(id: string): Promise<RequestView> {
+  const snap = await getDoc(requestRef(id));
+  if (!snap.exists()) throw new Error("This request no longer exists. Nothing was changed.");
+  return readRequest({ id: snap.id, data: snap.data() });
+}
+
 /**
- * Cancels a request. When a pickup or delivery was booked the warehouse is
- * asked to cancel it first; if it refuses, nothing is changed here.
+ * Cancels a request. The current record is read first; when a pickup or
+ * delivery was booked the warehouse is asked to cancel it, and if it refuses
+ * nothing is changed here. The write then runs in a transaction that checks
+ * the status again, so two people cancelling at once change things once.
+ *
+ * A return to designer with a booked delivery also gives its held pieces back:
+ * see `cancelWrites`.
  */
 export async function cancelRequest(view: RequestView, proxy: Proxy = liveProxy) {
-  if (view.delivery.refId) {
-    const trackingId = view.delivery.trackingId;
+  const current = await freshRequest(view.id);
+  const blocked = cancelBlocked(current);
+  if (blocked) throw new Error(blocked);
+  if (current.delivery.refId) {
+    const trackingId = current.delivery.trackingId;
     if (!trackingId) throw new Error("This request has a pickup without a tracking id, so the warehouse cannot be asked to cancel it. Nothing was changed.");
     const result = await proxy({ method: "DELETE", path: `/orders/${encodeURIComponent(trackingId)}` });
     if (!proxyOk(result)) throw new Error(`${proxyMessage(result, "The warehouse did not cancel the pickup.")} The request was not cancelled.`);
   }
-  const batch = writeBatch(db());
-  batch.update(requestRef(view.id), resolved(cancelPatch()));
-  if (view.inventoryDocId) batch.update(inventoryRef(view.inventoryDocId), resolved(inventoryClearedPatch()));
-  await batch.commit();
+  const ref = requestRef(view.id);
+  const save = runTransaction(db(), async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error("This request no longer exists. Nothing was changed.");
+    const fresh = readRequest({ id: snap.id, data: snap.data() });
+    const stillBlocked = cancelBlocked(fresh);
+    if (stillBlocked) throw new Error(stillBlocked);
+
+    let stock: StockState | null = null;
+    const stockRef = fresh.inventoryDocId ? inventoryRef(fresh.inventoryDocId) : null;
+    if (stockRef && returnHoldsStock(fresh)) {
+      const stockSnap = await tx.get(stockRef);
+      if (!stockSnap.exists()) throw new Error("The stock record of this return was not found, so its held pieces could not be released. Nothing was changed.");
+      const data = stockSnap.data();
+      const productId = String(data.product_id ?? "") || fresh.productId;
+      const cache = productId ? await tx.get(doc(db(), storeValleyInventoryCollection, warehouseCacheDocId(productId, StoreValleyConfig.warehouseId))) : null;
+      stock = { stockUnavailable: data.stock_unavailable, stockReserved: data.stock_reserved, storedQuantity: cache?.exists() ? cache.data().stored_quantity : 0 };
+    }
+    const writes = cancelWrites(fresh, stock);
+    tx.update(ref, resolved(writes.request));
+    if (stockRef) tx.update(stockRef, resolved(writes.inventory));
+  });
+  if (!current.delivery.refId) return save;
+  try {
+    await save;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`The warehouse cancelled the booking, but the request was not updated here: ${reason} Tell an administrator; the request still shows as active.`);
+  }
 }
 
 async function requireDoc(ref: DocumentReference, missing: string) {
@@ -161,9 +204,14 @@ async function requireDoc(ref: DocumentReference, missing: string) {
  * warehouse address from company settings; if either is incomplete nothing is
  * sent. Returns the OTP the designer reads to the driver.
  */
-export async function createPickup(views: RequestView[], scope: RoleScope, proxy: Proxy = liveProxy) {
-  const batchProblem = pickupBatchProblem(views);
-  if (batchProblem) throw new Error(batchProblem);
+export async function createPickup(picked: RequestView[], scope: RoleScope, proxy: Proxy = liveProxy) {
+  const pickedProblem = pickupBatchProblem(picked);
+  if (pickedProblem) throw new Error(pickedProblem);
+  // The dialog's copies can be minutes old. A warehouse intake cannot be cancelled, so read every
+  // request again and refuse if any already has a pickup (booked in another tab or in the old admin).
+  const views = await Promise.all(picked.map((view) => freshRequest(view.id)));
+  const freshProblem = freshPickupProblem(views);
+  if (freshProblem) throw new Error(freshProblem);
 
   const designerUid = views[0].designerUid;
   const designer = await requireDoc(doc(db(), "users", designerUid), "The designer's profile was not found.");
@@ -226,38 +274,55 @@ export async function createPickup(views: RequestView[], scope: RoleScope, proxy
   return answer;
 }
 
-export async function raiseEnquiry(view: RequestView, input: { issueType: string; affectedQty: number; images: string[] }) {
-  if (!view.inventoryDocId) throw new Error("This request has no stock record, so an enquiry cannot be raised on it.");
-  const counters = await idMapRef();
-  const ref = requestRef(view.id);
+/**
+ * One enquiry stock move, in a transaction: the request is read first, `blocked`
+ * decides on that fresh copy whether the move is still allowed, and the writes
+ * are built from it (never from the copy the screen was showing). So the same
+ * move cannot be applied twice from two tabs or from both admins.
+ */
+async function enquiryMove(
+  id: string,
+  blocked: (fresh: RequestView) => string | null,
+  build: (fresh: RequestView, tx: Parameters<Parameters<typeof runTransaction>[1]>[0]) => Promise<{ request: Patch; inventory: Patch }>,
+) {
+  const ref = requestRef(id);
   await runTransaction(db(), async (tx) => {
-    const { enquiry_id: enquiryId } = await takeIds(tx, counters, ["enquiry_id"] as const);
-    const writes = raiseEnquiryWrites({ enquiryId, ...input, requestRef: ref });
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error("This request no longer exists. Nothing was changed.");
+    const fresh = readRequest({ id: snap.id, data: snap.data() });
+    const problem = blocked(fresh);
+    if (problem) throw new Error(problem);
+    if (!fresh.inventoryDocId) throw new Error("This request has no stock record, so its stock cannot be moved. Nothing was changed.");
+    const writes = await build(fresh, tx);
     tx.update(ref, resolved(writes.request));
-    tx.update(inventoryRef(view.inventoryDocId), resolved(writes.inventory));
+    tx.update(inventoryRef(fresh.inventoryDocId), resolved(writes.inventory));
   });
 }
 
-async function commitEnquiry(view: RequestView, writes: { request: Patch; inventory: Patch }) {
-  const batch = writeBatch(db());
-  batch.update(requestRef(view.id), resolved(writes.request));
-  if (view.inventoryDocId) batch.update(inventoryRef(view.inventoryDocId), resolved(writes.inventory));
-  await batch.commit();
+export async function raiseEnquiry(view: RequestView, input: { issueType: string; affectedQty: number; images: string[] }) {
+  const counters = await idMapRef();
+  await enquiryMove(view.id, raiseEnquiryBlocked, async (_fresh, tx) => {
+    const { enquiry_id: enquiryId } = await takeIds(tx, counters, ["enquiry_id"] as const);
+    return raiseEnquiryWrites({ enquiryId, ...input, requestRef: requestRef(view.id) });
+  });
 }
 
 /** Cancels an enquiry; a booked return shipment is cancelled with the warehouse first. */
 export async function cancelEnquiry(view: RequestView, proxy: Proxy = liveProxy) {
-  if (view.enquiryDelivery.refId) {
-    const trackingId = view.enquiryDelivery.trackingId;
+  const current = await freshRequest(view.id);
+  const blocked = cancelEnquiryBlocked(current);
+  if (blocked) throw new Error(blocked);
+  if (current.enquiryDelivery.refId) {
+    const trackingId = current.enquiryDelivery.trackingId;
     if (!trackingId) throw new Error("This enquiry has a return shipment without a tracking id, so the warehouse cannot be asked to cancel it. Nothing was changed.");
     const result = await proxy({ method: "DELETE", path: `/orders/${encodeURIComponent(trackingId)}` });
     if (!proxyOk(result)) throw new Error(`${proxyMessage(result, "The warehouse did not cancel the return shipment.")} The enquiry was not cancelled.`);
   }
-  await commitEnquiry(view, cancelEnquiryWrites(view));
+  await enquiryMove(view.id, cancelEnquiryBlocked, async (fresh) => cancelEnquiryWrites(fresh));
 }
 
 export function receiveEnquiry(view: RequestView) {
-  return commitEnquiry(view, receiveEnquiryWrites(view));
+  return enquiryMove(view.id, receiveEnquiryBlocked, async (fresh) => receiveEnquiryWrites(fresh));
 }
 
 export function saveThreshold(inventoryDocId: string, value: number) {
@@ -293,7 +358,7 @@ export function refreshWarehouseStock() {
 }
 
 export function syncReservedOrders() {
-  return backfillWarehouseReservations() as Promise<{ reserved?: number; skipped?: number }>;
+  return backfillWarehouseReservations() as Promise<{ scanned?: number; reserved?: number; skipped?: number; failed?: number }>;
 }
 
 /**

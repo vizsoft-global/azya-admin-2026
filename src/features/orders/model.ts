@@ -394,23 +394,23 @@ export function withLineReady(cartItems: Dict[], key: string, pickupAddress: unk
   return { items };
 }
 
-/** Staff may cancel a warehouse delivery that is still on its way. Designer pickups are left alone: resetting one re-books it at once. */
+/** A super admin may cancel a warehouse delivery that is still on its way. Designer pickups are left alone: resetting one re-books it at once. */
 export function canCancelShipment(scope: RoleScope, shipment: Shipment) {
-  return !scope.isDesigner && shipment.type === "ready" && Boolean(shipment.trackingId) && !shipment.cancelled && !shipment.delivered;
+  return scope.isSuperAdmin && shipment.type === "ready" && Boolean(shipment.trackingId) && !shipment.cancelled && !shipment.delivered;
 }
 
 /**
  * The order fields to write after Store Valley confirms a cancellation: the
  * same ones its webhook sets for a cancelled delivery, without `order_status`.
+ * The cancelled entry is kept (the next request's id counts it) but moved to
+ * the end, because the customer app shows the first entry that holds a product.
  */
 export function withShipmentCancelled(order: Dict, trackingId: string): Dict | null {
-  let type = "";
-  const list = dicts(order.delivery_info_list).map((entry) => {
-    if (text(entry.delivery_tracking_id) !== trackingId) return entry;
-    type = text(entry.delivery_type) || "ready";
-    return { ...entry, status: "cancelled" };
-  });
-  if (!type) return null;
+  const entries = dicts(order.delivery_info_list);
+  const hit = entries.filter((entry) => text(entry.delivery_tracking_id) === trackingId);
+  if (!hit.length) return null;
+  const type = text(hit[0].delivery_type) || "ready";
+  const list = [...entries.filter((entry) => !hit.includes(entry)), ...hit.map((entry) => ({ ...entry, status: "cancelled" }))];
   return { delivery_info_list: list, [type === "custom" ? "custom_shipping_request_status" : "ready_shipping_request_status"]: "cancelled" };
 }
 
@@ -420,3 +420,84 @@ export const RELEASE_CHOICES = [
   { value: "cancelled", label: "The order will not be shipped", effect: "Reserved units go back on sale and any delivery request still waiting in the queue is cancelled. Use this when the order is being cancelled by hand." },
 ] as const;
 export type ReleaseReason = (typeof RELEASE_CHOICES)[number]["value"];
+
+/* ---------- the server's delivery jobs (read-only: database rules refuse every client write to them) ---------- */
+
+/** One `store_valley_delivery_jobs` record. Ids are `<order_id>-RM` and `<order_id>-CM-<designerUid>[-n]`. */
+export type Job = { id: string; kind: string; status: string; designerUid: string; attempts: number; lastError: string };
+
+export const JOB_WAREHOUSE = "warehouse_delivery";
+export const JOB_PICKUP = "custom_pickup";
+/** After this many attempts the server's five-minute sweep leaves a failed job alone. */
+export const JOB_MAX_ATTEMPTS = 3;
+
+export function readJob(row: { id: string; data: Dict }): Job {
+  return { id: row.id, kind: text(row.data.kind), status: lower(row.data.status), designerUid: text(row.data.designer_uid), attempts: toNumber(row.data.attempts) ?? 0, lastError: text(row.data.last_error) };
+}
+
+const isReserved = (order: Dict) => text(order.inventory_reservation_status) === "reserved";
+const failedWarehouseJobs = (jobs: Job[]) => jobs.filter((job) => job.kind === JOB_WAREHOUSE && job.status === "failed");
+
+/**
+ * What "Retry delivery requests" should do. Asking for the whole order makes the
+ * server queue every failed job again, so once the stock is no longer reserved
+ * (released by hand as shipped or as not shipping) a failed warehouse job must
+ * not be touched: only failed designer pickups are retried, one by one.
+ */
+export type RetryPlan = { kind: "none" } | { kind: "order"; failed: number } | { kind: "jobs"; jobIds: string[] };
+
+export function retryPlan(order: Dict, jobs: Job[]): RetryPlan {
+  if (!isPaid(order)) return { kind: "none" };
+  const failed = jobs.filter((job) => job.status === "failed");
+  if (failedWarehouseJobs(jobs).length && !isReserved(order)) {
+    const jobIds = failed.filter((job) => job.kind === JOB_PICKUP).map((job) => job.id);
+    return jobIds.length ? { kind: "jobs", jobIds } : { kind: "none" };
+  }
+  const waiting = orderLines(order).some((line) => {
+    const state = lineState(order, line).state;
+    if (isWarehouseLine(line)) return isReserved(order) && (state === "needs_shipping" || state === "request_failed");
+    return state === "ready_for_pickup" || state === "request_failed";
+  });
+  return failed.length || waiting ? { kind: "order", failed: failed.length } : { kind: "none" };
+}
+
+/** What a retry actually set in motion. The function reports no counts, so this is said from the plan. */
+export function describeRetry(plan: RetryPlan) {
+  if (plan.kind === "none") return "Nothing was retried: no request has failed and no item is waiting for one.";
+  const count = plan.kind === "jobs" ? plan.jobIds.length : plan.failed;
+  if (plan.kind === "jobs") return `${count} failed pickup request${count === 1 ? " was" : "s were"} queued again. The warehouse delivery was left alone because its stock is no longer reserved.`;
+  return count ? `${count} failed request${count === 1 ? " was" : "s were"} queued again. This page updates when Store Valley answers.` : "No request had failed. The server was asked to request delivery for the items that have none.";
+}
+
+/**
+ * Why reserved stock cannot be released yet, or "". Releasing does not stop a
+ * failed delivery job, and while the server is still retrying it the order
+ * could ship after the release.
+ */
+export function releaseBlock(jobs: Job[]) {
+  const retrying = failedWarehouseJobs(jobs).find((job) => job.attempts < JOB_MAX_ATTEMPTS);
+  if (!retrying) return "";
+  return `The server is still retrying the delivery request for this order (attempt ${retrying.attempts} of ${JOB_MAX_ATTEMPTS}; it tries again every five minutes). Releasing the stock would not stop it, so the order could still ship. Wait until the request succeeds or stops, then release.`;
+}
+
+export type CallOutcome = { ok: boolean; message: string };
+
+/** What `reserveWarehouseStock` did, from its result. */
+export function describeReserve(result: unknown): CallOutcome {
+  const data = dict(result);
+  const status = text(data.status);
+  if (data.ok === true && data.skipped === true) return { ok: false, message: `Nothing was reserved: the order's stock status is ${statusText(status).toLowerCase() || "unchanged"}.` };
+  if (data.ok === true && status === "reserved") {
+    const count = Array.isArray(data.lines) ? data.lines.length : 0;
+    return { ok: true, message: `Stock reserved${count ? ` for ${count} product${count === 1 ? "" : "s"}` : ""}. The delivery is requested next.` };
+  }
+  return { ok: false, message: `The stock was not reserved${text(data.code) ? `: ${statusText(data.code).toLowerCase()}` : ""}.` };
+}
+
+/** What `releaseWarehouseStock` did, from its result. */
+export function describeRelease(result: unknown, reason: ReleaseReason): CallOutcome {
+  const data = dict(result);
+  if (data.ok === true && data.skipped === true) return { ok: false, message: `Nothing was released: no units of this order are reserved (stock status ${statusText(data.status).toLowerCase() || "none"}).` };
+  if (data.ok === true) return { ok: true, message: reason === "cancelled" ? "Stock released and back on sale." : "Stock released as shipped." };
+  return { ok: false, message: "The stock was not released." };
+}

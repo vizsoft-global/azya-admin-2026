@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { collection, getCountFromServer, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { Check, Download, Languages, Pencil, Plus, Star, X } from "lucide-react";
 import { toast } from "sonner";
@@ -17,18 +18,21 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { downloadCsv, toCsv } from "@/lib/csv";
-import { useQueryRows, type QueryOptions } from "@/lib/firestore-ui";
+import { getFirebase } from "@/lib/firebase";
+import { useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, formatMoney } from "@/lib/format";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
 import { approveProduct, archiveProduct, rejectProduct } from "./product-actions";
 import { RejectDialog } from "./product-editor";
 import {
+  coverageNote,
   dateRange,
   designerNameMap,
   EXPORT_HEADERS,
   exportRow,
   matchesProductFilters,
+  pendingCountFilters,
   productInScope,
   productItem,
   productStats,
@@ -78,18 +82,22 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
   const canReview = useCanReview();
   const confirm = useConfirm();
 
+  const [status, setStatus] = useState("all");
+  const wantedStatus = pending ? "request" : status;
+
   // One filter or one order per query, so no new database index is needed; the rest is done in the browser.
-  const productQuery: QueryOptions = scope.isDesigner
-    ? { where: [["product_authorizer.product_designer_id", "==", scope.uid]], limit: 300, enabled: scope.uid !== "" }
-    : pending
-      ? { where: [["status", "==", "request"]], limit: 200 }
-      : { orderBy: ["created_at", "desc"], limit: 100 };
-  const products = useQueryRows("products", productQuery);
+  // A designer: all of their own products. Staff: the newest products, and, once a status is chosen,
+  // every product with that status asked from the server, so the filter is not limited to the newest ones.
+  const own = useQueryRows("products", { where: [["product_authorizer.product_designer_id", "==", scope.uid]], limit: 300, enabled: scope.isDesigner && scope.uid !== "" });
+  const recent = useQueryRows("products", { orderBy: ["created_at", "desc"], limit: 100, enabled: !scope.isDesigner && !pending });
+  const byStatus = useQueryRows("products", { where: [["status", "==", wantedStatus]], limit: 200, enabled: !scope.isDesigner && wantedStatus !== "all" });
+  const products = scope.isDesigner ? own : wantedStatus !== "all" ? byStatus : recent;
+  /** What the headline numbers are counted over: not narrowed by the status filter. */
+  const overview = scope.isDesigner ? own : recent;
   const inventory = useQueryRows("inventory", scope.isDesigner ? { where: [["designer_uid", "==", scope.uid]], limit: 500, enabled: scope.uid !== "" } : { limit: 1000 });
   const designers = useDesigners();
 
   const [term, setTerm] = useState("");
-  const [status, setStatus] = useState("all");
   const [designer, setDesigner] = useState("all");
   const [preset, setPreset] = useState<DatePreset>("all");
   const [from, setFrom] = useState<Date | null>(null);
@@ -98,22 +106,27 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const items = useMemo(() => {
+  const toItems = useMemo(() => {
     const lookup = stockLookup(inventory.rows);
     const names = designerNameMap(designers.rows);
-    return products.rows
-      .filter((row) => productInScope(scope, row.data))
-      .map((row) => productItem(row, lookup, names))
-      .filter((item) => !pending || item.status === "request")
-      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-  }, [products.rows, inventory.rows, designers.rows, scope, pending]);
+    return (rows: Row[]) =>
+      rows
+        .filter((row) => productInScope(scope, row.data))
+        .map((row) => productItem(row, lookup, names))
+        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  }, [inventory.rows, designers.rows, scope]);
+  const items = useMemo(() => toItems(products.rows).filter((item) => !pending || item.status === "request"), [toItems, products.rows, pending]);
+  const overviewItems = useMemo(() => toItems(overview.rows), [toItems, overview.rows]);
 
   const filtered = useMemo(() => {
     const range = dateRange(preset, new Date(), { from, to });
     return items.filter((item) => matchesProductFilters(item, { status: pending ? "request" : status, designer, range, term }));
   }, [items, pending, status, designer, preset, from, to, term]);
 
-  const stats = useMemo(() => productStats(items), [items]);
+  const stats = useMemo(() => productStats(overviewItems), [overviewItems]);
+  // Counted by the server over every product, so it does not depend on how many are loaded.
+  const pendingTotal = usePendingCount(stats.pending);
+  const partial = coverageNote(overviewItems.length, overview.hasMore);
   const designerOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const item of items) if (item.designerUid) seen.set(item.designerUid, item.designerName || item.designerUid.slice(0, 8));
@@ -291,12 +304,23 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
         }
       />
 
-      {!pending && !scope.isDesigner ? (
+      {!pending ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="Products" value={products.hasMore ? `${stats.total}+` : stats.total} hint={products.hasMore ? "Loaded so far" : undefined} loading={products.loading && !items.length} />
-          <StatCard label="Awaiting approval" value={stats.pending} href="/pending-products" loading={products.loading && !items.length} />
-          <StatCard label="Low on stock" value={stats.lowStock} hint="Ready-made, at or under the alert level" loading={inventory.loading && !inventory.rows.length} />
-          <StatCard label="Best seller" value={<span className="text-[15px]">{stats.bestSeller ? stats.bestSeller.name : "No sales yet"}</span>} hint={stats.bestSeller ? `${stats.bestSeller.sales} sales` : undefined} loading={products.loading && !items.length} />
+          <StatCard label="Products" value={overview.hasMore ? `${stats.total}+` : stats.total} hint={overview.hasMore ? "Loaded so far; there are more" : undefined} loading={overview.loading && !overviewItems.length} />
+          <StatCard
+            label="Awaiting approval"
+            value={pendingTotal ?? stats.pending}
+            hint={pendingTotal != null ? (scope.isDesigner ? "All of your products" : "All products") : partial || undefined}
+            href="/pending-products"
+            loading={pendingTotal == null && overview.loading && !overviewItems.length}
+          />
+          <StatCard label="Low on stock" value={stats.lowStock} hint={partial ? `${partial}: ready-made, at or under the alert level` : "Ready-made, at or under the alert level"} loading={inventory.loading && !inventory.rows.length} />
+          <StatCard
+            label="Best seller"
+            value={<span className="text-[15px]">{stats.bestSeller ? stats.bestSeller.name : "No sales yet"}</span>}
+            hint={[stats.bestSeller ? `${stats.bestSeller.sales} sales` : "", partial].filter(Boolean).join(" · ") || undefined}
+            loading={overview.loading && !overviewItems.length}
+          />
         </div>
       ) : null}
 
@@ -322,6 +346,15 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
           </>
         ) : null}
       </FilterBar>
+
+      {products.hasMore ? (
+        <p className="flex flex-wrap items-center gap-2 px-1 text-[12px] text-muted-foreground" role="status">
+          {wantedStatus !== "all" || scope.isDesigner ? `Showing the first ${items.length} matching products.` : `Showing and filtering the newest ${items.length} products only.`} Older ones are not searched or filtered until they are loaded.
+          <Button type="button" variant="outline" size="xs" onClick={products.loadMore}>
+            Load more
+          </Button>
+        </p>
+      ) : null}
 
       {view === "grid" ? (
         <>
@@ -414,6 +447,33 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
       />
     </div>
   );
+}
+
+/**
+ * How many products are waiting for approval, counted by the server over the whole collection
+ * (a designer: over their own). Null until the count arrives or when it could not be made, in
+ * which case the caller falls back to the loaded rows and says so. `refreshKey` re-counts.
+ */
+function usePendingCount(refreshKey: number) {
+  const scope = useRoleScope();
+  const [count, setCount] = useState<number | null>(null);
+  const { isDesigner, uid } = scope;
+  useEffect(() => {
+    if (isDesigner && !uid) return;
+    let live = true;
+    const filters = pendingCountFilters({ isDesigner, uid });
+    getCountFromServer(query(collection(getFirebase().db, "products"), ...filters.map(([field, op, value]) => where(field, op, value))))
+      .then((snap) => {
+        if (live) setCount(snap.data().count);
+      })
+      .catch(() => {
+        if (live) setCount(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [isDesigner, uid, refreshKey]);
+  return count;
 }
 
 function Thumb({ src, className }: { src: string; className: string }) {

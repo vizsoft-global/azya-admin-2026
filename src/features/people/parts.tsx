@@ -16,10 +16,10 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { safeUrl, type UploadedFile } from "@/lib/designer-enrollment";
 import { getFirebase } from "@/lib/firebase";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
-import { CONTRACT_TYPES, contractState, contractUpdate, hasContract, readContract, validateContract, type Contract, type PartnerKind, type Payout } from "./partner";
+import { CONTRACT_TYPES, contractState, contractUpdate, hasContract, payoutLines, readContract, validateContract, type Contract, type PartnerKind, type Payout } from "./partner";
 import { errorText, USERS_COLLECTION } from "./util";
 
 /**
@@ -346,27 +346,37 @@ export function ContractCard({ kind, userId, name, data, canEdit }: { kind: Part
   );
 }
 
-/** Payout totals kept on the profile. Paying out is done on the Create payout screen. */
+/**
+ * Payout totals kept on the profile (the finance screens update them when a
+ * payment is recorded). With nothing recorded it says so rather than showing
+ * zeros. `canPay` is the `sales` permission: the payout screens need it.
+ */
 export function PayoutCard({ payout, userId, canPay }: { payout: Payout; userId: string; canPay: boolean }) {
+  const lines = payoutLines(payout);
   return (
     <EntityDetail
       title="Payouts"
-      description="Totals recorded on this profile. New payouts are made from the Create payout screen."
+      description={lines.recorded ? "Totals recorded on this profile." : "No payment has been recorded on this profile yet."}
       actions={
         canPay ? (
-          <Link href={`/create-payout?partner=${encodeURIComponent(userId)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-            Create payout
-          </Link>
+          <>
+            <Link href="/payouts" className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+              See payments
+            </Link>
+            <Link href={`/create-payout?partner=${encodeURIComponent(userId)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+              Create payout
+            </Link>
+          </>
         ) : null
       }
       items={[
-        { label: "Paid out in total", value: formatMoney(payout.total) },
-        { label: "Waiting to be paid", value: formatMoney(payout.pending) },
-        { label: "Completed payouts", value: formatMoney(payout.completed) },
-        { label: "Last payout", value: payout.lastDate ? `${formatMoney(payout.lastAmount ?? 0)} on ${formatDate(payout.lastDate)}` : "" },
+        { label: "Paid out in total", value: lines.paid },
+        { label: "Completed payouts", value: lines.completed },
+        { label: "Last payout", value: lines.last },
+        { label: "Waiting to be paid", value: lines.pending },
         { label: "Sales history number", value: payout.saleHistoryId, mono: true, ltr: true },
       ]}
-      emptyText="None yet"
+      emptyText="Not recorded"
     />
   );
 }

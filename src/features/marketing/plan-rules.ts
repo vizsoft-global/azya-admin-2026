@@ -117,14 +117,30 @@ export function validatePlan(form: PlanForm): PlanErrors {
   return errors;
 }
 
-/**
- * The next `membership_plan_id`: one more than the largest in use. There is no
- * counter for plans (`id_map.membership_id` numbers customers' memberships and
- * the app moves it on at every purchase), so the number comes from the plans themselves.
- */
+/** Counter for plan numbers on the `id_map` Main record. Like its neighbours, it holds the number to use next. */
+export const PLAN_COUNTER = "membership_plan_seq";
+
+/** One more than the largest `membership_plan_id` in use; 1 when there are no plans. */
 export function nextPlanId(existing: unknown[]) {
   const used = existing.map((value) => toNumber(value)).filter((value): value is number => value != null && Number.isInteger(value));
   return used.length ? Math.max(...used) + 1 : 1;
+}
+
+/**
+ * The number for a new plan and the counter value to store with it.
+ *
+ * `counter` is `id_map.membership_plan_seq` as read inside the creating transaction
+ * (absent until the first plan is added from here); `existing` are the plan numbers
+ * already in use. The plan gets the counter's number, or one past the largest existing
+ * number if that is higher (first use, or plans added some other way). Because the
+ * counter changes on every creation, two people saving at once conflict and the second
+ * one is re-run against the new counter, so no number is issued twice.
+ * (`id_map.membership_id` is not used: it numbers customers' memberships.)
+ */
+export function planNumber(counter: unknown, existing: unknown[]): { planId: number; nextCounter: number } {
+  const stored = typeof counter === "number" && Number.isInteger(counter) && counter > 0 ? counter : 0;
+  const planId = Math.max(stored, nextPlanId(existing));
+  return { planId, nextCounter: planId + 1 };
 }
 
 export function planCreatePayload(form: PlanForm, planId: number, now: unknown): Record<string, unknown> {

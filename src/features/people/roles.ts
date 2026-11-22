@@ -86,6 +86,11 @@ export function renameRoleUpdate(name: string, now: unknown): Record<string, unk
   return { "role_info.name": name.trim(), updated_at: now };
 }
 
+/** Why the signed-in person cannot rename this role, or "" when they can. Only a super admin (by role key) may touch the super admin role. */
+export function renameRoleBlockedReason(role: Pick<Role, "key">, actorIsSuperAdmin: boolean): string {
+  return role.key === SUPER_ADMIN_KEY && !actorIsSuperAdmin ? "Only a super admin can change the super admin role." : "";
+}
+
 /** Why this role cannot be deleted, or "" when it can. */
 export function deleteRoleBlockedReason(role: Pick<Role, "key">, input: { staffCount: number; ownRoleKey: string }): string {
   if (PROTECTED_ROLE_KEYS.includes(role.key)) return "The admin panel relies on this role by name, so it cannot be deleted.";
@@ -240,9 +245,10 @@ export function assignAlsoPublishes(member: Pick<StaffMember, "status" | "userRo
   return member.userRole === "Admin" && member.status !== "Published";
 }
 
-export function assignRoleUpdate(member: Pick<StaffMember, "status" | "userRole">, roleKey: string): Record<string, unknown> {
+export function assignRoleUpdate(member: Pick<StaffMember, "status" | "userRole">, roleKey: string, actorIsSuperAdmin: boolean): Record<string, unknown> {
   const key = roleKey.trim();
   if (!key) throw new Error("Choose a role.");
+  if (key === SUPER_ADMIN_KEY && !actorIsSuperAdmin) throw new Error("Only a super admin can make someone a super admin.");
   if (key === DESIGNER_ROLE_KEY) throw new Error("The designer role is given by approving a designer application.");
   return assignAlsoPublishes(member) ? { role_unique_key: key, status: "Published" } : { role_unique_key: key };
 }

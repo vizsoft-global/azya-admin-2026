@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Dict } from "@/features/orders/model";
-import { buildRequest, deliveryRecord, requestGroups, requestTrackingId, withRequestRecorded } from "@/features/orders/shipping-model";
+import type { Dict, Job } from "@/features/orders/model";
+import { acceptedButNotRecorded, buildRequest, deliveryRecord, existingRequest, jobHoldsBack, requestGroups, requestTrackingId, withRequestRecorded } from "@/features/orders/shipping-model";
 
 const warehouseLine = (extra: Dict = {}): Dict => ({ cart_item_id: 1, product_id: "P1", product_main_type: "ready", quantity: 2, product_designer_id: "d1", product_stock_info: { is_preferred_vendor: true }, ...extra });
 const customLine = (extra: Dict = {}): Dict => ({ cart_item_id: 2, product_id: "P2", product_main_type: "custom", quantity: 1, product_designer_id: "d2", product_stock_info: {}, product_pickup_info: { status: "Ready to Pickup" }, ...extra });
@@ -20,6 +20,50 @@ describe("what can be requested by hand", () => {
   it("leaves out lines already on a delivery and designer lines not marked ready", () => {
     const sent = order({ delivery_info_list: [{ delivery_tracking_id: "T1", delivery_type: "ready", status: "REQUESTED", product_ids: ["P1"] }], order_items: { cart_items: [warehouseLine(), customLine({ product_pickup_info: {} })] } });
     expect(requestGroups(sent)).toEqual([]);
+  });
+});
+
+describe("leaving the server's own job alone", () => {
+  const job = (extra: Partial<Job> = {}): Job => ({ id: "ORDAZYA9-RM", kind: "warehouse_delivery", status: "failed", designerUid: "", attempts: 1, lastError: "", ...extra });
+  const failed = order({ ready_shipping_request_status: "FAILED", custom_shipping_request_status: "FAILED" });
+  it("holds a group back while its job is queued, running or will be retried", () => {
+    expect(requestGroups(failed, [job()]).map((group) => group.key)).toEqual(["pickup:d2"]);
+    expect(requestGroups(failed, [job({ status: "queued" })]).map((group) => group.key)).toEqual(["pickup:d2"]);
+    expect(requestGroups(failed, [job({ status: "processing" }), job({ id: "ORDAZYA9-CM-d2", kind: "custom_pickup", designerUid: "d2", attempts: 3 })])).toEqual([]);
+  });
+  it("holds back a warehouse job with attempts used up while a retry could still run it", () => {
+    expect(jobHoldsBack(job({ attempts: 3 }), "warehouse", "", { ...failed, inventory_reservation_status: "reserved" })).toBe(true);
+    expect(jobHoldsBack(job({ attempts: 3 }), "warehouse", "", { ...failed, inventory_reservation_status: "released_cancelled" })).toBe(false);
+  });
+  it("is not held back by a finished or cancelled job, or by another designer's job", () => {
+    expect(requestGroups(failed, [job({ status: "requested" }), job({ status: "cancelled" })]).map((group) => group.key)).toEqual(["warehouse", "pickup:d2"]);
+    expect(jobHoldsBack(job({ kind: "custom_pickup", designerUid: "d7" }), "pickup", "d2", failed)).toBe(false);
+    expect(jobHoldsBack(job({ kind: "custom_pickup", designerUid: "d2" }), "warehouse", "", failed)).toBe(false);
+  });
+});
+
+describe("asking before posting", () => {
+  it("looks the request up under the id the server's jobs use", () => {
+    const [warehouse, pickup] = requestGroups(order());
+    expect(buildRequest({ order: order(), group: warehouse, inventory: {} })).toMatchObject({ lookupPath: "/orders/ORDAZYA9-RM" });
+    expect(buildRequest({ order: order(), group: pickup, inventory: {}, designer })).toMatchObject({ lookupPath: "/pickup-requests/PKP-ORDAZYA9-CM-d2" });
+  });
+  it("moves to the next id when the current one is used up by a cancelled request", () => {
+    const [warehouse, pickup] = requestGroups(order());
+    expect(buildRequest({ order: order(), group: warehouse, inventory: {}, skip: 1 })).toMatchObject({ lookupPath: "/orders/ORDAZYA9-RM-2", body: { client_order_id: "ORDAZYA9-RM-2" } });
+    expect(buildRequest({ order: order(), group: pickup, inventory: {}, designer, skip: 2 })).toMatchObject({ body: { external_request_id: "PKP-ORDAZYA9-CM-d2-3", source_order_id: "ORDAZYA9-CM-d2-3" } });
+  });
+  it("reuses an open request, skips a cancelled one and posts when there is none", () => {
+    expect(existingRequest({ status: 200, body: { order_id: "SV-1", status: "pending" } })).toBe("open");
+    expect(existingRequest({ status: 200, body: { request_id: "PK-1", status: "Cancelled" } })).toBe("cancelled");
+    expect(existingRequest({ status: 404, body: { message: "not found" } })).toBe("none");
+    expect(existingRequest({ status: 200, body: {} })).toBe("none");
+  });
+  it("says the request was accepted when only the saving failed", () => {
+    const message = acceptedButNotRecorded("SV-1", "permission denied");
+    expect(message).toContain("accepted the request (tracking SV-1)");
+    expect(message).toContain("Do not create it anywhere else");
+    expect(message).not.toContain("not sent");
   });
 });
 
@@ -101,5 +145,10 @@ describe("recording an accepted request", () => {
     expect(items[1].product_pickup_info).toEqual({ status: "processing", delivery_id: "DO-1", delivery_tracking_id: "DO-1" });
     expect((patch.order_items as Dict).subtotal).toBe(50);
     expect("order_status" in patch).toBe(false);
+  });
+  it("puts the new entry ahead of a cancelled one, so the app shows the live delivery", () => {
+    const again = order({ ready_shipping_request_status: "cancelled", delivery_info_list: [{ delivery_tracking_id: "OLD", delivery_type: "ready", status: "cancelled", product_ids: ["P1"] }] });
+    const patch = withRequestRecorded(again, { group: requestGroups(again)[0], trackingId: "NEW", deliveryType: "ready", deliveryRef: "delivery/z", otp: "", now: "NOW" });
+    expect((patch.delivery_info_list as Dict[]).map((entry) => entry.delivery_tracking_id)).toEqual(["NEW", "OLD"]);
   });
 });

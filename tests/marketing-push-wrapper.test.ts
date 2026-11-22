@@ -25,11 +25,6 @@ describe("push notification wrappers", () => {
     ]);
   });
 
-  it("converts the older call shape instead of sending keys the function ignores", async () => {
-    await sendPushToUsers({ userRefs: ["users/u1", " u2 ", ""], title: "Hi", body: "There" });
-    expect(calls[0]).toEqual({ name: "sendPushNotificationToUsers", data: { userIds: ["u1", "u2"], notificationTitle: "Hi", notificationBody: "There" } });
-  });
-
   it("sends one person's notification with userId", async () => {
     await sendPushToUser({ userId: "u9", title: "Hi", body: "There" });
     expect(calls[0]).toEqual({ name: "sendPushNotificationToUser", data: { userId: "u9", notificationTitle: "Hi", notificationBody: "There" } });

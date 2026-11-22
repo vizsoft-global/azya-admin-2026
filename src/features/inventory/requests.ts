@@ -1,5 +1,6 @@
 import type { RoleScope } from "@/lib/role-scope";
 import { ownedInScope } from "@/lib/role-scope";
+import { availableForOrder } from "@/lib/store-valley/inventory";
 import { isFulfillComplete } from "@/lib/store-valley/intake-tracking";
 import { canReturnQty, InventoryRequestType, isRestock, isReturnToDesigner, movementStatus, needsSuperadminApprove } from "@/lib/store-valley/request-type";
 import { designerMustAccept, RestockRequestOrigin } from "@/lib/store-valley/restock";
@@ -291,6 +292,60 @@ export const cancelPatch = (): Patch => ({
   "request_info.fulfill_status": "Cancelled",
   "request_info.request_status": "Cancelled",
 });
+
+/** Why a request can no longer be cancelled, read from a fresh copy, or null. */
+export function cancelBlocked(view: RequestView): string | null {
+  if (view.requestStatus === "Cancelled" || view.fulfillStatus === "Cancelled") return "This request was already cancelled. Nothing was changed.";
+  if (view.requestStatus !== "Accepted") return `This request is ${view.requestStatus ? view.requestStatus.toLowerCase() : "not accepted"} now, so it cannot be cancelled here. Nothing was changed.`;
+  if (isComplete(view)) return "This request was completed in the meantime, so it cannot be cancelled. Nothing was changed.";
+  return null;
+}
+
+/**
+ * An approved return to designer holds its pieces: approval added the quantity
+ * to `stock_unavailable` and lowered `available_for_order`. Only the warehouse's
+ * "delivered" report gives them back, so a cancel has to.
+ */
+export function returnHoldsStock(view: RequestView) {
+  return isReturnToDesigner(view.requestType) && view.delivery.refId !== "";
+}
+
+/** The quantity approval put on hold: the requested quantity, or 1 when none was stored. */
+export function heldQuantity(view: RequestView) {
+  return view.quantity > 0 ? view.quantity : 1;
+}
+
+const whole = (value: unknown) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.trunc(number) : 0;
+};
+
+/** The stock record as read inside the cancel transaction. */
+export type StockState = {
+  /** `inventory.stock_unavailable`. */
+  stockUnavailable: unknown;
+  /** `inventory.stock_reserved`. */
+  stockReserved: unknown;
+  /** `store_valley_inventory/<product>_WH-KWT-MAIN.stored_quantity`; 0 when the warehouse has no record. */
+  storedQuantity: unknown;
+};
+
+/**
+ * What cancelling writes. For a return to designer with a booked delivery the
+ * held pieces become available again: `stock_unavailable` drops by the held
+ * quantity (never below zero) and `available_for_order` is recomputed as the
+ * old admin and the cloud functions do: warehouse stored − reserved −
+ * unavailable, never below zero. Any other cancel leaves stock numbers alone.
+ */
+export function cancelWrites(view: RequestView, stock: StockState | null): { request: Patch; inventory: Patch } {
+  const inventory = inventoryClearedPatch();
+  if (stock && returnHoldsStock(view)) {
+    const unavailable = Math.max(0, whole(stock.stockUnavailable) - heldQuantity(view));
+    inventory.stock_unavailable = unavailable;
+    inventory.available_for_order = availableForOrder({ stored: whole(stock.storedQuantity), reserved: whole(stock.stockReserved), unavailable });
+  }
+  return { request: cancelPatch(), inventory };
+}
 
 /** Written when the warehouse reports the goods stored (the webhook normally does this). */
 export const completedPatch = (): Patch => ({ update_at: NOW, "request_info.fulfill_status": "Completed" });

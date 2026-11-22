@@ -1,7 +1,11 @@
 import { StoreValleyConfig } from "@/lib/store-valley/config";
 import {
+  JOB_MAX_ATTEMPTS,
+  JOB_PICKUP,
+  JOB_WAREHOUSE,
   dict,
   dicts,
+  isCancelledStatus,
   isCompleteAddress,
   isOpenRequest,
   isPaid,
@@ -17,6 +21,7 @@ import {
   storeValleyAddress,
   text,
   type Dict,
+  type Job,
 } from "./model";
 
 /*
@@ -32,11 +37,30 @@ export type RequestKind = "warehouse" | "pickup";
 export type RequestGroup = { key: string; kind: RequestKind; designerUid: string; lines: Dict[] };
 
 /**
- * The requests staff can still raise for a paid order. A line qualifies when no
- * open delivery covers it and, for a designer's line, it is marked ready. A
- * whole kind is held back while its automatic request is still open.
+ * True while the server's own job for the same items must be left to finish: it
+ * is queued or running, or it failed and will run again (the sweep retries a
+ * failed job up to three times, and "Retry delivery requests" re-runs it while
+ * the stock is reserved). A request made by hand next to such a job would be
+ * recorded twice, or marked failed, when the job runs. A failed warehouse job
+ * that nothing will run again (attempts used up, stock no longer reserved) does
+ * not hold the items back.
  */
-export function requestGroups(order: Dict): RequestGroup[] {
+export function jobHoldsBack(job: Job, kind: RequestKind, designerUid: string, order: Dict) {
+  if (kind === "warehouse" ? job.kind !== JOB_WAREHOUSE : job.kind !== JOB_PICKUP || job.designerUid !== designerUid) return false;
+  if (job.status === "queued" || job.status === "processing") return true;
+  if (job.status !== "failed") return false;
+  if (kind === "pickup") return true;
+  return job.attempts < JOB_MAX_ATTEMPTS || text(order.inventory_reservation_status) === "reserved";
+}
+
+/**
+ * The requests a super admin can still raise by hand for a paid order. A line
+ * qualifies when no open delivery covers it and, for a designer's line, it is
+ * marked ready. A whole kind is held back while its automatic request is still
+ * open, and a group while the server's job for it is still in play (`jobs` are
+ * the order's `store_valley_delivery_jobs` records).
+ */
+export function requestGroups(order: Dict, jobs: Job[] = []): RequestGroup[] {
   if (!isPaid(order)) return [];
   const free = orderLines(order).filter((line) => !openShipmentFor(order, text(line.product_id)));
   const groups: RequestGroup[] = [];
@@ -52,13 +76,14 @@ export function requestGroups(order: Dict): RequestGroup[] {
     }
     for (const [designerUid, lines] of byDesigner) groups.push({ key: `pickup:${designerUid}`, kind: "pickup", designerUid, lines });
   }
-  return groups;
+  return groups.filter((group) => !jobs.some((job) => jobHoldsBack(job, group.kind, group.designerUid, order)));
 }
 
-/** Store Valley keeps a cancelled request under its id, so a repeat needs a new one: "-2", "-3", ... */
-function withSequence(base: string, order: Dict, type: string, productIds: string[]) {
+/** Store Valley keeps a cancelled request under its id, so a repeat needs a new one: "-2", "-3", ... `skip` moves further on. */
+function withSequence(base: string, order: Dict, type: string, productIds: string[], skip = 0) {
   const earlier = dicts(order.delivery_info_list).filter((entry) => text(entry.delivery_type) === type && Array.isArray(entry.product_ids) && entry.product_ids.some((id) => productIds.includes(text(id)))).length;
-  return earlier ? `${base}-${earlier + 1}` : base;
+  const number = earlier + 1 + skip;
+  return number > 1 ? `${base}-${number}` : base;
 }
 
 const svItems = (lines: Dict[], inventory: Record<string, Dict>) =>
@@ -68,7 +93,7 @@ const svItems = (lines: Dict[], inventory: Record<string, Dict>) =>
     return { product_id: productId, quantity: lineQty(line) || 1, ...(sku ? { sku } : {}) };
   });
 
-export type BuiltRequest = { ok: true; path: "/orders" | "/pickup-requests"; body: Dict; notifyCustomer: Dict; productIds: string[]; deliveryType: "ready" | "custom" } | { ok: false; message: string };
+export type BuiltRequest = { ok: true; path: "/orders" | "/pickup-requests"; lookupPath: string; body: Dict; notifyCustomer: Dict; productIds: string[]; deliveryType: "ready" | "custom" } | { ok: false; message: string };
 
 const designerIdOk = (value: unknown) => /^DSN-/i.test(text(value));
 
@@ -77,7 +102,7 @@ const designerIdOk = (value: unknown) => /^DSN-/i.test(text(value));
  * warehouse stock record (`store_valley_inventory`); `designer` is the
  * designer's `users` record for a pickup.
  */
-export function buildRequest(input: { order: Dict; group: RequestGroup; inventory: Record<string, Dict>; designer?: Dict; notes?: string }): BuiltRequest {
+export function buildRequest(input: { order: Dict; group: RequestGroup; inventory: Record<string, Dict>; designer?: Dict; notes?: string; skip?: number }): BuiltRequest {
   const { order, group, inventory } = input;
   const orderId = text(order.order_id);
   if (!orderId) return { ok: false, message: "This order has no order number." };
@@ -98,14 +123,16 @@ export function buildRequest(input: { order: Dict; group: RequestGroup; inventor
 
   if (group.kind === "warehouse") {
     const stockDesigner = productIds.map((id) => dict(inventory[id]).designer_id).find(designerIdOk);
+    const clientOrderId = withSequence(`${orderId}-RM`, order, "ready", productIds, input.skip);
     return {
       ok: true,
       path: "/orders",
+      lookupPath: `/orders/${clientOrderId}`,
       deliveryType: "ready",
       productIds,
       notifyCustomer,
       body: {
-        client_order_id: withSequence(`${orderId}-RM`, order, "ready", productIds),
+        client_order_id: clientOrderId,
         designer_id: text(stockDesigner) || StoreValleyConfig.fallbackDesignerId,
         pickup_location_id: StoreValleyConfig.pickupLocationId,
         inventory_source: "warehouse",
@@ -121,10 +148,11 @@ export function buildRequest(input: { order: Dict; group: RequestGroup; inventor
   const pickup = readAddress(isCompleteAddress(readAddress(pickupRaw)) ? pickupRaw : info.designer_pickup_address);
   if (!isCompleteAddress(pickup)) return { ok: false, message: "The designer's pickup address is missing a street, city, contact name or phone number." };
   const custom = text(group.lines[0].product_main_type).toLowerCase() === "custom";
-  const clientOrderId = withSequence(`${orderId}-CM-${group.designerUid}`, order, "custom", productIds);
+  const clientOrderId = withSequence(`${orderId}-CM-${group.designerUid}`, order, "custom", productIds, input.skip);
   return {
     ok: true,
     path: "/pickup-requests",
+    lookupPath: `/pickup-requests/PKP-${clientOrderId}`,
     deliveryType: "custom",
     productIds,
     notifyCustomer,
@@ -143,6 +171,24 @@ export function buildRequest(input: { order: Dict; group: RequestGroup; inventor
 export function requestTrackingId(path: string, body: Dict) {
   if (path === "/orders") return text(body.order_id) || text(body.client_order_id);
   return text(body.delivery_order_id) || text(body.request_id) || text(body.order_id);
+}
+
+/**
+ * Reads the answer to "does Store Valley already have this request?" (a GET by
+ * the client id, as the server's jobs do before they post). An open one is
+ * reused instead of posting again, which would mail a second code and be
+ * refused; a cancelled one means the id is used up.
+ */
+export function existingRequest(response: { status: number; body: Dict }): "none" | "open" | "cancelled" {
+  const body = response.body;
+  const found = response.status >= 200 && response.status < 300 && Boolean(text(body.order_id) || text(body.request_id) || text(body.delivery_order_id) || text(body.client_order_id));
+  if (!found) return "none";
+  return isCancelledStatus(body.status) ? "cancelled" : "open";
+}
+
+/** What to tell the person when Store Valley took the request but writing it on the order failed. */
+export function acceptedButNotRecorded(trackingId: string, reason: string) {
+  return `Store Valley accepted the request (tracking ${trackingId}) but saving it on the order failed: ${reason}. Do not create it anywhere else. Sending again from here does not make a second request: it finds this one and only records it.`;
 }
 
 /** The `delivery` record for a request, in the shape the server's delivery jobs write. */
@@ -180,9 +226,11 @@ export function withRequestRecorded(order: Dict, input: { group: RequestGroup; t
     created_at: input.now,
     updated_at: input.now,
   };
+  // Ahead of cancelled entries: the customer app shows the first entry that holds a product.
+  const earlier = dicts(order.delivery_info_list);
   const patch: Dict = {
     updated_at: input.now,
-    delivery_info_list: [...dicts(order.delivery_info_list), entry],
+    delivery_info_list: [...earlier.filter((item) => !isCancelledStatus(item.status)), entry, ...earlier.filter((item) => isCancelledStatus(item.status))],
     [input.deliveryType === "custom" ? "custom_shipping_request_status" : "ready_shipping_request_status"]: "REQUESTED",
   };
   if (input.group.kind === "pickup") {

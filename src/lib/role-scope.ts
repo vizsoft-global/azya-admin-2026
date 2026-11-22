@@ -20,7 +20,7 @@ export type RoleScope = {
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
-export function scopeOf(profile: Record<string, unknown> | null | undefined, uid: string, permissions: string[] = []): RoleScope {
+export function scopeOf(profile: Record<string, unknown> | null | undefined, uid: string): RoleScope {
   const roleKey = text(profile?.role_unique_key);
   const userRole = text(profile?.user_role);
   return {
@@ -28,7 +28,9 @@ export function scopeOf(profile: Record<string, unknown> | null | undefined, uid
     roleKey,
     userRole,
     isDesigner: roleKey === "designer",
-    isSuperAdmin: roleKey === "super_admin" || permissions.includes("super_admin"),
+    // Only the role key makes a super admin. A "super_admin" permission on another role is an
+    // ordinary permission (in the Flutter admin it only opened the inventory decisions).
+    isSuperAdmin: roleKey === "super_admin",
     displayName: text(profile?.display_name) || text(profile?.user_name),
     email: text(profile?.email),
     userDocId: text(profile?.id),

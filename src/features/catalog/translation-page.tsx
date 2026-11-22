@@ -26,10 +26,14 @@ import {
   isTranslationType,
   manualState,
   originalText,
+  mergeTranslation,
+  touchTranslation,
   TRANSLATED_FIELDS,
   TRANSLATION_TYPES,
   translationFormFrom,
-  type TranslationForm,
+  type TranslatedKey,
+  type TranslationDraft,
+  type TranslationLang,
   type TranslationType,
 } from "./translation";
 
@@ -168,11 +172,12 @@ function TranslationEditor({ type, row, onClose }: { type: TranslationType; row:
   const base = useMemo(() => translationFormFrom(row.data, type), [row, type]);
   const original = useMemo(() => originalText(row.data, type), [row, type]);
   const automatic = useMemo(() => automaticText(row.data, type), [row, type]);
-  const [draft, setDraft] = useState<TranslationForm | null>(null);
+  // Only the boxes the person typed in; everything else keeps following the stored record.
+  const [draft, setDraft] = useState<TranslationDraft>({});
   const [saving, setSaving] = useState(false);
   const confirm = useConfirm();
-  const form = draft ?? base;
-  const patch = draft ? buildTranslationPatch(draft, base, type, serverTimestamp()) : null;
+  const form = mergeTranslation(base, draft);
+  const patch = buildTranslationPatch(draft, base, type, serverTimestamp());
   useUnsavedChanges(patch !== null);
 
   async function close() {
@@ -195,7 +200,7 @@ function TranslationEditor({ type, row, onClose }: { type: TranslationType; row:
     }
   }
 
-  const set = (key: keyof TranslationForm, lang: "en" | "ar") => (value: string) => setDraft((current) => ({ ...(current ?? base), [key]: { ...(current ?? base)[key], [lang]: value } }));
+  const set = (key: TranslatedKey, lang: TranslationLang) => (value: string) => setDraft((current) => touchTranslation(current, base, key, lang, value));
 
   return (
     <FormSheet

@@ -73,11 +73,6 @@ export function storeValleyProxy(input: {
   });
 }
 
-/** Older call shape (`users/<id>` paths or bare ids, plain `title` / `body`), still accepted and converted. */
-type LegacyPush = { userRefs: string[]; title: string; body: string };
-
-const userIdFromRef = (ref: string) => ref.trim().split("/").filter(Boolean).pop() ?? "";
-
 /**
  * Sends one push notification to one person. `userId` is the document id of their
  * `users` record. The function uses only the token on that record; prefer
@@ -94,8 +89,7 @@ export function sendPushToUser(input: { userId: string; title: string; body: str
  * and answers `{ status, summary: { success: [{ userId }], failed: [{ userId, reason }] } }`:
  * a resolved call does not mean everyone was reached, so read the summary.
  */
-export function sendPushToUsers(input: PushPayload | LegacyPush) {
-  const payload = "userRefs" in input ? pushPayload({ userIds: input.userRefs.map(userIdFromRef), title: input.title, body: input.body }) : input;
+export function sendPushToUsers(payload: PushPayload) {
   return callFunction("sendPushNotificationToUsers", { ...payload });
 }
 

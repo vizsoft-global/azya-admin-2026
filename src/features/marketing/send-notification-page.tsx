@@ -32,6 +32,8 @@ import {
   pushPayload,
   readPushResult,
   recipientFromUser,
+  stoppedSend,
+  stoppedSendText,
   validatePush,
   type PushErrors,
   type PushOutcome,
@@ -71,6 +73,8 @@ function SendNotification() {
   const [errors, setErrors] = useState<PushErrors>({});
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [report, setReport] = useState<Report | null>(null);
+  /** Shown until the next send: what happened when a send stopped part-way. */
+  const [stopped, setStopped] = useState("");
   const sending = progress !== null;
   useUnsavedChanges(Boolean(title.trim() || body.trim()) && !sending);
 
@@ -109,6 +113,7 @@ function SendNotification() {
     const outcomes: PushOutcome[] = [];
     setProgress({ done: 0, total });
     setReport(null);
+    setStopped("");
     try {
       for (const ids of batches) {
         const result = await sendPushToUsers(pushPayload({ userIds: ids, title, body, imageUrl }));
@@ -124,10 +129,15 @@ function SendNotification() {
       setImageUrl("");
       setChosen(new Map());
     } catch (err) {
+      // Calls that completed are final: those people are taken out of the selection so a retry cannot send to them twice.
+      const stop = stoppedSend(batches, outcomes);
       const outcome = mergeOutcomes(outcomes);
       if (outcome.sent.length || outcome.failed.length) setReport({ outcome, people: recipients, title: title.trim() });
-      const handled = outcome.sent.length + outcome.failed.length;
-      toast.error(`Sending stopped: ${errorText(err)}. ${handled ? `${handled.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} were handled before it stopped; the rest received nothing.` : "Nobody received the notification."} Your message is still here, so you can try again.`);
+      const keep = new Set(stop.remaining);
+      setChosen(new Map([...recipients].filter(([id]) => keep.has(id))));
+      const notice = stoppedSendText(stop, errorText(err));
+      setStopped(notice);
+      toast.error(notice, { duration: 15000 });
     } finally {
       setProgress(null);
     }
@@ -180,6 +190,7 @@ function SendNotification() {
       <div className="space-y-4 lg:order-2">
         <Section title="Message" description={`${chosen.size.toLocaleString("en-US")} ${chosen.size === 1 ? "person" : "people"} selected.`}>
           <div className="grid gap-4">
+            {stopped ? <p role="alert" className="rounded-lg bg-tint-danger px-3 py-2 text-[12px] text-destructive">{stopped}</p> : null}
             {errors.recipients ? <p role="alert" className="text-[12px] text-destructive">{errors.recipients}</p> : null}
             <TextField label="Title" required value={title} onChange={(value) => { setTitle(value); setErrors((current) => ({ ...current, title: undefined })); }} maxLength={PUSH_TITLE_MAX} dir="auto" disabled={sending} error={errors.title} hint={`${title.trim().length}/${PUSH_TITLE_MAX}. The first line people see.`} />
             <TextareaField label="Message" required value={body} onChange={(value) => { setBody(value); setErrors((current) => ({ ...current, body: undefined })); }} maxLength={PUSH_BODY_MAX} rows={4} dir="auto" disabled={sending} error={errors.body} hint={`${body.trim().length}/${PUSH_BODY_MAX}`} />

@@ -383,7 +383,7 @@ function CreatorView({ id }: { id: string }) {
       {status === "Approved" ? (
         <>
           <ContractCard kind="creator" userId={id} name={name} data={data} canEdit={canEdit} />
-          <PayoutCard payout={payout} userId={id} canPay={canEdit} />
+          <PayoutCard payout={payout} userId={id} canPay={allowed("sales")} />
           <EntityDetail
             title="Bank details for payouts"
             description={payout.bankName || payout.iban || payout.accountNumber ? undefined : "No bank details have been recorded yet."}

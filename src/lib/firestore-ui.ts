@@ -24,6 +24,11 @@ export type Row = { id: string; data: DocumentData };
 
 const memory = new Map<string, Row[]>();
 
+/** Rows are remembered per signed-in person, so the next person in the same tab never sees them. */
+function owner() {
+  return getFirebase().auth.currentUser?.uid ?? "";
+}
+
 /**
  * Live, server-filtered page of a collection. Rows from the last visit are shown
  * immediately; `loadMore` doubles the page size.
@@ -31,7 +36,7 @@ const memory = new Map<string, Row[]>();
 export function useCollection(name?: string, pageSize = 100, filters?: Record<string, string>) {
   const [max, setMax] = useState(pageSize);
   const filterKey = JSON.stringify(filters ?? {});
-  const key = name ? `${name}|${filterKey}|${max}` : "";
+  const key = name ? `${owner()}|${name}|${filterKey}|${max}` : "";
   const [rows, setRows] = useState<Row[]>(() => memory.get(key) ?? []);
   const [loading, setLoading] = useState(Boolean(name) && !memory.has(key));
   const [error, setError] = useState("");
@@ -101,10 +106,12 @@ export function useQueryRows(name: string | undefined, options: QueryOptions = {
   const enabled = options.enabled !== false && Boolean(name);
   const spec = JSON.stringify([options.where ?? [], options.orderBy ?? null]);
   const [pages, setPages] = useState(1);
-  const key = enabled ? `${name}|${spec}|${pageSize * pages}` : "";
+  const key = enabled ? `${owner()}|${name}|${spec}|${pageSize * pages}` : "";
   const [rows, setRows] = useState<Row[]>(() => queryMemory.get(key) ?? []);
   const [loading, setLoading] = useState(enabled && !queryMemory.has(key));
   const [error, setError] = useState("");
+  // Counted before `transform`, so dropping rows (a designer's view) never hides "Load more".
+  const [fetched, setFetched] = useState(0);
   const transformRef = useRef(transform);
   transformRef.current = transform;
 
@@ -134,6 +141,7 @@ export function useQueryRows(name: string | undefined, options: QueryOptions = {
         }
         queryMemory.set(key, next);
         setRows(next);
+        setFetched(snap.docs.length);
         setError("");
         setLoading(false);
       },
@@ -144,7 +152,7 @@ export function useQueryRows(name: string | undefined, options: QueryOptions = {
     );
   }, [enabled, name, spec, pageSize, pages, key]);
 
-  return { rows, loading, error, hasMore: rows.length >= pageSize * pages, loadMore: () => setPages((cur) => cur + 1) };
+  return { rows, loading, error, hasMore: fetched >= pageSize * pages, loadMore: () => setPages((cur) => cur + 1) };
 }
 
 /** Live copy of one document. `row` is null while loading and when the document does not exist. */

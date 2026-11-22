@@ -9,6 +9,8 @@ import {
   pushPayload,
   readPushResult,
   recipientFromUser,
+  stoppedSend,
+  stoppedSendText,
   validatePush,
 } from "@/features/marketing/push-rules";
 
@@ -74,5 +76,33 @@ describe("push result", () => {
   it("splits a long list into calls", () => {
     expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
     expect(chunk([], 2)).toEqual([]);
+  });
+});
+
+describe("a send that stops part-way", () => {
+  const batches = [["a1", "a2", "a3"], ["b1", "b2", "b3"], ["c1", "c2"]];
+  const firstCall = { sent: ["a1", "a2"], failed: [{ userId: "a3", reason: "No valid FCM token found" }] };
+
+  it("keeps only the people of the failed call and the calls never made", () => {
+    const stop = stoppedSend(batches, [firstCall]);
+    expect(stop).toEqual({ reached: 2, notReached: 1, uncertain: ["b1", "b2", "b3"], untried: ["c1", "c2"], remaining: ["b1", "b2", "b3", "c1", "c2"] });
+    // Nobody from a completed call is selected again, reached or not, so a retry cannot send them a duplicate.
+    expect(stop.remaining.some((id) => id.startsWith("a"))).toBe(false);
+  });
+  it("handles a failure in the first and in the last call", () => {
+    expect(stoppedSend(batches, [])).toEqual({ reached: 0, notReached: 0, uncertain: ["a1", "a2", "a3"], untried: ["b1", "b2", "b3", "c1", "c2"], remaining: ["a1", "a2", "a3", "b1", "b2", "b3", "c1", "c2"] });
+    const last = stoppedSend(batches, [firstCall, { sent: ["b1", "b2", "b3"], failed: [] }]);
+    expect(last).toMatchObject({ reached: 5, notReached: 1, uncertain: ["c1", "c2"], untried: [], remaining: ["c1", "c2"] });
+  });
+  it("says how many were sent and how many were not, without claiming the failed call reached nobody", () => {
+    const text = stoppedSendText(stoppedSend(batches, [firstCall]), "deadline-exceeded");
+    expect(text).toBe(
+      "Sending stopped: deadline-exceeded. Sent to 2 people; 1 person could not be reached. 3 people may or may not have received it: the call that failed was sending to them. 2 people were not sent to. Only those 5 people are still selected, and your message is still here. Sending again may reach some of the 3 people a second time.",
+    );
+    expect(text).not.toMatch(/received nothing/);
+  });
+  it("words a failure of the very first call", () => {
+    const text = stoppedSendText(stoppedSend([["a1"]], []), "internal");
+    expect(text).toBe("Sending stopped: internal. Nobody is confirmed as sent to. 1 person may or may not have received it: the call that failed was sending to them. Only that 1 person is still selected, and your message is still here. Sending again may reach that person a second time.");
   });
 });

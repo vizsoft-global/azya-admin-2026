@@ -29,6 +29,7 @@ import {
   readRole,
   readStaff,
   removeRoleUpdate,
+  renameRoleBlockedReason,
   renameRoleUpdate,
   roleKeyFrom,
   roleLabel,
@@ -137,7 +138,13 @@ export function RolesPage() {
             </Link>
             {canEdit ? (
               <>
-                <Button variant="ghost" size="sm" onClick={() => setRenaming(role)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={Boolean(renameRoleBlockedReason(role, scope.isSuperAdmin))}
+                  title={renameRoleBlockedReason(role, scope.isSuperAdmin) || undefined}
+                  onClick={() => setRenaming(role)}
+                >
                   Rename
                 </Button>
                 <Button variant="ghost" size="sm" className="text-destructive" disabled={Boolean(blocked)} title={blocked || undefined} onClick={() => void deleteRole(role)}>
@@ -263,12 +270,13 @@ export function RolesPage() {
         />
       )}
 
-      {creating ? <RoleDialog roles={roles} onClose={() => setCreating(false)} /> : null}
-      {renaming ? <RoleDialog roles={roles} editing={renaming} onClose={() => setRenaming(null)} /> : null}
+      {creating ? <RoleDialog roles={roles} actorIsSuperAdmin={scope.isSuperAdmin} onClose={() => setCreating(false)} /> : null}
+      {renaming ? <RoleDialog roles={roles} editing={renaming} actorIsSuperAdmin={scope.isSuperAdmin} onClose={() => setRenaming(null)} /> : null}
       {assigning ? (
         <AssignRoleDialog
           member={assigning}
           roles={assignableRoles(roles, scope.isSuperAdmin)}
+          actorIsSuperAdmin={scope.isSuperAdmin}
           onClose={() => setAssigning(null)}
           onSaved={() => void refreshPermissions()}
         />
@@ -289,7 +297,7 @@ export function RolesPage() {
 }
 
 /** Create a role (name and key) or rename one. The key cannot change once the role exists: staff records point at it. */
-function RoleDialog({ roles, editing, onClose }: { roles: Role[]; editing?: Role; onClose: () => void }) {
+function RoleDialog({ roles, editing, actorIsSuperAdmin, onClose }: { roles: Role[]; editing?: Role; actorIsSuperAdmin: boolean; onClose: () => void }) {
   const [form, setForm] = useState<RoleForm>({ name: editing?.name ?? "", key: editing?.key ?? "" });
   const [keyTouched, setKeyTouched] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof RoleForm, string>>>({});
@@ -303,6 +311,8 @@ function RoleDialog({ roles, editing, onClose }: { roles: Role[]; editing?: Role
     const { db } = getFirebase();
     try {
       if (editing) {
+        const blocked = renameRoleBlockedReason(editing, actorIsSuperAdmin);
+        if (blocked) throw new Error(blocked);
         await updateDoc(doc(db, ROLES_COLLECTION, editing.id), renameRoleUpdate(form.name, serverTimestamp()));
         toast.success(`The role is now called "${form.name.trim()}".`);
       } else {
@@ -363,7 +373,7 @@ function RoleDialog({ roles, editing, onClose }: { roles: Role[]; editing?: Role
 }
 
 /** Give a role to an account, or move it to another role. */
-function AssignRoleDialog({ member, roles, onClose, onSaved }: { member: StaffMember; roles: Role[]; onClose: () => void; onSaved: () => void }) {
+function AssignRoleDialog({ member, roles, actorIsSuperAdmin, onClose, onSaved }: { member: StaffMember; roles: Role[]; actorIsSuperAdmin: boolean; onClose: () => void; onSaved: () => void }) {
   const [picked, setPicked] = useState(roles.some((role) => role.key === member.roleKey) ? member.roleKey : "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -381,7 +391,7 @@ function AssignRoleDialog({ member, roles, onClose, onSaved }: { member: StaffMe
     }
     setSaving(true);
     try {
-      await updateDoc(doc(getFirebase().db, USERS_COLLECTION, member.id), assignRoleUpdate(member, picked));
+      await updateDoc(doc(getFirebase().db, USERS_COLLECTION, member.id), assignRoleUpdate(member, picked, actorIsSuperAdmin));
       const role = roles.find((item) => item.key === picked);
       toast.success(`${who} now has the role "${role ? roleLabel(role) : picked}".`);
       onSaved();

@@ -3,6 +3,13 @@ import { scopeOf } from "@/lib/role-scope";
 import {
   RELEASE_CHOICES,
   canCancelShipment,
+  describeRelease,
+  describeReserve,
+  describeRetry,
+  readJob,
+  releaseBlock,
+  retryPlan,
+  type Job,
   canMarkReady,
   inDateRange,
   isWarehouseLine,
@@ -26,7 +33,8 @@ import {
   type Dict,
 } from "@/features/orders/model";
 
-const staff = scopeOf({ role_unique_key: "ops", user_role: "Admin" }, "s1", ["order"]);
+const staff = scopeOf({ role_unique_key: "ops", user_role: "Admin" }, "s1");
+const admin = scopeOf({ role_unique_key: "super_admin", user_role: "SuperAdmin" }, "a1");
 const dana = scopeOf({ role_unique_key: "designer", user_role: "Designer" }, "d1");
 
 const warehouseLine = (extra: Dict = {}): Dict => ({ cart_item_id: 1, product_id: "P1", product_main_type: "ready", quantity: 2, price: 10, total_price: 20, product_designer_id: "d1", product_info: { name: "Abaya" }, product_stock_info: { is_preferred_vendor: true, product_sku: "SKU1" }, ...extra });
@@ -192,20 +200,76 @@ describe("marking a line ready", () => {
 
 describe("cancelling a delivery", () => {
   const sent = order({ delivery_info_list: [{ delivery_tracking_id: "T1", delivery_type: "ready", status: "REQUESTED", product_ids: ["P1"] }, { delivery_tracking_id: "T2", delivery_type: "custom", status: "REQUESTED", product_ids: ["P2"] }] });
-  it("is for staff, warehouse deliveries that are still open", () => {
+  it("is for a super admin, on warehouse deliveries that are still open", () => {
     const [ready, custom] = shipments(sent);
-    expect(canCancelShipment(staff, ready)).toBe(true);
+    expect(canCancelShipment(admin, ready)).toBe(true);
+    expect(canCancelShipment(staff, ready)).toBe(false);
     expect(canCancelShipment(dana, ready)).toBe(false);
-    expect(canCancelShipment(staff, custom)).toBe(false);
-    expect(canCancelShipment(staff, { ...ready, delivered: true })).toBe(false);
-    expect(canCancelShipment(staff, { ...ready, cancelled: true })).toBe(false);
+    expect(canCancelShipment(admin, custom)).toBe(false);
+    expect(canCancelShipment(admin, { ...ready, delivered: true })).toBe(false);
+    expect(canCancelShipment(admin, { ...ready, cancelled: true })).toBe(false);
   });
   it("marks the entry and the type status cancelled and never touches order_status", () => {
     const patch = withShipmentCancelled(sent, "T1")!;
     expect(Object.keys(patch).sort()).toEqual(["delivery_info_list", "ready_shipping_request_status"]);
     expect(patch.ready_shipping_request_status).toBe("cancelled");
-    expect((patch.delivery_info_list as Dict[]).map((entry) => entry.status)).toEqual(["cancelled", "REQUESTED"]);
     expect(withShipmentCancelled(sent, "nope")).toBeNull();
+  });
+  it("keeps the cancelled entry but moves it behind the others, so the app's first match is a live one", () => {
+    const patch = withShipmentCancelled(sent, "T1")!;
+    expect((patch.delivery_info_list as Dict[]).map((entry) => [entry.delivery_tracking_id, entry.status])).toEqual([["T2", "REQUESTED"], ["T1", "cancelled"]]);
+  });
+});
+
+describe("the server's delivery jobs", () => {
+  const job = (extra: Partial<Job> = {}): Job => ({ id: "ORDAZYA9-RM", kind: "warehouse_delivery", status: "failed", designerUid: "", attempts: 3, lastError: "store_valley_error", ...extra });
+  const pickupJob = (extra: Partial<Job> = {}): Job => job({ id: "ORDAZYA9-CM-d2", kind: "custom_pickup", designerUid: "d2", ...extra });
+  const reserved = order({ inventory_reservation_status: "reserved" });
+  const released = order({ inventory_reservation_status: "released_cancelled", ready_shipping_request_status: "FAILED" });
+
+  it("reads a job record", () => {
+    expect(readJob({ id: "X-RM", data: { kind: "warehouse_delivery", status: "FAILED", designer_uid: null, attempts: 2, last_error: "conflict" } })).toEqual({ id: "X-RM", kind: "warehouse_delivery", status: "failed", designerUid: "", attempts: 2, lastError: "conflict" });
+  });
+  it("retries the whole order while the stock is reserved", () => {
+    expect(retryPlan(reserved, [job()])).toEqual({ kind: "order", failed: 1 });
+    expect(retryPlan(reserved, [])).toEqual({ kind: "order", failed: 0 });
+  });
+  it("never re-runs a failed warehouse job once the stock was released", () => {
+    expect(retryPlan(released, [job()])).toEqual({ kind: "none" });
+    expect(retryPlan(released, [job(), pickupJob()])).toEqual({ kind: "jobs", jobIds: ["ORDAZYA9-CM-d2"] });
+  });
+  it("has nothing to retry for an unpaid order or one with nothing waiting", () => {
+    expect(retryPlan(order({ payment_status: "FAILED" }), [job()])).toEqual({ kind: "none" });
+    const allSent = order({ delivery_info_list: [{ delivery_tracking_id: "T", delivery_type: "ready", status: "REQUESTED", product_ids: ["P1", "P2"] }] });
+    expect(retryPlan(allSent, [])).toEqual({ kind: "none" });
+    expect(retryPlan(order(), [])).toEqual({ kind: "none" }); // stock not reserved, designer not ready
+  });
+  it("says what a retry really set in motion", () => {
+    expect(describeRetry({ kind: "order", failed: 2 })).toMatch(/^2 failed requests were queued again/);
+    expect(describeRetry({ kind: "order", failed: 0 })).toMatch(/^No request had failed/);
+    expect(describeRetry({ kind: "jobs", jobIds: ["a"] })).toMatch(/^1 failed pickup request was queued again.*left alone/);
+    expect(describeRetry({ kind: "none" })).toMatch(/^Nothing was retried/);
+  });
+  it("refuses to release stock while the server still retries the delivery", () => {
+    expect(releaseBlock([job({ attempts: 1 })])).toMatch(/attempt 1 of 3/);
+    expect(releaseBlock([job({ attempts: 3 })])).toBe("");
+    expect(releaseBlock([pickupJob({ attempts: 0 })])).toBe("");
+    expect(releaseBlock([job({ status: "requested", attempts: 1 })])).toBe("");
+  });
+});
+
+describe("what a stock call did", () => {
+  it("reports a reservation, a skip and a refusal differently", () => {
+    expect(describeReserve({ ok: true, status: "reserved", lines: [{}, {}] })).toEqual({ ok: true, message: "Stock reserved for 2 products. The delivery is requested next." });
+    expect(describeReserve({ ok: true, skipped: true, status: "released_shipped" })).toEqual({ ok: false, message: "Nothing was reserved: the order's stock status is released shipped." });
+    expect(describeReserve({ ok: false, code: "out_of_stock" })).toEqual({ ok: false, message: "The stock was not reserved: out of stock." });
+    expect(describeReserve(undefined).ok).toBe(false);
+  });
+  it("reports a release and a release that did nothing", () => {
+    expect(describeRelease({ ok: true, status: "released_cancelled", reason: "cancelled" }, "cancelled")).toEqual({ ok: true, message: "Stock released and back on sale." });
+    expect(describeRelease({ ok: true, status: "released_shipped", reason: "shipped" }, "shipped")).toEqual({ ok: true, message: "Stock released as shipped." });
+    expect(describeRelease({ ok: true, skipped: true, status: "released_shipped" }, "cancelled")).toMatchObject({ ok: false, message: expect.stringContaining("Nothing was released") });
+    expect(describeRelease(null, "shipped").ok).toBe(false);
   });
 });
 

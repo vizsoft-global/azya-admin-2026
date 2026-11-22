@@ -1,19 +1,31 @@
 import { deleteField, increment, serverTimestamp } from "firebase/firestore";
 import { describe, expect, it } from "vitest";
 import { resolveOps } from "@/features/inventory/data";
-import { cancelEnquiryWrites, cancelRestoresStock, enquiryProblem, raiseEnquiryWrites, receiveEnquiryWrites } from "@/features/inventory/enquiry";
+import {
+  cancelEnquiryBlocked,
+  cancelEnquiryWrites,
+  cancelRestoresStock,
+  enquiryProblem,
+  raiseEnquiryBlocked,
+  raiseEnquiryWrites,
+  receiveEnquiryBlocked,
+  receiveEnquiryWrites,
+} from "@/features/inventory/enquiry";
 import { DELETE, inc, NOW, readAddress, readInventory, readProduct, readRequest, refId, type Row } from "@/features/inventory/model";
-import { addressProblem, pickupBatchProblem, pickupCreatedMessage, pickupDeliveryDoc, pickupItems, pickupRequestPatch, planPickup, readPickupResult } from "@/features/inventory/pickup";
+import { addressProblem, alreadyBookedProblem, freshPickupProblem, pickupBatchProblem, pickupCreatedMessage, pickupDeliveryDoc, pickupItems, pickupRequestPatch, planPickup, readPickupResult } from "@/features/inventory/pickup";
 import {
   acceptPatch,
   approveBlockedReason,
   approvePatch,
   archivePatch,
+  cancelBlocked,
   cancelPatch,
+  cancelWrites,
   collectRequestDoc,
   declinePatch,
   editPatch,
   fulfillLabel,
+  heldQuantity,
   inTab,
   inventoryClearedPatch,
   inventoryRaisedPatch,
@@ -22,6 +34,7 @@ import {
   newRequestProblem,
   readyPatch,
   requestActions,
+  returnHoldsStock,
   tabsFor,
 } from "@/features/inventory/requests";
 import {
@@ -31,6 +44,7 @@ import {
   matchesDateFilter,
   matchesStockFilter,
   matchesStockSearch,
+  reservedSyncSummary,
   STOCK_EXPORT_HEADERS,
   stockExportRows,
   stockNumbers,
@@ -42,7 +56,7 @@ import { hasTracking, liveStatusPatch, readLiveTracking, readLogistics, timeline
 import { scopeOf } from "@/lib/role-scope";
 
 const superAdmin = scopeOf({ role_unique_key: "super_admin", id: "admin-doc" }, "admin-uid");
-const staff = scopeOf({ role_unique_key: "inventory_manager" }, "staff-uid", ["inventory"]);
+const staff = scopeOf({ role_unique_key: "inventory_manager" }, "staff-uid");
 const designer = scopeOf({ role_unique_key: "designer", id: "des-1" }, "des-1");
 const otherDesigner = scopeOf({ role_unique_key: "designer" }, "des-2");
 
@@ -574,5 +588,139 @@ describe("write markers", () => {
     expect(out.date).toBe(date);
     expect(out.list).toEqual(["u1"]);
     expect(out.ref).toEqual(stockRef);
+  });
+});
+
+describe("review fixes", () => {
+  const ready = (id: string, delivery: Record<string, unknown> | null = null, info: Record<string, unknown> = {}) =>
+    readRequest({ ...requestRow(delivery ? { request_delivery_info: delivery } : {}, { request_status: "Accepted", fulfill_status: "Ready to pickup", inventory_request_id: `INVNSQ${id}`, ...info }), id });
+
+  describe("a second pickup is never booked", () => {
+    it("names the requests that already have a pickup", () => {
+      const booked = ready("7", { delivery_ref: ref("delivery/d1"), delivery_tracking_id: "REQ-9" }, { fulfill_status: "DeliveryPartnerAssigned" });
+      const bookedNoTracking = ready("8", { delivery_ref: ref("delivery/d2") });
+      expect(alreadyBookedProblem([ready("5"), ready("6")])).toBeNull();
+      const problem = alreadyBookedProblem([ready("5"), booked, bookedNoTracking]);
+      expect(problem).toContain("INVNSQ7 (tracking REQ-9)");
+      expect(problem).toContain("INVNSQ8");
+      expect(problem).not.toContain("INVNSQ5");
+      expect(problem).toMatch(/Nothing was sent/);
+    });
+
+    it("treats a tracking id without a delivery reference as booked too", () => {
+      expect(alreadyBookedProblem([ready("5", { delivery_tracking_id: "REQ-1" })])).toContain("INVNSQ5");
+    });
+
+    it("checks fresh copies: booked first, then still ready, one designer", () => {
+      expect(freshPickupProblem([ready("5"), ready("6")])).toBeNull();
+      // Booked in the old admin after the dialog opened: status moved on and a delivery exists.
+      const booked = ready("7", { delivery_ref: ref("delivery/d1"), delivery_tracking_id: "REQ-9" }, { fulfill_status: "DeliveryPartnerAssigned" });
+      expect(freshPickupProblem([ready("5"), booked])).toMatch(/already booked for INVNSQ7/);
+      // Cancelled meanwhile: no delivery, but no longer ready.
+      expect(freshPickupProblem([ready("5", null, { request_status: "Cancelled", fulfill_status: "Cancelled" })])).toMatch(/ready to pick up/);
+      expect(freshPickupProblem([])).toMatch(/at least one/);
+    });
+  });
+
+  describe("cancelling a request", () => {
+    const accepted = (type: string, delivery: Record<string, unknown> | null, over: Record<string, unknown> = {}, info: Record<string, unknown> = {}) =>
+      request({ product_quantity: 4, ...(delivery ? { request_delivery_info: delivery } : {}), ...over }, { request_status: "Accepted", fulfill_status: "DeliveryPartnerAssigned", request_type: type, ...info });
+    const bookedReturn = accepted("Return to Designer", { delivery_ref: ref("delivery/d9"), delivery_tracking_id: "ORD-9" });
+
+    it("refuses a request that is no longer cancellable", () => {
+      expect(cancelBlocked(bookedReturn)).toBeNull();
+      expect(cancelBlocked(accepted("Restock", null, {}, { fulfill_status: "Processing" }))).toBeNull();
+      expect(cancelBlocked(accepted("Restock", null, {}, { request_status: "Cancelled", fulfill_status: "Cancelled" }))).toMatch(/already cancelled/);
+      expect(cancelBlocked(accepted("Restock", null, {}, { fulfill_status: "Completed" }))).toMatch(/completed/);
+      expect(cancelBlocked(accepted("Restock", null, {}, { request_status: "Pending" }))).toMatch(/pending/);
+    });
+
+    it("knows which cancels hold stock: only a return to designer with a booked delivery", () => {
+      expect(returnHoldsStock(bookedReturn)).toBe(true);
+      expect(returnHoldsStock(accepted("Return to Designer", null))).toBe(false);
+      expect(returnHoldsStock(accepted("Restock", { delivery_ref: ref("delivery/d1") }))).toBe(false);
+      expect(heldQuantity(bookedReturn)).toBe(4);
+      expect(heldQuantity(accepted("Return to Designer", { delivery_ref: ref("delivery/d9") }, { product_quantity: 0 }))).toBe(1);
+    });
+
+    it("gives the held pieces back: unavailable drops and available for order is stored − reserved − unavailable", () => {
+      // Approval had made unavailable 1 + 4 = 5 and available 20 − 3 − 5 = 12.
+      const writes = cancelWrites(bookedReturn, { stockUnavailable: 5, stockReserved: 3, storedQuantity: 20 });
+      expect(writes.request).toEqual(cancelPatch());
+      expect(writes.inventory).toEqual({ updated_at: NOW, restock_request_raised_ref: DELETE, stock_unavailable: 1, available_for_order: 16 });
+    });
+
+    it("never goes below zero, and counts a missing warehouse record as zero stored", () => {
+      expect(cancelWrites(bookedReturn, { stockUnavailable: 2, stockReserved: 3, storedQuantity: 20 }).inventory).toMatchObject({ stock_unavailable: 0, available_for_order: 17 });
+      expect(cancelWrites(bookedReturn, { stockUnavailable: 9, stockReserved: 30, storedQuantity: 20 }).inventory).toMatchObject({ stock_unavailable: 5, available_for_order: 0 });
+      expect(cancelWrites(bookedReturn, { stockUnavailable: "5", stockReserved: undefined, storedQuantity: 0 }).inventory).toMatchObject({ stock_unavailable: 1, available_for_order: 0 });
+      expect(cancelWrites(bookedReturn, { stockUnavailable: 5.9, stockReserved: 1, storedQuantity: 10.7 }).inventory).toMatchObject({ stock_unavailable: 1, available_for_order: 8 });
+    });
+
+    it("leaves stock numbers alone for a return without a delivery and for every restock", () => {
+      const cleared = { updated_at: NOW, restock_request_raised_ref: DELETE };
+      const state = { stockUnavailable: 5, stockReserved: 3, storedQuantity: 20 };
+      expect(cancelWrites(accepted("Return to Designer", null), state).inventory).toEqual(cleared);
+      expect(cancelWrites(accepted("Restock", { delivery_ref: ref("delivery/d1") }), state).inventory).toEqual(cleared);
+      expect(cancelWrites(bookedReturn, null).inventory).toEqual(cleared);
+    });
+  });
+
+  describe("enquiry moves are checked on the fresh request", () => {
+    const completed = (enquiry: Record<string, unknown> | null = null, info: Record<string, unknown> = {}) =>
+      request(enquiry ? { enquiry_info: enquiry } : {}, { request_status: "Accepted", fulfill_status: "Completed", ...info });
+    const open = { enquiry_id: "INVEQ3", status: "active", fulfill_status: "Enquiry open", affected_quanity: 2 };
+
+    it("raises once, on a completed restock only", () => {
+      expect(raiseEnquiryBlocked(completed())).toBeNull();
+      expect(raiseEnquiryBlocked(completed(null, { fulfill_status: "Received" }))).toBeNull();
+      expect(raiseEnquiryBlocked(completed(open))).toMatch(/INVEQ3 was already raised/);
+      expect(raiseEnquiryBlocked(completed({ ...open, status: "Cancelled", fulfill_status: "Cancelled" }))).toMatch(/already raised/);
+      expect(raiseEnquiryBlocked(completed(null, { fulfill_status: "DeliveryPartnerAssigned" }))).toMatch(/completed/);
+      expect(raiseEnquiryBlocked(completed(null, { request_type: "Return to Designer" }))).toMatch(/restock/);
+      expect(raiseEnquiryBlocked(completed(null, { request_status: "Cancelled" }))).toMatch(/completed/);
+    });
+
+    it("cancels only an open enquiry, so a second cancel moves nothing", () => {
+      expect(cancelEnquiryBlocked(completed(open))).toBeNull();
+      expect(cancelEnquiryBlocked(completed({ ...open, fulfill_status: "DeliveryPartnerAssigned" }))).toBeNull();
+      expect(cancelEnquiryBlocked(completed({ ...open, status: "Cancelled", fulfill_status: "Cancelled" }))).toMatch(/already cancelled/);
+      expect(cancelEnquiryBlocked(completed({ ...open, fulfill_status: "Received" }))).toMatch(/received/);
+      expect(cancelEnquiryBlocked(completed())).toMatch(/no enquiry/);
+      expect(cancelEnquiryBlocked(completed({ ...open, fulfill_status: "Ready to pickup" }))).toMatch(/no longer open/);
+    });
+
+    it("marks received only while the return is shipping, so a second click moves nothing", () => {
+      expect(receiveEnquiryBlocked(completed({ ...open, fulfill_status: "DeliveryPartnerAssigned" }))).toBeNull();
+      expect(receiveEnquiryBlocked(completed({ ...open, fulfill_status: "Received" }))).toMatch(/already closed/);
+      expect(receiveEnquiryBlocked(completed({ ...open, status: "Cancelled", fulfill_status: "Cancelled" }))).toMatch(/cancelled/);
+      expect(receiveEnquiryBlocked(completed(open))).toMatch(/not been booked/);
+    });
+
+    it("builds the stock move from the quantity on the fresh request", () => {
+      const fresh = completed({ ...open, fulfill_status: "DeliveryPartnerAssigned", affected_quanity: 7 });
+      expect(receiveEnquiryWrites(fresh).inventory).toMatchObject({ stock_unavailable: inc(-7) });
+    });
+  });
+
+  describe("sync reserved orders", () => {
+    it("reports failures instead of hiding them", () => {
+      expect(reservedSyncSummary({ scanned: 12, reserved: 3, skipped: 9, failed: 0 })).toEqual({ reserved: 3, skipped: 9, failed: 0, text: "Reserved stock for 3 orders; 9 already reserved or not applicable." });
+      const withFailures = reservedSyncSummary({ reserved: 1, skipped: 4, failed: 2 });
+      expect(withFailures.failed).toBe(2);
+      expect(withFailures.text).toContain("Reserved stock for 1 order; 4 already reserved or not applicable; 2 orders failed.");
+      expect(reservedSyncSummary(undefined)).toMatchObject({ reserved: 0, skipped: 0, failed: 0 });
+      expect(reservedSyncSummary({ failed: "x" }).failed).toBe(0);
+    });
+  });
+
+  describe("who counts as a super admin", () => {
+    it("is the role key only: another role gets no approve, decline, cancel or enquiry actions", () => {
+      const manager = scopeOf({ role_unique_key: "inventory_manager", permissions_list: ["super_admin", "inventory"] }, "mgr-uid");
+      expect(manager.isSuperAdmin).toBe(false);
+      expect(requestActions(request(), manager).size).toBe(0);
+      expect(requestActions(request({}, { request_status: "Accepted", fulfill_status: "Processing" }), manager).size).toBe(0);
+      expect([...requestActions(request(), superAdmin)].sort()).toEqual(["approve", "archive", "decline", "edit"]);
+    });
   });
 });

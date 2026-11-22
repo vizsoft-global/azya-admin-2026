@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { collection, doc, getDocs, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocsFromServer, runTransaction, serverTimestamp, updateDoc } from "firebase/firestore";
 import { Archive, ArchiveRestore, Check, Minus, Pencil, Plus } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -16,17 +16,19 @@ import { Button } from "@/components/ui/button";
 import { getFirebase } from "@/lib/firebase";
 import { useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, formatMoney, toDate, toNumber } from "@/lib/format";
+import { idMapRef } from "@/lib/id-map";
 import { getPath } from "@/lib/object-path";
 import { useUnsavedChanges } from "@/lib/unsaved";
 import { errorText } from "./parts";
 import {
   PLAN_ACTIVE,
   PLAN_ARCHIVED,
+  PLAN_COUNTER,
   PLAN_FEATURES,
   PLAN_NAME_MAX,
   emptyPlanForm,
   isActive,
-  nextPlanId,
+  planNumber,
   planCreatePayload,
   planFormFromDoc,
   planUpdatePayload,
@@ -184,10 +186,18 @@ function PlanSheet({ row, onClose }: { row: Row | null; onClose: () => void }) {
         if (Object.keys(changes).length) await updateDoc(doc(db, "user_membership_plans", row.id), changes);
         toast.success(`Plan “${name}” saved.`);
       } else {
-        // Plans have no ID counter, so the number is one more than the largest in use, read fresh.
-        const all = await getDocs(collection(db, "user_membership_plans"));
-        const planId = nextPlanId(all.docs.map((item) => item.data().membership_plan_id));
-        await setDoc(doc(collection(db, "user_membership_plans")), planCreatePayload(form, planId, serverTimestamp()));
+        // The highest number in use is only a floor; the number itself is issued inside the transaction from a
+        // counter that changes each time, so two people adding a plan at once cannot get the same one.
+        const all = await getDocsFromServer(collection(db, "user_membership_plans"));
+        const inUse = all.docs.map((item) => item.data().membership_plan_id);
+        const counters = await idMapRef();
+        await runTransaction(db, async (tx) => {
+          const snap = await tx.get(counters);
+          if (!snap.exists()) throw new Error("the ID counter record was not found");
+          const { planId, nextCounter } = planNumber(snap.data()[PLAN_COUNTER], inUse);
+          tx.update(counters, { [PLAN_COUNTER]: nextCounter });
+          tx.set(doc(collection(db, "user_membership_plans")), planCreatePayload(form, planId, serverTimestamp()));
+        });
         toast.success(`Plan “${name}” is now on sale in the app.`);
       }
       onClose();

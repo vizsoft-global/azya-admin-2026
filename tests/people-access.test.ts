@@ -21,6 +21,7 @@ import {
   readRole,
   readStaff,
   removeRoleUpdate,
+  renameRoleBlockedReason,
   renameRoleUpdate,
   roleKeyFrom,
   roleRecord,
@@ -32,6 +33,7 @@ import {
   type Permission,
   type Role,
 } from "@/features/people/roles";
+import { scopeOf } from "@/lib/role-scope";
 
 describe("my profile", () => {
   const account = {
@@ -247,12 +249,60 @@ describe("staff", () => {
   });
 
   it("writes only the role, and publishes only a waiting admin sign-up", () => {
-    expect(assignRoleUpdate({ status: "Published", userRole: "Customer" }, " support ")).toEqual({ role_unique_key: "support" });
-    expect(assignRoleUpdate({ status: "Secret", userRole: "Customer" }, "support")).toEqual({ role_unique_key: "support" });
+    expect(assignRoleUpdate({ status: "Published", userRole: "Customer" }, " support ", false)).toEqual({ role_unique_key: "support" });
+    expect(assignRoleUpdate({ status: "Secret", userRole: "Customer" }, "support", false)).toEqual({ role_unique_key: "support" });
     expect(assignAlsoPublishes({ status: "Pending", userRole: "Admin" })).toBe(true);
-    expect(assignRoleUpdate({ status: "Pending", userRole: "Admin" }, "support")).toEqual({ role_unique_key: "support", status: "Published" });
-    expect(() => assignRoleUpdate({ status: "Published", userRole: "Admin" }, "")).toThrow();
-    expect(() => assignRoleUpdate({ status: "Published", userRole: "Admin" }, "designer")).toThrow();
+    expect(assignRoleUpdate({ status: "Pending", userRole: "Admin" }, "support", false)).toEqual({ role_unique_key: "support", status: "Published" });
+    expect(() => assignRoleUpdate({ status: "Published", userRole: "Admin" }, "", true)).toThrow();
+    expect(() => assignRoleUpdate({ status: "Published", userRole: "Admin" }, "designer", true)).toThrow();
+    // Making someone a super admin is refused in the write itself, not only hidden from the list.
+    expect(() => assignRoleUpdate({ status: "Published", userRole: "Admin" }, "super_admin", false)).toThrow(/super admin/);
+    expect(assignRoleUpdate({ status: "Published", userRole: "Admin" }, "super_admin", true)).toEqual({ role_unique_key: "super_admin" });
     expect(removeRoleUpdate("DELETE")).toEqual({ role_unique_key: "DELETE" });
+  });
+});
+
+describe("super admin is the role key only", () => {
+  // A role that merely carries the `super_admin` permission is an ordinary role.
+  const adminWithPermission = scopeOf({ id: "a1", role_unique_key: "admin", user_role: "Admin" }, "a1-uid");
+  const superAdmin = scopeOf({ id: "s1", role_unique_key: "super_admin", user_role: "SuperAdmin" }, "s1-uid");
+  const roles = [role("super_admin", { permissions: ["super_admin", "role", "role_edit"] }), role("admin", { permissions: ["super_admin", "role", "role_edit"] }), role("support")];
+
+  it("reads who is a super admin from the role key", () => {
+    expect(adminWithPermission.isSuperAdmin).toBe(false);
+    expect(superAdmin.isSuperAdmin).toBe(true);
+  });
+
+  it("stops an admin editing or renaming the super admin role", () => {
+    for (const turnOn of [true, false]) {
+      expect(toggleBlockedReason({ role: roles[0], permissionKey: "order", turnOn, ownRoleKey: adminWithPermission.roleKey, isSuperAdmin: adminWithPermission.isSuperAdmin })).toContain("super admin");
+    }
+    expect(renameRoleBlockedReason(roles[0], adminWithPermission.isSuperAdmin)).toContain("super admin");
+    expect(renameRoleBlockedReason(roles[1], adminWithPermission.isSuperAdmin)).toBe("");
+    expect(renameRoleBlockedReason(roles[0], superAdmin.isSuperAdmin)).toBe("");
+    expect(deleteRoleBlockedReason(roles[0], { staffCount: 0, ownRoleKey: superAdmin.roleKey })).toBeTruthy();
+  });
+
+  it("stops an admin giving or removing the super admin permission, on any role including their own", () => {
+    for (const target of roles) {
+      for (const turnOn of [true, false]) {
+        expect(toggleBlockedReason({ role: target, permissionKey: "super_admin", turnOn, ownRoleKey: adminWithPermission.roleKey, isSuperAdmin: adminWithPermission.isSuperAdmin })).toContain("super admin");
+      }
+    }
+    expect(toggleBlockedReason({ role: roles[2], permissionKey: "super_admin", turnOn: true, ownRoleKey: superAdmin.roleKey, isSuperAdmin: superAdmin.isSuperAdmin })).toBe("");
+  });
+
+  it("stops an admin assigning the super admin role or changing a super admin's access", () => {
+    expect(assignableRoles(roles, adminWithPermission.isSuperAdmin).map((item) => item.key)).toEqual(["admin", "support"]);
+    expect(assignableRoles(roles, superAdmin.isSuperAdmin).map((item) => item.key)).toEqual(["super_admin", "admin", "support"]);
+    const target = { id: "s1", uid: "s1-uid", roleKey: "super_admin" };
+    const asAdmin = { actorDocId: adminWithPermission.userDocId, actorUid: adminWithPermission.uid, actorIsSuperAdmin: adminWithPermission.isSuperAdmin };
+    expect(staffChangeBlockedReason({ ...asAdmin, member: target })).toContain("super admin");
+    expect(() => assignRoleUpdate({ status: "Published", userRole: "Admin" }, "super_admin", adminWithPermission.isSuperAdmin)).toThrow();
+    // Another super admin can; nobody can change their own.
+    const other = { id: "s2", uid: "s2-uid", roleKey: "super_admin" };
+    const asSuper = { actorDocId: superAdmin.userDocId, actorUid: superAdmin.uid, actorIsSuperAdmin: superAdmin.isSuperAdmin };
+    expect(staffChangeBlockedReason({ ...asSuper, member: other })).toBe("");
+    expect(staffChangeBlockedReason({ ...asSuper, member: target })).toContain("your own");
   });
 });

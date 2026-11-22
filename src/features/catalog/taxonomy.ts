@@ -23,8 +23,14 @@ export type TaxonomyConfig = {
   infoField: string;
   /** Automatic translation, written by the server. Never written here. */
   autoField: string;
-  /** Manual translation, written by the Translations page. */
+  /** Manual translation, written by the Translations page and read by the customer app. */
   customField: string;
+  /**
+   * Where older manual translations may still sit. The Flutter admin wrote a
+   * category's to a misspelt field the app never read; it is read here as a
+   * fallback so that text is not lost from view, and never written or removed.
+   */
+  legacyCustomField?: string;
   /** The `id_map` counter new ids come from. */
   counter: "category_id" | "tag_id" | "attribute_id" | "brand_id";
   singular: string;
@@ -45,7 +51,8 @@ export const TAXONOMY: Record<TaxonomyKind, TaxonomyConfig> = {
     idField: "category_id",
     infoField: "category_info",
     autoField: "category_info_translate",
-    customField: "category_info_custome_translate",
+    customField: "category_info_custom_translate",
+    legacyCustomField: "category_info_custome_translate",
     counter: "category_id",
     singular: "category",
     plural: "categories",
@@ -117,9 +124,22 @@ export function taxonomyId(data: Data, kind: TaxonomyKind) {
   return str(data[TAXONOMY[kind].idField]);
 }
 
+/**
+ * One manual text (`name`, `short_description` or `description`) in both
+ * languages. The field the app reads wins; a language it does not hold at all
+ * falls back to the legacy field. An empty string in the real field is a
+ * deliberate "no manual text" and does not fall back.
+ */
+export function manualText(data: Data, fields: { customField: string; legacyCustomField?: string }, key: string): { en: string; ar: string } {
+  const current = rec(rec(data[fields.customField])[key]);
+  const legacy = fields.legacyCustomField ? rec(rec(data[fields.legacyCustomField])[key]) : {};
+  const read = (lang: "en" | "ar") => (typeof current[lang] === "string" ? (current[lang] as string) : str(legacy[lang]));
+  return { en: read("en"), ar: read("ar") };
+}
+
 export function taxonomyName(data: Data, kind: TaxonomyKind, lang: "en" | "ar" = "en") {
   const cfg = TAXONOMY[kind];
-  return localisedText(rec(data[cfg.infoField]).name, rec(data[cfg.autoField]).name, rec(data[cfg.customField]).name, lang);
+  return localisedText(rec(data[cfg.infoField]).name, rec(data[cfg.autoField]).name, manualText(data, cfg, "name"), lang);
 }
 
 export function taxonomySerial(data: Data, kind: TaxonomyKind): number | null {

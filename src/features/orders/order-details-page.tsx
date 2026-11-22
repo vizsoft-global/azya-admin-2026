@@ -18,12 +18,15 @@ import { orderLinesInScope } from "@/lib/role-scope";
 import { customerShipmentOtpLabel } from "@/lib/store-valley/intake-tracking";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
-import { cancelShipment, markLineReady, releaseStock, retryDeliveryRequests, retryStockReservation, savePaymentComment, useDeliveries } from "./data";
+import { cancelShipment, markLineReady, releaseStock, retryStockReservation, runRetry, savePaymentComment, useDeliveries } from "./data";
 import {
   RELEASE_CHOICES,
   addressLine,
   canCancelShipment,
   canMarkReady,
+  describeRelease,
+  describeReserve,
+  describeRetry,
   dict,
   dicts,
   isPaid,
@@ -34,6 +37,9 @@ import {
   orderLines,
   orderTotals,
   readAddress,
+  readJob,
+  releaseBlock,
+  retryPlan,
   shipments,
   statusText,
   text,
@@ -64,6 +70,8 @@ function OrderView({ id }: { id: string }) {
   const { row, loading, error, missing } = useDocRow("orders", id);
   const order = useMemo(() => orderForScope(scope, row?.data), [scope, row]);
   const staff = !scope.isDesigner;
+  // As in the old panel, only a super admin steps into stock and delivery requests; other staff read them.
+  const admin = scope.isSuperAdmin;
   const orderNumber = text(order?.order_id);
   const list = useMemo(() => (order ? shipments(order) : []), [order]);
   const deliveries = useDeliveries(list.map((item) => item.deliveryDocId));
@@ -81,8 +89,11 @@ function OrderView({ id }: { id: string }) {
   const customer = readAddress(order.shipping_address);
   const paid = isPaid(order);
   const reservation = text(order.inventory_reservation_status);
-  const failedJobs = jobs.rows.filter((job) => text(job.data.status) === "failed");
-  const manual = staff ? requestGroups(order) : [];
+  const jobList = jobs.rows.map(readJob);
+  const failedJobs = jobList.filter((job) => job.status === "failed");
+  const plan = retryPlan(order, jobList);
+  const manual = admin ? requestGroups(order, jobList) : [];
+  const releaseBlocked = releaseBlock(jobList);
   const designerUids = staff ? [...new Set(orderLines(order).map(lineDesigner).filter(Boolean))] : [];
   const returnId = staff ? text(order.return_request_id) : "";
   const pickupAddress = dict(dict(profile?.designer_main_info).designer_pickup_address);
@@ -109,13 +120,24 @@ function OrderView({ id }: { id: string }) {
   }
 
   async function retryRequests() {
-    const sure = await confirm({ title: "Ask Store Valley again?", description: "Every item of this order that has no open delivery or pickup is requested again. Items already on their way are not touched.", confirmLabel: "Retry requests" });
-    if (sure) await run(() => retryDeliveryRequests(id), "Requests queued again. This page updates when Store Valley answers.", "The requests were not retried");
+    const sure = await confirm({
+      title: "Ask Store Valley again?",
+      description: plan.kind === "jobs" ? "The failed designer pickup requests are queued again. The warehouse delivery is not, because its stock is no longer reserved." : "Failed requests are queued again and items with no request get one. Items already on their way are not touched.",
+      confirmLabel: "Retry requests",
+    });
+    if (sure) await run(() => runRetry(id, plan), describeRetry(plan), "The requests were not retried");
   }
 
   async function retryStock() {
     const sure = await confirm({ title: "Try to reserve the stock again?", description: "If the warehouse now has enough units they are reserved for this order and its delivery is requested.", confirmLabel: "Retry reservation" });
-    if (sure) await run(() => retryStockReservation(id), "Stock reserved.", "The stock is still not reserved");
+    if (!sure) return;
+    try {
+      const outcome = describeReserve(await retryStockReservation(id));
+      if (outcome.ok) toast.success(outcome.message);
+      else toast.warning(outcome.message);
+    } catch (err) {
+      toast.error(`The stock is still not reserved: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   }
 
   return (
@@ -161,19 +183,26 @@ function OrderView({ id }: { id: string }) {
               <Fact label="Designer pickup request">{statusText(order.custom_shipping_request_status) || "None"}</Fact>
               {failedJobs.map((job) => (
                 <p key={job.id} className="mt-2 rounded-lg bg-tint-danger px-3 py-2 text-[12px] text-destructive">
-                  Request {job.id} failed after {text(job.data.attempts) || "0"} attempt(s): {statusText(job.data.last_error) || "no reason given"}.
+                  Request {job.id} failed after {job.attempts} attempt(s): {statusText(job.lastError) || "no reason given"}.
                 </p>
               ))}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" onClick={() => void retryRequests()}>Retry delivery requests</Button>
-                {reservation === "stock_failed" ? <Button variant="outline" size="sm" onClick={() => void retryStock()}>Retry stock reservation</Button> : null}
-                {reservation === "reserved" ? <Button variant="outline" size="sm" onClick={() => setReleaseOpen(true)}>Release reserved stock…</Button> : null}
-                {manual.length ? (
-                  <Link href={`/create-shipping-label?id=${encodeURIComponent(id)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-                    Request shipping by hand
-                  </Link>
-                ) : null}
-              </div>
+              {admin ? (
+                <>
+                  {reservation === "reserved" && releaseBlocked ? <p className="mt-2 rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">{releaseBlocked}</p> : null}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {plan.kind !== "none" ? <Button variant="outline" size="sm" onClick={() => void retryRequests()}>Retry delivery requests</Button> : null}
+                    {reservation === "stock_failed" ? <Button variant="outline" size="sm" onClick={() => void retryStock()}>Retry stock reservation</Button> : null}
+                    {reservation === "reserved" ? <Button variant="outline" size="sm" disabled={Boolean(releaseBlocked)} onClick={() => setReleaseOpen(true)}>Release reserved stock…</Button> : null}
+                    {manual.length ? (
+                      <Link href={`/create-shipping-label?id=${encodeURIComponent(id)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+                        Request shipping by hand
+                      </Link>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-3 text-[12px] text-muted-foreground">Only a super admin can retry, release stock or request shipping by hand.</p>
+              )}
             </Section>
           ) : null}
 
@@ -219,7 +248,7 @@ function OrderView({ id }: { id: string }) {
         ) : null}
       </div>
 
-      {releaseOpen ? <ReleaseDialog onClose={() => setReleaseOpen(false)} onRelease={(reason) => releaseStock(id, reason)} /> : null}
+      {releaseOpen ? <ReleaseDialog onClose={() => setReleaseOpen(false)} onRelease={(reason) => releaseStock(id, orderNumber, reason)} /> : null}
     </div>
   );
 }
@@ -228,8 +257,9 @@ function ShipmentCard({ orderId, shipment, delivery }: { orderId: string; shipme
   const scope = useRoleScope();
   const confirm = useConfirm();
   const staff = !scope.isDesigner;
-  // The delivery code belongs to the customer, so only staff screens load the record that holds it.
-  const logistics = useQueryRows("logistics_response", { where: [["swftTrackID", "==", shipment.trackingId]], limit: 1, enabled: staff && Boolean(shipment.trackingId) }).rows[0]?.data;
+  const admin = scope.isSuperAdmin;
+  // The delivery code belongs to the customer: as in the old panel only a super admin sees it, and only their screen loads the record that holds it.
+  const logistics = useQueryRows("logistics_response", { where: [["swftTrackID", "==", shipment.trackingId]], limit: 1, enabled: admin && Boolean(shipment.trackingId) }).rows[0]?.data;
   const status = text(delivery?.status) || shipment.status;
   const otpStatus = text(delivery?.otp_verification_status) || text(logistics?.otp_verification_status);
   const otp = customerShipmentOtpLabel({ pickupOtp: shipment.otp || text(logistics?.pickup_otp), otpVerificationStatus: otpStatus, deliveryStatus: status.toLowerCase() });
@@ -261,7 +291,7 @@ function ShipmentCard({ orderId, shipment, delivery }: { orderId: string; shipme
       </div>
       <Fact label="Tracking" ltr>{shipment.trackingId || "—"}</Fact>
       <Fact label="Items">{shipment.productIds.length}</Fact>
-      {staff && otp ? <Fact label="Delivery code" ltr>{otp.replace(/^OTP\s*:\s*/, "")}</Fact> : null}
+      {admin && otp ? <Fact label="Delivery code" ltr>{otp.replace(/^OTP\s*:\s*/, "")}</Fact> : null}
       {otpStatus ? <Fact label="Code check">{statusText(otpStatus)}</Fact> : null}
       {steps.map((step, index) => (
         <Fact key={index} label={statusText(step.status)}>{formatDate(step.dateTime, true)}</Fact>
@@ -353,8 +383,9 @@ function ReleaseDialog({ onClose, onRelease }: { onClose: () => void; onRelease:
       confirmDisabled={!reason}
       onConfirm={async () => {
         if (!reason) return;
-        await onRelease(reason);
-        toast.success(reason === "cancelled" ? "Stock released and back on sale." : "Stock released as shipped.");
+        const outcome = describeRelease(await onRelease(reason), reason);
+        if (outcome.ok) toast.success(outcome.message);
+        else toast.warning(outcome.message);
       }}
     >
       <div className="grid gap-2">

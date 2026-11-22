@@ -10,11 +10,11 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { TextareaField } from "@/components/shared/fields";
 import { PageLoading } from "@/components/shared/page-loading";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { useDocRow } from "@/lib/firestore-ui";
+import { useDocRow, useQueryRows } from "@/lib/firestore-ui";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
 import { createShippingRequest, loadRequestContext } from "./data";
-import { addressLine, dict, isPaid, lineKey, readAddress, text, type Dict } from "./model";
+import { addressLine, dict, isPaid, lineKey, readAddress, readJob, text, type Dict } from "./model";
 import { Fact, LineRow, Section } from "./parts";
 import { buildRequest, requestGroups, type RequestGroup } from "./shipping-model";
 
@@ -33,23 +33,26 @@ export function ShippingRequestPage() {
   const id = useSearchParams().get("id");
   const scope = useRoleScope();
   if (scope.isDesigner) return <EmptyState icon={PackageX} title="Shipping requests are made by Azyaa staff" description="Mark your item ready for pickup on the order and the courier is booked for you." />;
+  if (!scope.isSuperAdmin) return <EmptyState icon={PackageX} title="Only a super admin can request shipping by hand" description="Shipping is requested automatically. Ask a super admin when an order is stuck." action={queueLink} />;
   if (!id) return <EmptyState icon={Truck} title="Choose an order first" description="Shipping is requested automatically. To request it by hand, open an order from the fulfilment queue and choose “Request shipping by hand”." action={queueLink} />;
   return <RequestView key={id} id={id} />;
 }
 
 function RequestView({ id }: { id: string }) {
   const { row, loading, error, missing } = useDocRow("orders", id);
+  const orderNumber = text(row?.data.order_id);
+  const jobs = useQueryRows("store_valley_delivery_jobs", { where: [["order_id", "==", orderNumber]], enabled: Boolean(orderNumber) });
   const back = (
     <Link href={`/order-details?id=${encodeURIComponent(id)}`} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "bg-card")}>
       <ArrowLeft className="rtl:rotate-180" /> Back to the order
     </Link>
   );
-  if (loading) return <PageLoading label="Loading the order…" />;
+  if (loading || jobs.loading) return <PageLoading label="Loading the order…" />;
   if (error) return <EmptyState icon={PackageX} title="The order could not be loaded" description={error} action={queueLink} />;
   if (missing || !row) return <EmptyState icon={PackageX} title="This order does not exist" action={queueLink} />;
 
   const order = row.data;
-  const groups = requestGroups(order);
+  const groups = requestGroups(order, jobs.rows.map(readJob));
   const customer = readAddress(order.shipping_address);
   return (
     <div className="space-y-3">
@@ -66,7 +69,7 @@ function RequestView({ id }: { id: string }) {
         <EmptyState
           icon={Truck}
           title="Nothing needs a request by hand"
-          description={isPaid(order) ? "Every item is either already on a delivery, waiting for its designer, or covered by a request that is still open." : "The order is not paid, so nothing ships yet."}
+          description={isPaid(order) ? "Every item is already on a delivery, waiting for its designer, or covered by a request the server is still handling. If a request failed, use “Retry delivery requests” on the order." : "The order is not paid, so nothing ships yet."}
           action={back}
         />
       ) : (
@@ -114,10 +117,11 @@ function RequestCard({ orderId, order, group }: { orderId: string; order: Dict; 
     if (!sure) return;
     setBusy(true);
     try {
-      const tracking = await createShippingRequest(orderId, group.key, (fresh) => requestGroups(fresh).find((item) => item.key === group.key), notes, scope);
-      toast.success(`Request sent. Tracking ${tracking}.`);
+      const done = await createShippingRequest(orderId, group.key, notes, scope);
+      toast.success(`${done.reused ? "Store Valley already had this request; it is now recorded on the order" : "Request sent"}. Tracking ${done.trackingId}.${done.stockNote}`);
     } catch (err) {
-      toast.error(`The request was not sent: ${err instanceof Error ? err.message : "unknown error"}`);
+      // The message says whether Store Valley took the request; it is not always "not sent".
+      toast.error(err instanceof Error ? err.message : "The request failed for an unknown reason.", { duration: 20000 });
     } finally {
       setBusy(false);
     }

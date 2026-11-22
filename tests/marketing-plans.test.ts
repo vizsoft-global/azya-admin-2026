@@ -10,6 +10,7 @@ import {
   packFormFromDoc,
   packUpdatePayload,
   planCreatePayload,
+  planNumber,
   planFormFromDoc,
   planUpdatePayload,
   statusChange,
@@ -67,6 +68,28 @@ describe("membership plans", () => {
   it("numbers a new plan after the largest in use", () => {
     expect(nextPlanId([1, 2, 7, "x", null, 3.5])).toBe(8);
     expect(nextPlanId([])).toBe(1);
+  });
+  it("issues plan numbers from a counter that moves on every time", () => {
+    // First plan ever added from here: no counter yet, so it starts after the highest number in use.
+    expect(planNumber(undefined, [1, 2, 7])).toEqual({ planId: 8, nextCounter: 9 });
+    expect(planNumber(undefined, [])).toEqual({ planId: 1, nextCounter: 2 });
+    // Normal case: the counter holds the number to use next.
+    expect(planNumber(9, [1, 2, 7, 8])).toEqual({ planId: 9, nextCounter: 10 });
+    // A plan was added some other way with a higher number: never reuse it.
+    expect(planNumber(9, [1, 2, 12])).toEqual({ planId: 13, nextCounter: 14 });
+    // A broken counter value is ignored rather than trusted.
+    expect(planNumber("9", [3])).toEqual({ planId: 4, nextCounter: 5 });
+    expect(planNumber(-2, [3])).toEqual({ planId: 4, nextCounter: 5 });
+  });
+  it("gives two people saving at the same moment different numbers", () => {
+    // Both read the same plan list before saving. The first transaction commits and moves the counter on;
+    // the second is re-run by the database against the new counter.
+    const seenByBoth = [1, 2, 7];
+    const first = planNumber(undefined, seenByBoth);
+    const second = planNumber(first.nextCounter, seenByBoth);
+    expect(first.planId).toBe(8);
+    expect(second.planId).toBe(9);
+    expect(second.nextCounter).toBe(10);
   });
   it("updates single features by dotted path", () => {
     const before = planFormFromDoc(planCreatePayload(form, 4, "NOW"));

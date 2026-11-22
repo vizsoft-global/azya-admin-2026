@@ -135,8 +135,12 @@ export async function repairProductNumbers(id: string, repairs: NumberRepair[]) 
   await updateDoc(doc(getFirebase().db, PRODUCTS, id), numberRepairPatch(repairs, deleteField()));
 }
 
-/** Super admins only: writes an edited copy of the whole record back. Fields removed from the text are kept. */
-export async function saveRawProduct(id: string, text: string) {
+/**
+ * Super admins only: writes the given top-level fields of the record, in the tagged form the
+ * raw editor shows (references and dates marked). Every other field is left as it is now.
+ */
+export async function saveRawProduct(id: string, changes: Data) {
+  if (!Object.keys(changes).length) return;
   const { db } = getFirebase();
-  await updateDoc(doc(db, PRODUCTS, id), { ...jsonToDoc(text, db), updated_at: serverTimestamp() });
+  await updateDoc(doc(db, PRODUCTS, id), { ...jsonToDoc(JSON.stringify(changes), db), updated_at: serverTimestamp() });
 }

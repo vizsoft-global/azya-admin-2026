@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canOwnProducts,
+  coverageNote,
   dateRange,
   designerName,
   designerNameMap,
@@ -8,6 +9,7 @@ import {
   exportRow,
   isLowStock,
   matchesProductFilters,
+  pendingCountFilters,
   productInScope,
   productItem,
   productStats,
@@ -178,6 +180,21 @@ describe("filters", () => {
     const line = exportRow(items[0]);
     expect(line).toHaveLength(EXPORT_HEADERS.length);
     expect(line).toEqual(["AZYPRD1", "Product 1", "ready", 20, "", 2, "Dana Studio", "active", "2026-11-20"]);
+  });
+});
+
+describe("figures that cover only part of the catalogue", () => {
+  it("counts products waiting for approval on the server: all for staff, their own for a designer", () => {
+    expect(pendingCountFilters(staff)).toEqual([["status", "==", "request"]]);
+    expect(pendingCountFilters(designer)).toEqual([
+      ["status", "==", "request"],
+      ["product_authorizer.product_designer_id", "==", "d1"],
+    ]);
+  });
+
+  it("says so when a figure covers only the products loaded so far", () => {
+    expect(coverageNote(100, true)).toBe("Of the 100 products loaded so far");
+    expect(coverageNote(42, false)).toBe("");
   });
 });
 

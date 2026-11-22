@@ -207,6 +207,24 @@ export function productInScope(scope: RoleScope, data: Data) {
   return ownedInScope(scope, rec(data.product_authorizer).product_designer_id);
 }
 
+/**
+ * The server-side filters that count the products waiting for approval:
+ * every such product for staff, only their own for a designer.
+ */
+export function pendingCountFilters(scope: Pick<RoleScope, "isDesigner" | "uid">): [field: string, op: "==", value: string][] {
+  const filters: [string, "==", string][] = [["status", "==", "request"]];
+  if (scope.isDesigner) filters.push(["product_authorizer.product_designer_id", "==", scope.uid]);
+  return filters;
+}
+
+/**
+ * Says when a figure or a filter covers only part of the catalogue: the
+ * products loaded so far, not all of them. Empty when everything is loaded.
+ */
+export function coverageNote(loaded: number, hasMore: boolean) {
+  return hasMore ? `Of the ${loaded} products loaded so far` : "";
+}
+
 /* ---------- Headline numbers ---------- */
 
 export type ProductStats = { total: number; pending: number; lowStock: number; bestSeller: ProductItem | null };

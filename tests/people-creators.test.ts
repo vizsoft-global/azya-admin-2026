@@ -31,7 +31,10 @@ import {
   contractUpdate,
   creatorBankUpdate,
   hasContract,
+  NO_PAYMENT_TEXT,
+  hasRecordedPayment,
   normaliseIban,
+  payoutLines,
   payoutPath,
   readContract,
   readDesignerBank,
@@ -333,6 +336,30 @@ describe("payout and bank details", () => {
     expect(payout.lastDate?.toISOString()).toBe("2026-03-01T00:00:00.000Z");
     expect(readPayout({}, "designer")).toMatchObject({ total: 0, pending: 0, completed: 0, lastAmount: null, lastDate: null, bankName: "" });
     expect(bankFormOf(payout)).toEqual({ bankName: "NBK", holder: "Dana K", accountNumber: "1234567890", iban: "KW81CBKU0000000000001234560101" });
+  });
+
+  it("says no payment is recorded instead of showing zeros", () => {
+    // What approval writes: zeros and no last payout.
+    const fresh = readPayout({ creator_main_info: { creator_payout_info: { status: "active", total_payout: 0, pending_payout: 0, completed_payout: 0, sale_history_id: "77" } } }, "creator");
+    expect(hasRecordedPayment(fresh)).toBe(false);
+    expect(payoutLines(fresh)).toEqual({ recorded: false, paid: NO_PAYMENT_TEXT, completed: NO_PAYMENT_TEXT, last: NO_PAYMENT_TEXT, pending: "Nothing waiting" });
+    expect(NO_PAYMENT_TEXT).toBe("No payment recorded");
+    expect(payoutLines(readPayout({}, "designer")).paid).toBe("No payment recorded");
+    // Money waiting is still shown when nothing has been paid yet.
+    const waiting = readPayout({ designer_main_info: { designer_payout_info: { pending_payout: 12.5 } } }, "designer");
+    expect(payoutLines(waiting)).toMatchObject({ recorded: false, paid: NO_PAYMENT_TEXT, pending: "12.500 KWD" });
+  });
+
+  it("shows the figures once a payment is recorded", () => {
+    const lines = payoutLines(readPayout(data, "creator"));
+    expect(lines).toMatchObject({ recorded: true, paid: "120.500 KWD", completed: "110.500 KWD", pending: "10.000 KWD" });
+    expect(lines.last.startsWith("50.000 KWD on ")).toBe(true);
+    // Any one sign of a payment counts, and a missing amount or date is never shown as zero.
+    const dateOnly = readPayout({ creator_main_info: { creator_payout_info: { last_payout_date: "2026-03-01T00:00:00Z" } } }, "creator");
+    expect(hasRecordedPayment(dateOnly)).toBe(true);
+    expect(payoutLines(dateOnly).last.startsWith("on ")).toBe(true);
+    const totalOnly = readPayout({ creator_main_info: { creator_payout_info: { total_payout: 30, completed_payout: 30 } } }, "creator");
+    expect(payoutLines(totalOnly)).toMatchObject({ recorded: true, paid: "30.000 KWD", last: "Date not recorded", pending: "Nothing waiting" });
   });
 
   it("reads a designer's own bank details", () => {

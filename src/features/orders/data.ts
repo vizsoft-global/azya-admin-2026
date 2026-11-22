@@ -23,7 +23,7 @@ import { idMapRef, takeIds } from "@/lib/id-map";
 import type { RoleScope } from "@/lib/role-scope";
 import { StoreValleyConfig } from "@/lib/store-valley/config";
 import { inventoryDocId } from "@/lib/store-valley/inventory";
-import { dict, orderLines, text, withLineReady, withShipmentCancelled, type Dict, type ReleaseReason, type Shipment } from "./model";
+import { dict, orderLines, readJob, releaseBlock, text, withLineReady, withShipmentCancelled, type Dict, type Job, type ReleaseReason, type RetryPlan, type Shipment } from "./model";
 import {
   RETURN_STATUS,
   bookReturnPickup,
@@ -37,7 +37,7 @@ import {
   type SvRequest,
   type SvResponse,
 } from "./returns-model";
-import { buildRequest, deliveryRecord, requestTrackingId, withRequestRecorded, type RequestGroup } from "./shipping-model";
+import { acceptedButNotRecorded, buildRequest, deliveryRecord, existingRequest, requestGroups, requestTrackingId, withRequestRecorded, type RequestGroup } from "./shipping-model";
 
 const db = () => getFirebase().db;
 
@@ -63,8 +63,34 @@ export function retryStockReservation(orderDocId: string) {
   return callFunction(StoreValleyConfig.reserveWarehouseStockCallableName, { order_id: orderDocId, retry: true });
 }
 
-export const retryDeliveryRequests = (orderDocId: string) => retryStoreValleyDelivery(orderDocId);
-export const releaseStock = (orderDocId: string, reason: ReleaseReason) => releaseWarehouseStock({ orderId: orderDocId, reason });
+/**
+ * Carries out a retry plan. The shared wrapper can only retry a whole order,
+ * which queues every failed job again; a single job is retried with `job_id`.
+ */
+export async function runRetry(orderDocId: string, plan: RetryPlan) {
+  if (plan.kind === "order") await retryStoreValleyDelivery(orderDocId);
+  if (plan.kind === "jobs") for (const jobId of plan.jobIds) await callFunction(StoreValleyConfig.retryStoreValleyDeliveryCallableName, { job_id: jobId });
+}
+
+/** The server's delivery jobs of an order, by its order number (`order_id`, not the document id). */
+export async function loadJobs(orderNumber: string): Promise<Job[]> {
+  if (!orderNumber) return [];
+  const snap = await getDocs(query(collection(db(), "store_valley_delivery_jobs"), where("order_id", "==", orderNumber)));
+  return snap.docs.map((item) => readJob({ id: item.id, data: item.data() }));
+}
+
+/**
+ * Releases the reserved stock of an order and returns the function's result.
+ * It first re-reads the delivery jobs: a failed job the server is still
+ * retrying would ship the order after the release, and the panel cannot stop
+ * that job (database rules refuse client writes to job records), so the
+ * release is refused until the job is no longer retried.
+ */
+export async function releaseStock(orderDocId: string, orderNumber: string, reason: ReleaseReason) {
+  const blocked = releaseBlock(await loadJobs(orderNumber));
+  if (blocked) throw new Error(blocked);
+  return releaseWarehouseStock({ orderId: orderDocId, reason });
+}
 
 /* ---------- small live readers the shared hooks do not cover ---------- */
 
@@ -225,32 +251,58 @@ export async function loadRequestContext(group: RequestGroup) {
   return { inventory, designer };
 }
 
-/** Raises one request at Store Valley and records it the way the server's own delivery jobs do. Returns the tracking id. */
-export async function createShippingRequest(orderDocId: string, groupKey: string, pick: (order: Dict) => RequestGroup | undefined, notes: string, scope: RoleScope) {
+/**
+ * Raises one request at Store Valley and records it the way the server's own
+ * delivery jobs do. Like those jobs it first asks whether the request already
+ * exists under its id and reuses it, so pressing Send twice, or again after a
+ * failed save, never posts (and mails a delivery code) a second time.
+ */
+export async function createShippingRequest(orderDocId: string, groupKey: string, notes: string, scope: RoleScope): Promise<{ trackingId: string; reused: boolean; stockNote: string }> {
   const store = db();
   const ref = doc(store, "orders", orderDocId);
   const order = await docData(ref);
-  const group = order ? pick(order) : undefined;
-  if (!order || !group || group.key !== groupKey) throw new Error("These items no longer need a request. Reload the order.");
-  const built = buildRequest({ order, group, notes, ...(await loadRequestContext(group)) });
+  const group = order ? requestGroups(order, await loadJobs(text(order.order_id))).find((item) => item.key === groupKey) : undefined;
+  if (!order || !group) throw new Error("These items no longer need a request by hand: they are on a delivery, or the server is handling them. Reload the order.");
+  const context = await loadRequestContext(group);
+
+  let built = buildRequest({ order, group, notes, ...context });
+  let found: SvResponse | null = null;
+  for (let skip = 0; built.ok && skip < 5; skip += 1) {
+    const existing = await storeValley({ method: "GET", path: built.lookupPath }).catch(() => null);
+    const state = existing ? existingRequest(existing) : "none";
+    if (state === "open") found = existing;
+    if (state !== "cancelled") break;
+    built = buildRequest({ order, group, notes, ...context, skip: skip + 1 });
+  }
   if (!built.ok) throw new Error(built.message);
 
-  const response = await storeValley({ method: "POST", path: built.path, body: built.body, notifyCustomer: built.notifyCustomer });
+  const response = found ?? (await storeValley({ method: "POST", path: built.path, body: built.body, notifyCustomer: built.notifyCustomer }));
   if (response.status < 200 || response.status >= 300) throw new Error(text(response.body.message) || "Store Valley refused the request. Nothing was recorded.");
   const trackingId = requestTrackingId(built.path, response.body);
   if (!trackingId) throw new Error("Store Valley accepted the request but returned no tracking number. Check Store Valley before trying again.");
 
   const deliveryRef = doc(collection(store, "delivery"));
   const now = Timestamp.now();
-  await runTransaction(store, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error("The order was deleted while the request was being made.");
-    tx.set(deliveryRef, deliveryRecord({ trackingId, deliveryType: built.deliveryType, orderRef: ref, assignedBy: approverOf(scope).ref, now }));
-    tx.update(ref, withRequestRecorded(snap.data(), { group, trackingId, deliveryType: built.deliveryType, deliveryRef, otp: response.pickup_otp ?? "", now }));
-  });
+  const deliveryType = built.deliveryType;
+  try {
+    await runTransaction(store, async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) throw new Error("the order was deleted while the request was being made");
+      tx.set(deliveryRef, deliveryRecord({ trackingId, deliveryType, orderRef: ref, assignedBy: approverOf(scope).ref, now }));
+      tx.update(ref, withRequestRecorded(snap.data(), { group, trackingId, deliveryType, deliveryRef, otp: response.pickup_otp ?? "", now }));
+    });
+  } catch (error) {
+    throw new Error(acceptedButNotRecorded(trackingId, error instanceof Error ? error.message : String(error)));
+  }
+
+  let stockNote = "";
   if (group.kind === "warehouse") {
     // Same as the server after its own request: the reserved units have left the shelf.
-    await releaseWarehouseStock({ orderId: orderDocId, reason: "shipped", productIds: built.productIds }).catch(() => undefined);
+    try {
+      await releaseWarehouseStock({ orderId: orderDocId, reason: "shipped", productIds: built.productIds });
+    } catch (error) {
+      stockNote = ` The reserved stock was not released (${error instanceof Error ? error.message : "unknown error"}); release it as shipped on the order.`;
+    }
   }
-  return trackingId;
+  return { trackingId, reused: Boolean(found), stockNote };
 }

@@ -37,8 +37,8 @@ export function RecordPanel({
   /** Action boxes for the selected row, shown beside the table. `notify` shows a toast. */
   extra?: (row: Row | null, notify: (text: string) => void) => ReactNode;
 }) {
-  const { allowed } = useAuth();
-  const superAdmin = allowed("super_admin");
+  const { scope } = useAuth();
+  const superAdmin = scope.isSuperAdmin;
   const { rows, loading, error, hasMore, loadMore } = useCollection(route.collection, 100, route.filters);
   const params = useSearchParams();
   const [selected, setSelected] = useState<string | null>(null);

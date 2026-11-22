@@ -3,8 +3,10 @@ import { promotionFacts, summariseCreator, toOrderFacts, type PromotionSales } f
 import {
   accountNumberValue,
   allocateToPromotions,
+  amountProblem,
   designerRecordLimit,
   nextPayoutStatus,
+  payoutInfoUpdate,
   payoutRecord,
   payoutStatusLabel,
   promotionsAfterPayout,
@@ -207,5 +209,61 @@ describe("designer record limit", () => {
     expect(designerRecordLimit(100, 30)).toBe(70);
     expect(designerRecordLimit(100, 130)).toBe(0);
     expect(designerRecordLimit(0.3, 0.1)).toBe(0.2);
+  });
+});
+
+describe("amounts that cannot be recorded", () => {
+  it("accepts only a real number above zero", () => {
+    expect(amountProblem(0.001)).toBe("");
+    expect(amountProblem(12.5)).toBe("");
+    expect(amountProblem(0)).toBe("The amount must be more than zero.");
+    expect(amountProblem(-5)).toBe("The amount must be more than zero.");
+    expect(amountProblem(Number.NaN)).toBe("The amount is not a number.");
+    expect(amountProblem(Number.POSITIVE_INFINITY)).toBe("The amount is not a number.");
+    expect(amountProblem("12")).toBe("The amount is not a number.");
+    expect(amountProblem(null)).toBe("The amount is not a number.");
+  });
+
+  it("is refused by the form check too", () => {
+    expect(validatePayment(form({ amount: Number.NaN }), 10, now).amount).toBe("The amount is not a number.");
+    expect(validatePayment(form({ amount: Number.POSITIVE_INFINITY }), 10, now).amount).toBe("The amount is not a number.");
+    expect(validatePayment(form({ amount: -1 }), 10, now).amount).toBe("The amount must be more than zero.");
+  });
+});
+
+describe("payout figures on the user record", () => {
+  const paidAt = new Date(2026, 10, 21);
+
+  it("adds to a creator's completed and total payouts, as the Flutter Add Amount did", () => {
+    expect(payoutInfoUpdate("creator", { completed_payout: 14099, total_payout: 14099, pending_payout: 201, bank_name: "NBK" }, { now: "NOW", amount: 50.5, paidAt })).toEqual({
+      "creator_main_info.creator_payout_info.last_payout_amount": 50.5,
+      "creator_main_info.creator_payout_info.last_payout_date": paidAt,
+      "creator_main_info.creator_payout_info.completed_payout": 14149.5,
+      "creator_main_info.creator_payout_info.total_payout": 14149.5,
+      "creator_main_info.creator_payout_info.updated_at": "NOW",
+    });
+  });
+
+  it("writes the designer paths without updated_at", () => {
+    expect(payoutInfoUpdate("designer", { completed_payout: 0.1, total_payout: 0.2 }, { now: "NOW", amount: 0.2, paidAt })).toEqual({
+      "designer_main_info.designer_payout_info.last_payout_amount": 0.2,
+      "designer_main_info.designer_payout_info.last_payout_date": paidAt,
+      "designer_main_info.designer_payout_info.completed_payout": 0.3,
+      "designer_main_info.designer_payout_info.total_payout": 0.4,
+    });
+  });
+
+  it("starts from zero when the figures are missing or not numbers, and never touches pending_payout or bank details", () => {
+    for (const stored of [undefined, null, {}, { completed_payout: "x", total_payout: null }]) {
+      const update = payoutInfoUpdate("creator", stored, { now: "NOW", amount: 7, paidAt });
+      expect(update["creator_main_info.creator_payout_info.completed_payout"]).toBe(7);
+      expect(update["creator_main_info.creator_payout_info.total_payout"]).toBe(7);
+      expect(Object.keys(update).some((key) => key.endsWith("pending_payout") || key.endsWith("bank_name") || key.endsWith("IBAN"))).toBe(false);
+    }
+  });
+
+  it("uses dotted paths only, so the rest of the user record is left as it is", () => {
+    const keys = Object.keys(payoutInfoUpdate("designer", {}, { now: "NOW", amount: 1, paidAt }));
+    expect(keys.every((key) => key.startsWith("designer_main_info.designer_payout_info."))).toBe(true);
   });
 });

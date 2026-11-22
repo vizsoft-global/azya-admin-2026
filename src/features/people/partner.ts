@@ -1,4 +1,4 @@
-import { toDate, toNumber } from "@/lib/format";
+import { formatDate, formatMoney, toDate, toNumber } from "@/lib/format";
 import { record, text } from "./util";
 
 /**
@@ -93,6 +93,31 @@ export function readPayout(data: Record<string, unknown> | null | undefined, kin
     holder: text(info.account_holder_name),
     accountNumber: text(info.account_number),
     iban: text(info.IBAN),
+  };
+}
+
+/**
+ * True once a payment to this person has been recorded on their profile. The
+ * totals start at zero on approval, so zeros alone mean "nothing recorded yet",
+ * not "paid nothing".
+ */
+export function hasRecordedPayment(payout: Pick<Payout, "total" | "completed" | "lastAmount" | "lastDate">): boolean {
+  return payout.total > 0 || payout.completed > 0 || (payout.lastAmount ?? 0) > 0 || payout.lastDate !== null;
+}
+
+export const NO_PAYMENT_TEXT = "No payment recorded";
+
+/** What the Payouts card shows. Paid figures appear only when a payment has been recorded; otherwise the card says so instead of showing 0.000. */
+export function payoutLines(payout: Payout): { recorded: boolean; paid: string; completed: string; last: string; pending: string } {
+  const recorded = hasRecordedPayment(payout);
+  const lastAmount = payout.lastAmount !== null && payout.lastAmount > 0 ? formatMoney(payout.lastAmount) : "";
+  const lastDate = payout.lastDate ? formatDate(payout.lastDate) : "";
+  return {
+    recorded,
+    paid: recorded ? formatMoney(payout.total) : NO_PAYMENT_TEXT,
+    completed: recorded ? formatMoney(payout.completed) : NO_PAYMENT_TEXT,
+    last: recorded ? [lastAmount, lastDate && `on ${lastDate}`].filter(Boolean).join(" ") || "Date not recorded" : NO_PAYMENT_TEXT,
+    pending: payout.pending > 0 ? formatMoney(payout.pending) : "Nothing waiting",
   };
 }
 

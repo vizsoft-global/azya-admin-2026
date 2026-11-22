@@ -1,3 +1,5 @@
+import { isFulfillComplete } from "@/lib/store-valley/intake-tracking";
+import { isRestock } from "@/lib/store-valley/request-type";
 import { DELETE, inc, NOW, type Patch, type RequestView } from "./model";
 
 /**
@@ -14,6 +16,39 @@ export function enquiryProblem(input: { issueType: string; affectedQty: number |
   if (!input.issueType) return "Choose the issue type.";
   if (input.affectedQty == null || !Number.isInteger(input.affectedQty) || input.affectedQty < 1) return "Enter how many pieces are affected (1 or more).";
   if (input.requestedQty > 0 && input.affectedQty > input.requestedQty) return `Affected quantity cannot be more than the ${input.requestedQty} requested.`;
+  return null;
+}
+
+/**
+ * Guards for the three stock moves. Each is checked on a copy of the request
+ * read inside the same transaction that writes, so two tabs (or this panel and
+ * the old admin) cannot apply one move twice.
+ */
+
+/** Why an enquiry cannot be raised on this request now, or null. */
+export function raiseEnquiryBlocked(view: RequestView): string | null {
+  if (view.enquiry.status !== "" || view.enquiry.id !== "") return `Enquiry ${view.enquiry.id || "for this restock"} was already raised. Nothing was changed.`;
+  if (!isRestock(view.requestType)) return "An enquiry can only be raised on a restock. Nothing was changed.";
+  if (view.requestStatus !== "Accepted" || !isFulfillComplete(view.fulfillStatus)) return "An enquiry can only be raised once the restock is completed. Nothing was changed.";
+  return null;
+}
+
+const OPEN_STAGES = ["Enquiry open", "DeliveryPartnerAssigned"];
+
+/** Why this enquiry cannot be cancelled now, or null. */
+export function cancelEnquiryBlocked(view: RequestView): string | null {
+  if (view.enquiry.status === "") return "This request has no enquiry to cancel. Nothing was changed.";
+  if (view.enquiry.status === "Cancelled" || view.enquiry.fulfillStatus === "Cancelled") return "This enquiry was already cancelled. Nothing was changed.";
+  if (view.enquiry.fulfillStatus === "Received") return "This enquiry was already closed as received, so it cannot be cancelled. Nothing was changed.";
+  if (!OPEN_STAGES.includes(view.enquiry.fulfillStatus)) return "This enquiry is no longer open, so it cannot be cancelled. Nothing was changed.";
+  return null;
+}
+
+/** Why the returned pieces cannot be marked received now, or null. */
+export function receiveEnquiryBlocked(view: RequestView): string | null {
+  if (view.enquiry.fulfillStatus === "Received") return "This enquiry was already closed as received. Nothing was changed.";
+  if (view.enquiry.status === "Cancelled" || view.enquiry.fulfillStatus === "Cancelled") return "This enquiry was cancelled, so there is nothing to receive. Nothing was changed.";
+  if (view.enquiry.fulfillStatus !== "DeliveryPartnerAssigned") return "The return shipment for this enquiry has not been booked yet. Nothing was changed.";
   return null;
 }
 

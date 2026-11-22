@@ -6,6 +6,7 @@ import {
   duplicateIds,
   emptyTaxonomyForm,
   firstFreeId,
+  manualText,
   matchesStatusFilter,
   TAXONOMY,
   taxonomyFormFrom,
@@ -21,7 +22,9 @@ import {
   buildTranslationPatch,
   isTranslationType,
   manualState,
+  mergeTranslation,
   originalText,
+  touchTranslation,
   TRANSLATION_TYPES,
   translationFormFrom,
 } from "@/features/catalog/translation";
@@ -32,8 +35,14 @@ const REMOVE = { marker: "delete field" };
 const form = (extra: Partial<TaxonomyForm> = {}): TaxonomyForm => ({ ...emptyTaxonomyForm(), name: "Evening", description: "Evening wear", serialNo: 3, ...extra });
 
 describe("where each kind lives", () => {
-  it("uses the stored collection and field names, including the misspelt category one", () => {
-    expect(TAXONOMY.category).toMatchObject({ collection: "category", idField: "category_id", infoField: "category_info", customField: "category_info_custome_translate", counter: "category_id" });
+  it("writes a category's manual translation where the app reads it, and only reads the old misspelt field", () => {
+    expect(TAXONOMY.category.customField).toBe("category_info_custom_translate");
+    expect(TAXONOMY.category.legacyCustomField).toBe("category_info_custome_translate");
+    expect(TAXONOMY.tag.legacyCustomField).toBeUndefined();
+  });
+
+  it("uses the stored collection and field names", () => {
+    expect(TAXONOMY.category).toMatchObject({ collection: "category", idField: "category_id", infoField: "category_info", counter: "category_id" });
     expect(TAXONOMY.tag).toMatchObject({ collection: "tags", idField: "tag_id", infoField: "tag_info", customField: "tag_info_custom_translate", counter: "tag_id" });
     expect(TAXONOMY.attribute).toMatchObject({ collection: "attributes", idField: "attribute_id", infoField: "attribute_info", counter: "attribute_id", topSerial: true });
     expect(TAXONOMY.term).toMatchObject({ collection: "brands", idField: "brand_id", infoField: "brand_info", counter: "brand_id", hasColor: true });
@@ -170,9 +179,25 @@ describe("reading", () => {
     const tag = { tag_id: "1005", tag_info: { name: "Typed" }, tag_info_translate: { name: { en: "Auto", ar: "آلي" } }, tag_info_custom_translate: { name: { en: "", ar: "يدوي" } } };
     expect(taxonomyName(tag, "tag", "en")).toBe("Auto");
     expect(taxonomyName(tag, "tag", "ar")).toBe("يدوي");
-    expect(taxonomyName({ category_info: { name: "Typed" }, category_info_custome_translate: { name: { en: "Manual" } } }, "category")).toBe("Manual");
+    expect(taxonomyName({ category_info: { name: "Typed" }, category_info_custom_translate: { name: { en: "Manual" } } }, "category")).toBe("Manual");
     expect(taxonomyId(tag, "tag")).toBe("1005");
     expect(taxonomySerial({ brand_info: { serial_no: "4" } }, "term")).toBe(4);
+  });
+
+  it("still shows a category name kept only in the old misspelt field, and prefers the real field", () => {
+    const legacyOnly = { category_info: { name: "Typed" }, category_info_custome_translate: { name: { en: "Old manual", ar: "قديم" } } };
+    expect(taxonomyName(legacyOnly, "category", "en")).toBe("Old manual");
+    expect(taxonomyName(legacyOnly, "category", "ar")).toBe("قديم");
+    const both = { ...legacyOnly, category_info_custom_translate: { name: { en: "New manual" } } };
+    expect(taxonomyName(both, "category", "en")).toBe("New manual");
+    expect(taxonomyName(both, "category", "ar")).toBe("قديم");
+    expect(manualText(both, TAXONOMY.category, "name")).toEqual({ en: "New manual", ar: "قديم" });
+  });
+
+  it("treats an emptied text in the real field as cleared, not as a reason to fall back", () => {
+    const cleared = { category_info: { name: "Typed" }, category_info_custome_translate: { name: { en: "Old manual" } }, category_info_custom_translate: { name: { en: "" } } };
+    expect(manualText(cleared, TAXONOMY.category, "name").en).toBe("");
+    expect(taxonomyName(cleared, "category", "en")).toBe("Typed");
   });
 
   it("lists the terms of an attribute in their order, leaving out other attributes' terms", () => {
@@ -198,7 +223,7 @@ describe("translations", () => {
 
   it("knows where each type keeps its three copies", () => {
     expect(TRANSLATION_TYPES.product).toMatchObject({ collection: "products", infoField: "product_info", autoField: "product_info_translate", customField: "product_info_custom_translate" });
-    expect(TRANSLATION_TYPES.category.customField).toBe("category_info_custome_translate");
+    expect(TRANSLATION_TYPES.category).toMatchObject({ customField: "category_info_custom_translate", legacyCustomField: "category_info_custome_translate" });
     expect(TRANSLATION_TYPES.term).toMatchObject({ collection: "brands", customField: "brand_info_custom_translate" });
     expect(isTranslationType("tag")).toBe(true);
     expect(isTranslationType("banner")).toBe(false);
@@ -214,9 +239,11 @@ describe("translations", () => {
 
   it("writes only the manual texts that changed, and never the automatic map", () => {
     const base = translationFormFrom(product, "product");
-    expect(buildTranslationPatch(base, base, "product", NOW)).toBeNull();
-    const next = { ...base, name: { en: "Silk Abaya ", ar: base.name.ar }, description: { en: "", ar: "وصف" } };
-    const patch = buildTranslationPatch(next, base, "product", NOW);
+    expect(buildTranslationPatch({}, base, "product", NOW)).toBeNull();
+    const draft = touchTranslation(touchTranslation({}, base, "name", "en", "Silk Abaya "), base, "description", "ar", "وصف");
+    expect(draft).toEqual({ "name.en": "Silk Abaya ", "description.ar": "وصف" });
+    expect(mergeTranslation(base, draft)).toEqual({ name: { en: "Silk Abaya ", ar: "عباية من الحرير" }, short_description: { en: "", ar: "" }, description: { en: "", ar: "وصف" } });
+    const patch = buildTranslationPatch(draft, base, "product", NOW);
     expect(patch).toEqual({
       "product_info_custom_translate.name.en": "Silk Abaya",
       "product_info_custom_translate.description.ar": "وصف",
@@ -225,14 +252,41 @@ describe("translations", () => {
     expect(Object.keys(patch!).some((key) => key.startsWith("product_info_translate"))).toBe(false);
   });
 
+  it("does not write back a text someone else changed while the editor was open", () => {
+    const opened = translationFormFrom(product, "product");
+    const draft = touchTranslation({}, opened, "description", "en", "A long silk abaya");
+    // Meanwhile a colleague rewrote the Arabic name and added an English one.
+    const later = translationFormFrom({ ...product, product_info_custom_translate: { name: { en: "Silk Abaya", ar: "عباية حريرية" } } }, "product");
+    expect(mergeTranslation(later, draft).name).toEqual({ en: "Silk Abaya", ar: "عباية حريرية" });
+    expect(buildTranslationPatch(draft, later, "product", NOW)).toEqual({ "product_info_custom_translate.description.en": "A long silk abaya", updated_at: NOW });
+  });
+
+  it("stops counting a box once it is put back to the stored text", () => {
+    const base = translationFormFrom(product, "product");
+    const draft = touchTranslation({}, base, "name", "ar", "شيء آخر");
+    expect(touchTranslation(draft, base, "name", "ar", base.name.ar)).toEqual({});
+  });
+
   it("clears a manual text with an empty string and uses each type's own field", () => {
     const base = translationFormFrom(product, "product");
-    expect(buildTranslationPatch({ ...base, name: { en: "", ar: "" } }, base, "product", NOW)).toEqual({ "product_info_custom_translate.name.ar": "", updated_at: NOW });
-    const empty = translationFormFrom({}, "category");
-    expect(buildTranslationPatch({ ...empty, name: { en: "Dresses", ar: "فساتين" } }, empty, "category", NOW)).toEqual({
-      "category_info_custome_translate.name.en": "Dresses",
-      "category_info_custome_translate.name.ar": "فساتين",
+    expect(buildTranslationPatch({ "name.ar": "", "name.en": "" }, base, "product", NOW)).toEqual({ "product_info_custom_translate.name.ar": "", updated_at: NOW });
+    const empty = translationFormFrom({}, "tag");
+    expect(buildTranslationPatch({ "name.en": "Summer", "name.ar": "صيف" }, empty, "tag", NOW)).toEqual({
+      "tag_info_custom_translate.name.en": "Summer",
+      "tag_info_custom_translate.name.ar": "صيف",
       updated_at: NOW,
     });
+  });
+
+  it("writes a category's translation to the field the app reads, never the misspelt one", () => {
+    const category = { category_info: { name: "Dresses" }, category_info_custome_translate: { name: { en: "Dresses", ar: "فساتين قديمة" } } };
+    const base = translationFormFrom(category, "category");
+    expect(base.name).toEqual({ en: "Dresses", ar: "فساتين قديمة" });
+    expect(manualState(category, "category")).toEqual({ en: true, ar: true });
+    const patch = buildTranslationPatch({ "name.ar": "فساتين" }, base, "category", NOW);
+    expect(patch).toEqual({ "category_info_custom_translate.name.ar": "فساتين", updated_at: NOW });
+    expect(Object.keys(patch!).some((key) => key.includes("custome"))).toBe(false);
+    // Clearing a text that only the old field holds stores an empty text in the real field, which then wins.
+    expect(buildTranslationPatch({ "name.ar": "" }, base, "category", NOW)).toEqual({ "category_info_custom_translate.name.ar": "", updated_at: NOW });
   });
 });

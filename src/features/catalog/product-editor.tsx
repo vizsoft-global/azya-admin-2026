@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { deleteField, serverTimestamp } from "firebase/firestore";
@@ -44,12 +44,16 @@ import {
   canArchive,
   canReject,
   changedFields,
+  changedTopLevelFields,
+  dropTouched,
+  emptyDraft,
   emptyProductForm,
   fieldSwitches,
   findNumberDamage,
   hasNumberDamage,
   isEmptyUpdate,
   manualRepairs,
+  mergeForm,
   productFormFrom,
   productName,
   productStatusLabel,
@@ -59,9 +63,11 @@ import {
   rejectReasonProblem,
   STAFF_STATUS_CHOICES,
   str,
+  touchForm,
   validateProductForm,
   type Data,
   type NumberDamage,
+  type ProductDraft,
   type ProductErrors,
   type ProductForm,
 } from "./product-model";
@@ -125,15 +131,20 @@ export function ProductEditor({ id }: { id: string }) {
   const listsReady = !inventory.loading && !lookups.categories.loading && !lookups.tags.loading;
 
   const base = useMemo(() => (data ? productFormFrom(data, { inventory: inventory.row?.data, categoryIds, tagIds }) : null), [data, inventory.row, categoryIds, tagIds]);
-  const [draft, setDraft] = useState<ProductForm | null>(null);
+  // Only the fields the person touched. Everything else on the form keeps following the stored
+  // record, so an approval or someone else's edit made meanwhile is never written back by Save.
+  const [draft, setDraft] = useState<ProductDraft>(emptyDraft);
   const [showErrors, setShowErrors] = useState(false);
   const [busy, setBusy] = useState("");
   const [rejecting, setRejecting] = useState(false);
 
-  const form = draft ?? base;
-  const changed = draft && base ? changedFields(draft, base) : [];
+  const form = useMemo(() => (base ? mergeForm(base, draft) : null), [base, draft]);
+  const changed = base ? changedFields(draft, base) : [];
   const dirty = changed.length > 0;
   useUnsavedChanges(dirty);
+  // The newest record and edits, for a save that continues after a confirmation was answered.
+  const latest = useRef({ base, draft });
+  latest.current = { base, draft };
 
   const damage = useMemo(() => findNumberDamage(data), [data]);
 
@@ -163,7 +174,7 @@ export function ProductEditor({ id }: { id: string }) {
   const editable = mayEdit && !archivedForDesigner;
   const disabled = !editable || !listsReady || busy !== "";
   const errors: ProductErrors = showErrors ? validateProductForm(form, { mode: "edit", switches: lookups.switches, hasInventory }) : {};
-  const api: FormApi = { form, update: (change) => setDraft((current) => change(current ?? base)), errors, disabled };
+  const api: FormApi = { form, update: (change) => setDraft((current) => touchForm(current, base, change)), errors, disabled };
 
   const designer = lookups.designers.rows.find((item) => item.data.uid === form.designerUid) ?? null;
   const manualTitle = str(rec(rec(data.product_info_custom_translate).name).en).trim();
@@ -182,16 +193,11 @@ export function ProductEditor({ id }: { id: string }) {
   }
 
   async function save() {
-    if (!draft || !base || !dirty) return;
-    const problems = validateProductForm(draft, { mode: "edit", switches: lookups.switches, hasInventory });
+    if (!base || !form || !dirty) return;
+    const problems = validateProductForm(form, { mode: "edit", switches: lookups.switches, hasInventory });
     if (Object.keys(problems).length) {
       setShowErrors(true);
       toast.error("Nothing was saved. Check the fields marked in red.");
-      return;
-    }
-    const update = buildProductUpdate(draft, base, { isDesigner: scope.isDesigner, hasInventory, now: serverTimestamp(), remove: deleteField() });
-    if (isEmptyUpdate(update)) {
-      setDraft(null);
       return;
     }
     if (scope.isDesigner && base.status === "active") {
@@ -202,11 +208,19 @@ export function ProductEditor({ id }: { id: string }) {
       });
       if (!ok) return;
     }
+    // Built from the record as it is now, not as it was when Save was pressed.
+    const now = latest.current;
+    if (!now.base) return;
+    const update = buildProductUpdate(now.draft, now.base, { isDesigner: scope.isDesigner, hasInventory, now: serverTimestamp(), remove: deleteField() });
+    if (isEmptyUpdate(update)) {
+      setDraft(emptyDraft());
+      return;
+    }
     await run(
       "Saving product…",
       async () => {
         await saveProductEdit({ id, productCode: code, update, inventoryId: hasInventory ? inventoryId : null });
-        setDraft(null);
+        setDraft(emptyDraft());
         setShowErrors(false);
         toast.success(scope.isDesigner ? "Saved. The product is waiting for approval." : "Product saved.");
       },
@@ -244,6 +258,8 @@ export function ProductEditor({ id }: { id: string }) {
       "Approving…",
       async () => {
         await approveProduct(id, data!);
+        // A status picked in the form before approving must not undo the approval on the next save.
+        setDraft((current) => dropTouched(current, "status"));
         toast.success(`${title} is now live.`);
       },
       "The product was not approved.",
@@ -381,7 +397,7 @@ export function ProductEditor({ id }: { id: string }) {
         </span>
         {editable ? (
           <>
-            <Button type="button" variant="outline" disabled={!dirty || busy !== ""} onClick={() => { setDraft(null); setShowErrors(false); }}>
+            <Button type="button" variant="outline" disabled={!dirty || busy !== ""} onClick={() => { setDraft(emptyDraft()); setShowErrors(false); }}>
               Discard
             </Button>
             <Button type="button" disabled={!dirty || busy !== ""} onClick={() => void save()}>
@@ -397,6 +413,7 @@ export function ProductEditor({ id }: { id: string }) {
         name={title}
         onReject={async (reason) => {
           await rejectProduct(id, data, reason, scope.uid);
+          setDraft((current) => dropTouched(current, "status"));
           toast.success(`${title} was rejected.`);
         }}
       />
@@ -522,31 +539,49 @@ function DamageNotice({ id, damage, canRepair }: { id: string; damage: NumberDam
 
 function RawRecord({ id, data }: { id: string; data: Data }) {
   const confirm = useConfirm();
-  const [open, setOpen] = useState(false);
+  // The copy the person started editing from, taken when the panel was opened. Null while it is closed.
+  const [opened, setOpened] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const original = useMemo(() => docToJson(data), [data]);
-  useUnsavedChanges(open && text !== original);
+  const open = opened !== null;
+  useUnsavedChanges(open && text !== opened);
 
   async function save() {
+    if (opened === null) return;
+    let changes: Data;
     try {
-      JSON.parse(text);
+      changes = changedTopLevelFields(opened, text);
     } catch (err) {
       toast.error(`Nothing was saved: the text is not valid. ${message(err)}`);
       return;
     }
+    const fields = Object.keys(changes);
+    if (!fields.length) {
+      toast.info("Nothing was saved: no field differs from the copy you opened. Fields deleted from the text are kept.");
+      return;
+    }
     const ok = await confirm({
-      title: "Write the whole record back?",
-      description: "This saves the record exactly as typed, with no checks. A number typed in quotes, or a broken reference, can stop the product loading in the app. There is no undo.",
+      title: fields.length === 1 ? "Write this field back?" : `Write these ${fields.length} fields back?`,
+      description: (
+        <span className="grid gap-1">
+          <span>
+            Only the fields you edited are written, exactly as typed and with no checks; the rest of the record is left as it is now. A number typed in quotes, or a broken reference, can stop the product loading in the app.
+            There is no undo.
+          </span>
+          <span className="font-mono text-[12px]" dir="ltr" lang="en">
+            {fields.join(", ")}
+          </span>
+        </span>
+      ),
       confirmLabel: "Save record",
       destructive: true,
     });
     if (!ok) return;
     setBusy(true);
     try {
-      await saveRawProduct(id, text);
-      toast.success("The record was saved.");
-      setOpen(false);
+      await saveRawProduct(id, changes);
+      toast.success(fields.length === 1 ? `${fields[0]} was saved.` : `${fields.length} fields were saved.`);
+      setOpened(null);
     } catch (err) {
       toast.error(`The record was not saved; nothing was changed. ${message(err)}`);
     } finally {
@@ -562,17 +597,23 @@ function RawRecord({ id, data }: { id: string; data: Data }) {
         size="sm"
         aria-expanded={open}
         onClick={() => {
-          setText(original);
-          setOpen((current) => !current);
+          if (open) {
+            setOpened(null);
+            return;
+          }
+          const copy = docToJson(data);
+          setOpened(copy);
+          setText(copy);
         }}
       >
         {open ? "Hide the stored record" : "Show the stored record"}
       </Button>
       {open ? (
         <div className="mt-3 grid gap-2">
+          <p className="text-[12px] text-muted-foreground">This is the record as it was when you opened this panel. Saving writes only the top-level fields you change here.</p>
           <Textarea value={text} onChange={(e) => setText(e.target.value)} dir="ltr" lang="en" spellCheck={false} aria-label="Stored record" className="h-96 font-mono text-[12px]" />
           <div className="flex justify-end">
-            <Button type="button" variant="destructive" disabled={busy || text === original} onClick={() => void save()}>
+            <Button type="button" variant="destructive" disabled={busy || text === opened} onClick={() => void save()}>
               Save record…
             </Button>
           </div>

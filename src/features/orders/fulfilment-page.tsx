@@ -12,8 +12,8 @@ import { useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, toDate } from "@/lib/format";
 import { orderLinesInScope } from "@/lib/role-scope";
 import { useRoleScope } from "@/lib/use-role-scope";
-import { retryDeliveryRequests, retryStockReservation } from "./data";
-import { LINE_STATE_LABEL, QUEUE_BUCKETS, lineName, lineState, orderBuckets, orderSearchText, readAddress, statusText, text, type Dict, type QueueBucket } from "./model";
+import { retryStockReservation, runRetry } from "./data";
+import { LINE_STATE_LABEL, QUEUE_BUCKETS, describeReserve, describeRetry, lineName, lineState, orderBuckets, orderSearchText, readAddress, readJob, retryPlan, statusText, text, type Dict, type QueueBucket } from "./model";
 import { useScopedOrders } from "./orders-page";
 import { CountTabs } from "./parts";
 
@@ -60,18 +60,30 @@ export function FulfilmentPage() {
     return map;
   }, [jobs.rows]);
 
+  const jobsOf = (row: Row) => jobs.rows.filter((job) => text(job.data.order_id) === text(row.data.order_id)).map(readJob);
+  const stockFailed = (row: Row) => linesIn(scope, row.data, "failed").some((item) => item.state === "stock_failed");
+  /** A row can be retried when its stock failed or the server has a request it may run again. */
+  const canRetry = (row: Row) => scope.isSuperAdmin && (stockFailed(row) || retryPlan(row.data, jobsOf(row)).kind !== "none");
+
   async function retry(row: Row) {
-    const stock = linesIn(scope, row.data, "failed").some((item) => item.state === "stock_failed");
+    const stock = stockFailed(row);
+    const plan = retryPlan(row.data, jobsOf(row));
     const number = text(row.data.order_id);
     const sure = await confirm(
       stock
         ? { title: `Try to reserve stock for ${number} again?`, description: "If the warehouse now has enough units they are reserved and the delivery is requested.", confirmLabel: "Retry reservation" }
-        : { title: `Ask Store Valley again for ${number}?`, description: "Every item of this order with no open delivery or pickup is requested again.", confirmLabel: "Retry requests" },
+        : { title: `Ask Store Valley again for ${number}?`, description: "Failed requests are queued again and items with no request get one. A warehouse delivery whose stock is no longer reserved is left alone.", confirmLabel: "Retry requests" },
     );
     if (!sure) return;
     try {
-      await (stock ? retryStockReservation(row.id) : retryDeliveryRequests(row.id));
-      toast.success(stock ? "Stock reserved." : "Requests queued again.");
+      if (stock) {
+        const outcome = describeReserve(await retryStockReservation(row.id));
+        if (outcome.ok) toast.success(`${number}: ${outcome.message}`);
+        else toast.warning(`${number}: ${outcome.message}`);
+      } else {
+        await runRetry(row.id, plan);
+        toast.success(`${number}: ${describeRetry(plan)}`);
+      }
     } catch (err) {
       toast.error(`${number} was not retried: ${err instanceof Error ? err.message : "unknown error"}`);
     }
@@ -102,7 +114,7 @@ export function FulfilmentPage() {
       },
       exportValue: (row) => [...new Set(linesIn(scope, row.data, bucket).map((item) => item.detail || LINE_STATE_LABEL[item.state]))].join(", "),
     },
-    ...(staff && bucket === "failed" ? [{ key: "retry", header: "", className: "text-end", cell: (row: Row) => <Button variant="outline" size="sm" onClick={() => void retry(row)}>Retry</Button> }] : []),
+    ...(scope.isSuperAdmin && bucket === "failed" ? [{ key: "retry", header: "", className: "text-end", cell: (row: Row) => (canRetry(row) ? <Button variant="outline" size="sm" onClick={() => void retry(row)}>Retry</Button> : null) }] : []),
   ];
 
   return (

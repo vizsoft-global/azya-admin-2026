@@ -7,15 +7,15 @@ import { uploadPath } from "@/lib/upload";
 
 describe("role scope", () => {
   const designer = scopeOf({ id: "doc1", role_unique_key: "designer", user_role: "Designer", display_name: "Dana", email: "d@x.co" }, "u1");
-  const staff = scopeOf({ role_unique_key: "manager" }, "u2", ["order"]);
+  const staff = scopeOf({ role_unique_key: "manager" }, "u2");
 
   it("reads who is signed in", () => {
     expect(designer).toMatchObject({ uid: "u1", roleKey: "designer", isDesigner: true, isSuperAdmin: false, displayName: "Dana", userDocId: "doc1" });
     expect(staff.isDesigner).toBe(false);
   });
-  it("treats the super admin role key or permission as super admin", () => {
+  it("treats only the super admin role key as super admin", () => {
     expect(scopeOf({ role_unique_key: "super_admin" }, "u").isSuperAdmin).toBe(true);
-    expect(scopeOf({ role_unique_key: "ops" }, "u", ["super_admin"]).isSuperAdmin).toBe(true);
+    expect(scopeOf({ role_unique_key: "ops", user_role: "SuperAdmin" }, "u").isSuperAdmin).toBe(false);
     expect(scopeOf(null, "").isSuperAdmin).toBe(false);
   });
   it("shows a designer only their own records", () => {

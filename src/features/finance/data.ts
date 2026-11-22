@@ -6,6 +6,7 @@ import {
   doc,
   getCountFromServer,
   getDocs,
+  getDocsFromServer,
   limit,
   onSnapshot,
   orderBy,
@@ -36,7 +37,7 @@ import {
   type Partner,
   type PayoutFacts,
 } from "./finance";
-import { designerRecordLimit, nextPayoutStatus, payoutRecord, promotionsAfterPayout, salesHistoryPayoutUpdate, type PayoutAction } from "./payouts";
+import { amountProblem, designerRecordLimit, nextPayoutStatus, payoutInfoUpdate, payoutRecord, promotionsAfterPayout, salesHistoryPayoutUpdate, type PayoutAction } from "./payouts";
 
 /* ---------- Who may see what ---------- */
 
@@ -275,6 +276,8 @@ export type RecordPayoutResult = { id: string; transactionId: number; balanceAft
  * - a `transactions` record (and moves the `transaction_id` counter on);
  * - for a creator, `creator_main_info.creator_promotions` on their user
  *   record, so the balance in their app drops by the amount;
+ * - the payout figures on their user record (`creator_payout_info` /
+ *   `designer_payout_info`), as the Flutter admin's Add Amount kept them;
  * - `last_payout_date` / `last_payout_amount` at the top level of their
  *   `sales_history` record, when they have one.
  * The balance is worked out again from fresh orders and the fresh user record
@@ -283,7 +286,10 @@ export type RecordPayoutResult = { id: string; transactionId: number; balanceAft
 export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayoutResult> {
   const { db } = getFirebase();
   if (!input.recorder.userDocId) throw new Error("Your own user record was not found, so the payment cannot be attributed. Nothing was recorded.");
+  const problem = amountProblem(input.amount);
+  if (problem) throw new Error(`${problem} Nothing was recorded.`);
   const amount = round3(input.amount);
+  if (!(amount > 0)) throw new Error("The amount must be more than zero. Nothing was recorded.");
   const userRef = doc(db, "users", input.partnerDocId);
   const counterRef = await idMapRef();
 
@@ -291,12 +297,8 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
   if (completed.capped) {
     throw new Error(`There are more than ${BALANCE_ORDER_CAP} completed orders, so the balance cannot be checked in the browser. Nothing was recorded.`);
   }
-  const [salesSnap, paidSnap] = await Promise.all([
-    getDocs(query(collection(db, "sales_history"), where("user_ref", "==", userRef), limit(1))),
-    getDocs(query(collection(db, "transactions"), where("user_ref", "==", userRef))),
-  ]);
+  const salesSnap = await getDocs(query(collection(db, "sales_history"), where("user_ref", "==", userRef), limit(1)));
   const salesRef = salesSnap.docs[0]?.ref ?? null;
-  const earlier = paidSnap.docs.map((item) => toPayoutFacts(item.id, item.data()));
   const recordRef = doc(collection(db, "transactions"));
   const recorderRef = doc(db, "users", input.recorder.userDocId);
 
@@ -307,7 +309,7 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
     const partner = toPartner(userSnap.id, data);
     if (!partner) throw new Error("This person is not a creator or a designer. Nothing was recorded.");
 
-    let nextPromotions: Record<string, unknown>[] | null = null;
+    const userUpdate: Record<string, unknown> = {};
     let previousBalance: number | undefined;
     let currentBalance: number | undefined;
 
@@ -317,10 +319,15 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
         throw new Error(`The payable balance is now ${formatMoney(summary.payable)}, less than the amount. Nothing was recorded.`);
       }
       const rawPromotions = (data.creator_main_info as Record<string, unknown> | undefined)?.creator_promotions;
-      nextPromotions = promotionsAfterPayout(rawPromotions, summary.byPromotion, amount).promotions;
+      userUpdate["creator_main_info.creator_promotions"] = promotionsAfterPayout(rawPromotions, summary.byPromotion, amount).promotions;
       previousBalance = summary.appBalance;
       currentBalance = round3(summary.appBalance - amount);
     } else {
+      // A transaction cannot run a query, so this one goes to the server on every attempt. Two people recording at
+      // once both read this person's user record above and both write it below: the one that commits second fails
+      // that read check, the callback runs again, and this query then returns the first payment.
+      const earlierSnap = await getDocsFromServer(query(collection(db, "transactions"), where("user_ref", "==", userRef)));
+      const earlier = earlierSnap.docs.map((item) => toPayoutFacts(item.id, item.data()));
       const sales = summariseDesigner(completed.orders, { docId: partner.docId, uid: partner.uid });
       const ceiling = designerRecordLimit(sales.completedSales, recordedPaid(earlier, partner.docId));
       if (amount > ceiling) {
@@ -330,6 +337,9 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
 
     const ids = await takeIds(tx, counterRef, ["transaction_id"] as const);
     const now = serverTimestamp();
+    const main = (partner.role === "creator" ? data.creator_main_info : data.designer_main_info) as Record<string, unknown> | undefined;
+    const storedInfo = partner.role === "creator" ? main?.creator_payout_info : main?.designer_payout_info;
+    Object.assign(userUpdate, payoutInfoUpdate(partner.role, storedInfo, { now, amount, paidAt: input.paidAt }));
     tx.set(
       recordRef,
       payoutRecord({
@@ -347,7 +357,8 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
         recorder: { userRef: recorderRef, name: input.recorder.displayName || input.recorder.email, role: input.recorder.userRole },
       }),
     );
-    if (nextPromotions) tx.update(userRef, { "creator_main_info.creator_promotions": nextPromotions });
+    // Always written, for designers too: it is what makes two simultaneous recordings for one person collide.
+    tx.update(userRef, userUpdate);
     if (salesRef) tx.update(salesRef, salesHistoryPayoutUpdate({ now, amount, paidAt: input.paidAt }));
     return { id: recordRef.id, transactionId: ids.transaction_id, balanceAfter: currentBalance ?? null, name: partner.name };
   }).then((result) => {

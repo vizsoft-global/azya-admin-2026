@@ -487,9 +487,86 @@ export function membershipChanges(before: string[], after: string[]) {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** The form fields that differ from what was loaded. */
-export function changedFields(form: ProductForm, base: ProductForm): (keyof ProductForm)[] {
-  return (Object.keys(form) as (keyof ProductForm)[]).filter((key) => !same(form[key], base[key]));
+type MembershipKey = "categoryIds" | "tagIds";
+const MEMBERSHIP_KEYS: readonly MembershipKey[] = ["categoryIds", "tagIds"];
+
+/**
+ * The edits a person has made and not saved yet: only the fields they
+ * touched, never a copy of the whole form. The stored record keeps changing
+ * under an open editor (an approval, another person's edit, a sale), and a
+ * save must not write any of that back with the value it had when the page
+ * was opened.
+ *
+ * Categories and tags are kept as the single ticks the person changed
+ * (`id → listed or not`), so a category someone else added meanwhile is not
+ * taken away again.
+ */
+export type ProductDraft = {
+  fields: Partial<Omit<ProductForm, MembershipKey>>;
+  categoryIds: Record<string, boolean>;
+  tagIds: Record<string, boolean>;
+};
+
+export function emptyDraft(): ProductDraft {
+  return { fields: {}, categoryIds: {}, tagIds: {} };
+}
+
+function applyTicks(list: string[], ticks: Record<string, boolean>): string[] {
+  const kept = list.filter((id) => ticks[id] !== false);
+  const added = Object.keys(ticks).filter((id) => ticks[id] && !list.includes(id));
+  return added.length || kept.length !== list.length ? [...kept, ...added] : list;
+}
+
+/** What the form shows: the stored record as it is now, with the person's own edits on top. */
+export function mergeForm(base: ProductForm, draft: ProductDraft): ProductForm {
+  return { ...base, ...draft.fields, categoryIds: applyTicks(base.categoryIds, draft.categoryIds), tagIds: applyTicks(base.tagIds, draft.tagIds) };
+}
+
+/**
+ * Records an edit. `change` gets the form as shown and returns the changed
+ * copy; only the fields that differ between the two are noted. A field put
+ * back to what is stored stops counting as touched.
+ */
+export function touchForm(draft: ProductDraft, base: ProductForm, change: (form: ProductForm) => ProductForm): ProductDraft {
+  const before = mergeForm(base, draft);
+  const after = change(before);
+  const fields: Record<string, unknown> = { ...draft.fields };
+  const next: ProductDraft = { fields: fields as ProductDraft["fields"], categoryIds: { ...draft.categoryIds }, tagIds: { ...draft.tagIds } };
+  for (const key of Object.keys(after) as (keyof ProductForm)[]) {
+    if (same(after[key], before[key])) continue;
+    if (key === "categoryIds" || key === "tagIds") {
+      const ticks = next[key];
+      for (const id of new Set([...before[key], ...after[key]])) {
+        const listed = after[key].includes(id);
+        if (listed === before[key].includes(id)) continue;
+        if (listed === base[key].includes(id)) delete ticks[id];
+        else ticks[id] = listed;
+      }
+      continue;
+    }
+    if (same(after[key], base[key])) delete fields[key];
+    else fields[key] = after[key];
+  }
+  return next;
+}
+
+/** Forgets an unsaved edit to one field, e.g. the status once the product has been approved or rejected. */
+export function dropTouched(draft: ProductDraft, key: keyof Omit<ProductForm, MembershipKey>): ProductDraft {
+  if (!(key in draft.fields)) return draft;
+  const fields = { ...draft.fields };
+  delete fields[key];
+  return { ...draft, fields };
+}
+
+/** The touched fields whose value differs from what is stored now. */
+export function changedFields(draft: ProductDraft, base: ProductForm): (keyof ProductForm)[] {
+  const merged = mergeForm(base, draft);
+  const keys = (Object.keys(draft.fields) as (keyof ProductForm)[]).filter((key) => !same(merged[key], base[key]));
+  for (const key of MEMBERSHIP_KEYS) {
+    const change = membershipChanges(base[key], merged[key]);
+    if (change.add.length || change.remove.length) keys.push(key);
+  }
+  return keys;
 }
 
 export type ProductUpdate = {
@@ -504,20 +581,27 @@ export type ProductUpdate = {
 };
 
 /**
- * What saving an existing product writes: only the fields that changed, each
- * as its own field path so nothing else in `product`, `product_info` and the
- * other maps is touched. Numbers are written as numbers. The price goes to
- * both `product.product_price` (what the app shows) and
+ * What saving an existing product writes: only the fields the person touched
+ * and that differ from what is stored now, each as its own field path so
+ * nothing else in `product`, `product_info` and the other maps is written.
+ * A status the person did not touch is never written, so a save cannot undo
+ * an approval made while the editor was open. Numbers are written as numbers.
+ * The price goes to both `product.product_price` (what the app shows) and
  * `product.product_sale_price`, as the Flutter admin writes it.
+ *
+ * A designer's save that changes anything sends the product back for
+ * approval. The stock record's status follows the product's, whatever the
+ * product type.
  *
  * `now` is the server-time marker and `remove` the delete marker.
  */
 export function buildProductUpdate(
-  form: ProductForm,
+  draft: ProductDraft,
   base: ProductForm,
   ctx: { isDesigner: boolean; hasInventory: boolean; now: unknown; remove: unknown },
 ): ProductUpdate {
-  const changed = new Set(changedFields(form, base));
+  const form = mergeForm(base, draft);
+  const changed = new Set(changedFields(draft, base));
   const patch: Data = {};
   const optional = (value: number | string | null) => (value == null || value === "" ? ctx.remove : value);
 
@@ -555,16 +639,19 @@ export function buildProductUpdate(
 
   if (changed.has("attributes")) patch.product_attribute = form.attributes;
 
-  const status = statusOnSave(form.status, ctx.isDesigner);
+  // Staff: the status only when they changed it. Designer: back to approval whenever the save changes anything.
+  const status = ctx.isDesigner ? (changed.size > 0 ? "request" : base.status) : changed.has("status") ? form.status : base.status;
   const statusChanges = status !== base.status;
   if (statusChanges) patch.status = status;
   patch.updated_at = ctx.now;
 
   let inventory: Data | null = null;
-  if (ctx.hasInventory && form.type === "ready") {
+  if (ctx.hasInventory) {
     const stock: Data = {};
-    if (changed.has("thresholdStock") && form.thresholdStock != null) stock.threshold_stock = form.thresholdStock;
-    if (changed.has("notifyDesigner")) stock.notify_designer = form.notifyDesigner;
+    if (form.type === "ready") {
+      if (changed.has("thresholdStock") && form.thresholdStock != null) stock.threshold_stock = form.thresholdStock;
+      if (changed.has("notifyDesigner")) stock.notify_designer = form.notifyDesigner;
+    }
     if (statusChanges) stock.status = inventoryStatusFor(status);
     if (Object.keys(stock).length) inventory = { ...stock, updated_at: ctx.now };
   }
@@ -697,6 +784,27 @@ export function buildNewProduct(
   if (form.shippingDays != null) inventory.shipped_number_days = form.shippingDays;
 
   return { product, inventory, productId, inventoryId, status };
+}
+
+/* ---------- The whole record (super admins) ---------- */
+
+function parseRecord(text: string, what: string): Data {
+  const value: unknown = JSON.parse(text);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${what} is not a record.`);
+  return value as Data;
+}
+
+/**
+ * The top-level fields of an edited record whose value differs from the copy
+ * the person started from: the only ones a raw save writes. A field they did
+ * not edit is left as it is now, so a review or sale added to the product in
+ * the meantime is not overwritten with the older copy. A field deleted from
+ * the text is kept, not removed. Throws when either text is not a JSON record.
+ */
+export function changedTopLevelFields(originalText: string, editedText: string): Data {
+  const original = parseRecord(originalText, "The stored copy");
+  const edited = parseRecord(editedText, "The text");
+  return Object.fromEntries(Object.entries(edited).filter(([key, value]) => !same(value, original[key])));
 }
 
 /* ---------- SKU ---------- */

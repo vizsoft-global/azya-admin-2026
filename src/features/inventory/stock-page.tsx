@@ -28,6 +28,7 @@ import {
   matchesDateFilter,
   matchesStockFilter,
   matchesStockSearch,
+  reservedSyncSummary,
   STOCK_EXPORT_HEADERS,
   STOCK_FILTERS,
   stockExportRows,
@@ -223,8 +224,9 @@ export function StockPage() {
         const result = await refreshWarehouseStock();
         toast.success(`Warehouse stock refreshed (${result.upserted ?? 0} rows).`);
       } else {
-        const result = await syncReservedOrders();
-        toast.success(`Reserved ${result.reserved ?? 0} open warehouse orders (${result.skipped ?? 0} skipped).`);
+        const summary = reservedSyncSummary(await syncReservedOrders());
+        if (summary.failed) toast.error(summary.text);
+        else toast.success(summary.text);
       }
     } catch (error) {
       toast.error(`${kind === "warehouse" ? "Warehouse stock was not refreshed" : "Reserved orders were not synced"}: ${message(error)}`);

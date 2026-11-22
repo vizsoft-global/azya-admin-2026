@@ -10,6 +10,9 @@ import {
   canArchive,
   canReject,
   changedFields,
+  changedTopLevelFields,
+  dropTouched,
+  emptyDraft,
   emptyProductForm,
   fieldSwitches,
   findNumberDamage,
@@ -20,6 +23,7 @@ import {
   localisedText,
   manualRepairs,
   membershipChanges,
+  mergeForm,
   numberRepairPatch,
   pickUnusedSku,
   productFormFrom,
@@ -35,8 +39,10 @@ import {
   statusOnSave,
   strictNumber,
   toggleTerm,
+  touchForm,
   validateProductForm,
   withType,
+  type ProductDraft,
   type ProductForm,
 } from "@/features/catalog/product-model";
 
@@ -252,20 +258,89 @@ describe("validation", () => {
   });
 });
 
+/** The edits a person made on top of `base`, recorded the way the editor records them. */
+function edit(changes: Partial<ProductForm>, base: ProductForm = loadedForm(), draft: ProductDraft = emptyDraft()): ProductDraft {
+  return touchForm(draft, base, (form) => ({ ...form, ...changes }));
+}
+
+describe("unsaved edits", () => {
+  it("keeps only the fields the person touched, not a copy of the form", () => {
+    const draft = edit({ name: "Renamed" });
+    expect(draft).toEqual({ fields: { name: "Renamed" }, categoryIds: {}, tagIds: {} });
+    expect(mergeForm(loadedForm(), draft).name).toBe("Renamed");
+    expect(changedFields(draft, loadedForm())).toEqual(["name"]);
+    expect(changedFields(emptyDraft(), loadedForm())).toEqual([]);
+  });
+
+  it("shows what changes on the record meanwhile in every field the person did not touch", () => {
+    const draft = edit({ name: "Renamed" });
+    const later = loadedForm({ status: "active", price: 99, description: "Edited by someone else" });
+    expect(mergeForm(later, draft)).toMatchObject({ name: "Renamed", status: "active", price: 99, description: "Edited by someone else" });
+  });
+
+  it("stops counting a field once it is put back to the stored value", () => {
+    const base = loadedForm();
+    const touched = edit({ price: 50 }, base);
+    expect(edit({ price: base.price }, base, touched)).toEqual(emptyDraft());
+  });
+
+  it("records category and tag ticks one by one", () => {
+    const base = loadedForm();
+    const draft = edit({ categoryIds: ["catA", "catB"], tagIds: [] }, base);
+    expect(draft).toEqual({ fields: {}, categoryIds: { catB: true }, tagIds: { tagA: false } });
+    expect(changedFields(draft, base).sort()).toEqual(["categoryIds", "tagIds"]);
+    expect(edit({ categoryIds: ["catA"] }, base, draft).categoryIds).toEqual({});
+  });
+
+  it("forgets an unsaved status once the product was approved or rejected", () => {
+    const draft = edit({ status: "draft", name: "Renamed" });
+    expect(dropTouched(draft, "status").fields).toEqual({ name: "Renamed" });
+    expect(dropTouched(emptyDraft(), "status")).toEqual(emptyDraft());
+  });
+});
+
 describe("saving an edit", () => {
   const ctx = { isDesigner: false, hasInventory: true, now: NOW, remove: REMOVE };
 
   it("writes nothing but the time stamp when nothing changed", () => {
-    const base = loadedForm();
-    const update = buildProductUpdate(loadedForm(), base, ctx);
+    const update = buildProductUpdate(emptyDraft(), loadedForm(), ctx);
     expect(update.product).toEqual({ updated_at: NOW });
     expect(update.inventory).toBeNull();
     expect(isEmptyUpdate(update)).toBe(true);
-    expect(changedFields(loadedForm(), base)).toEqual([]);
+    expect(isEmptyUpdate(buildProductUpdate(emptyDraft(), loadedForm(), { ...ctx, isDesigner: true }))).toBe(true);
+  });
+
+  it("does not undo an approval made while the editor had unsaved edits", () => {
+    // A reviewer opens a product waiting for approval, fixes the title, approves it, then saves.
+    const opened = { ...loadedForm(), status: "request" };
+    const draft = edit({ name: "Fixed title" }, opened);
+    const approved = { ...opened, status: "active" };
+    const update = buildProductUpdate(draft, approved, ctx);
+    expect(update.product).toEqual({ "product_info.name": "Fixed title", updated_at: NOW });
+    expect(update.status).toBe("active");
+    expect(update.inventory).toBeNull();
+  });
+
+  it("does not write back a field someone else changed meanwhile", () => {
+    const opened = loadedForm();
+    const draft = edit({ weightGm: 400 }, opened);
+    const later = { ...opened, price: 99, description: "Rewritten by a colleague", featured: false, attributes: [], status: "inactive" };
+    const update = buildProductUpdate(draft, later, ctx);
+    expect(update.product).toEqual({ "product.weight_gm": 400, updated_at: NOW });
+    expect(update.inventory).toBeNull();
+  });
+
+  it("does not take the product out of a category someone else added meanwhile", () => {
+    const opened = loadedForm();
+    const draft = edit({ categoryIds: ["catA", "catB"] }, opened);
+    const later = { ...opened, categoryIds: ["catA", "catC"], tagIds: ["tagA", "tagZ"] };
+    const update = buildProductUpdate(draft, later, ctx);
+    expect(update.categories).toEqual({ add: ["catB"], remove: [] });
+    expect(update.tags).toEqual({ add: [], remove: [] });
   });
 
   it("writes numbers as numbers, each to its own field path", () => {
-    const update = buildProductUpdate(loadedForm({ procurementCost: 22.125, weightGm: 400, shippingDays: 5, commissionRate: 12.5, commissionPoints: 8 }), loadedForm(), ctx);
+    const update = buildProductUpdate(edit({ procurementCost: 22.125, weightGm: 400, shippingDays: 5, commissionRate: 12.5, commissionPoints: 8 }), loadedForm(), ctx);
     expect(update.product).toEqual({
       "product.procurement_cost": 22.125,
       "product.weight_gm": 400,
@@ -278,12 +353,12 @@ describe("saving an edit", () => {
   });
 
   it("writes the price to the field the app shows and to the sale price", () => {
-    const update = buildProductUpdate(loadedForm({ price: 39.75 }), loadedForm(), ctx);
+    const update = buildProductUpdate(edit({ price: 39.75 }), loadedForm(), ctx);
     expect(update.product).toEqual({ "product.product_price": 39.75, "product.product_sale_price": 39.75, updated_at: NOW });
   });
 
   it("never writes the automatic translation, the top-level type, the stock status or the stock link", () => {
-    const everything = loadedForm({ name: "New", shortDescription: "S2", description: "L2", price: 1, comparePrice: 2, status: "inactive", gallery: ["a"], featureImage: "a", featureImageId: "IMG9", attributes: [], virtualTryOn: false });
+    const everything = edit({ name: "New", shortDescription: "S2", description: "L2", price: 1, comparePrice: 2, status: "inactive", gallery: ["a"], featureImage: "a", featureImageId: "IMG9", attributes: [], virtualTryOn: false });
     const keys = Object.keys(buildProductUpdate(everything, loadedForm(), ctx).product);
     expect(keys.some((key) => key.startsWith("product_info_translate"))).toBe(false);
     expect(keys.some((key) => key.startsWith("product_info_custom_translate"))).toBe(false);
@@ -297,7 +372,8 @@ describe("saving an edit", () => {
   });
 
   it("removes an optional value that was cleared instead of storing text or null", () => {
-    const update = buildProductUpdate(loadedForm({ comparePrice: null, sizeChartUk: "", returnDays: null, returnable: false }), { ...loadedForm(), sizeChartUk: "https://chart" }, ctx);
+    const base = { ...loadedForm(), sizeChartUk: "https://chart" };
+    const update = buildProductUpdate(edit({ comparePrice: null, sizeChartUk: "", returnDays: null, returnable: false }, base), base, ctx);
     expect(update.product["product.product_regular_price"]).toBe(REMOVE);
     expect(update.product["product.product_sizechart_uk"]).toBe(REMOVE);
     expect(update.product["product.return_product_number_day"]).toBe(REMOVE);
@@ -305,34 +381,53 @@ describe("saving an edit", () => {
   });
 
   it("forces a designer's save back to request and takes the stock record off sale", () => {
-    const update = buildProductUpdate(loadedForm({ name: "Renamed" }), loadedForm(), { ...ctx, isDesigner: true });
+    const update = buildProductUpdate(edit({ name: "Renamed" }), loadedForm(), { ...ctx, isDesigner: true });
     expect(update.status).toBe("request");
     expect(update.product.status).toBe("request");
     expect(update.inventory).toEqual({ status: "inactive", updated_at: NOW });
   });
 
+  it("sends a designer's change of categories alone for approval too", () => {
+    const update = buildProductUpdate(edit({ categoryIds: ["catA", "catB"] }), loadedForm(), { ...ctx, isDesigner: true });
+    expect(update.product).toEqual({ status: "request", updated_at: NOW });
+    expect(update.categories.add).toEqual(["catB"]);
+  });
+
   it("ignores a status a designer somehow chose", () => {
-    const update = buildProductUpdate(loadedForm({ status: "active", name: "Renamed" }), { ...loadedForm(), status: "request" }, { ...ctx, isDesigner: true });
+    const base = { ...loadedForm(), status: "request" };
+    const update = buildProductUpdate(edit({ status: "active", name: "Renamed" }, base), base, { ...ctx, isDesigner: true });
     expect(update.status).toBe("request");
     expect(update.product.status).toBeUndefined();
     expect(update.inventory).toBeNull();
   });
 
   it("lets staff change the status and keeps the stock record in step", () => {
-    expect(buildProductUpdate(loadedForm({ status: "draft" }), loadedForm(), ctx).inventory).toEqual({ status: "inactive", updated_at: NOW });
-    expect(buildProductUpdate(loadedForm({ status: "active" }), { ...loadedForm(), status: "draft" }, ctx).inventory).toEqual({ status: "active", updated_at: NOW });
+    expect(buildProductUpdate(edit({ status: "draft" }), loadedForm(), ctx).inventory).toEqual({ status: "inactive", updated_at: NOW });
+    const draftBase = { ...loadedForm(), status: "draft" };
+    expect(buildProductUpdate(edit({ status: "active" }, draftBase), draftBase, ctx).inventory).toEqual({ status: "active", updated_at: NOW });
+  });
+
+  it("moves a custom-made product's stock record with its status too", () => {
+    const custom = { ...loadedForm(), type: "custom" as const };
+    const update = buildProductUpdate(edit({ status: "draft" }, custom), custom, ctx);
+    expect(update.product.status).toBe("draft");
+    expect(update.inventory).toEqual({ status: "inactive", updated_at: NOW });
+    const designers = buildProductUpdate(edit({ name: "Renamed" }, custom), custom, { ...ctx, isDesigner: true });
+    expect(designers.inventory).toEqual({ status: "inactive", updated_at: NOW });
+    expect(buildProductUpdate(edit({ status: "draft" }, custom), custom, { ...ctx, hasInventory: false }).inventory).toBeNull();
   });
 
   it("writes the alert level and the notify switch to the stock record, for ready-made products only", () => {
-    const update = buildProductUpdate(loadedForm({ thresholdStock: 9, notifyDesigner: false }), loadedForm(), ctx);
+    const update = buildProductUpdate(edit({ thresholdStock: 9, notifyDesigner: false }), loadedForm(), ctx);
     expect(update.inventory).toEqual({ threshold_stock: 9, notify_designer: false, updated_at: NOW });
     expect(update.product).toEqual({ updated_at: NOW });
-    expect(buildProductUpdate(loadedForm({ thresholdStock: 9 }), loadedForm(), { ...ctx, hasInventory: false }).inventory).toBeNull();
-    expect(buildProductUpdate(loadedForm({ type: "custom", status: "draft" }), { ...loadedForm(), type: "custom" }, ctx).inventory).toBeNull();
+    expect(buildProductUpdate(edit({ thresholdStock: 9 }), loadedForm(), { ...ctx, hasInventory: false }).inventory).toBeNull();
+    const custom = { ...loadedForm(), type: "custom" as const };
+    expect(buildProductUpdate(edit({ thresholdStock: 9, notifyDesigner: false }, custom), custom, ctx).inventory).toBeNull();
   });
 
   it("works out which categories and tags to join and leave", () => {
-    const update = buildProductUpdate(loadedForm({ categoryIds: ["catB"], tagIds: ["tagA", "tagB"] }), loadedForm(), ctx);
+    const update = buildProductUpdate(edit({ categoryIds: ["catB"], tagIds: ["tagA", "tagB"] }), loadedForm(), ctx);
     expect(update.categories).toEqual({ add: ["catB"], remove: ["catA"] });
     expect(update.tags).toEqual({ add: ["tagB"], remove: [] });
     expect(isEmptyUpdate(update)).toBe(false);
@@ -341,7 +436,32 @@ describe("saving an edit", () => {
 
   it("replaces the attribute list as a whole", () => {
     const attributes = toggleTerm(loadedForm().attributes, "1000", "2003");
-    expect(buildProductUpdate(loadedForm({ attributes }), loadedForm(), ctx).product.product_attribute).toEqual(attributes);
+    expect(buildProductUpdate(edit({ attributes }), loadedForm(), ctx).product.product_attribute).toEqual(attributes);
+  });
+});
+
+describe("the raw record (super admins)", () => {
+  const original = JSON.stringify({ status: "request", product_info: { name: "Silk abaya" }, product_review: [], product: { SKU: 1, inventory_ref: { $ref: "inventory/a" } } });
+
+  it("writes only the top-level fields that were edited", () => {
+    const edited = JSON.stringify({ status: "request", product_info: { name: "Silk Abaya" }, product_review: [], product: { SKU: 1, inventory_ref: { $ref: "inventory/a" } } }, null, 2);
+    expect(changedTopLevelFields(original, edited)).toEqual({ product_info: { name: "Silk Abaya" } });
+  });
+
+  it("leaves alone a field the app changed since the copy was taken, such as a new review", () => {
+    // The copy still shows no reviews; the person only changed the status. The reviews are not part of the write.
+    const edited = JSON.stringify({ status: "active", product_info: { name: "Silk abaya" }, product_review: [], product: { SKU: 1, inventory_ref: { $ref: "inventory/a" } } });
+    expect(Object.keys(changedTopLevelFields(original, edited))).toEqual(["status"]);
+  });
+
+  it("writes a new field, keeps a deleted one, and ignores reformatting", () => {
+    expect(changedTopLevelFields(original, JSON.stringify({ note: "x" }))).toEqual({ note: "x" });
+    expect(changedTopLevelFields(original, JSON.stringify(JSON.parse(original), null, 4))).toEqual({});
+  });
+
+  it("refuses text that is not a record", () => {
+    expect(() => changedTopLevelFields(original, "[1, 2]")).toThrow(/not a record/);
+    expect(() => changedTopLevelFields(original, "{ broken")).toThrow();
   });
 });
 

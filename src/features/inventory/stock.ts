@@ -165,6 +165,22 @@ export function lowStockNotification(input: { notificationId: number; productNam
   };
 }
 
+/** What "Sync reserved orders" reports: how many were reserved, skipped and failed. A failure is never hidden. */
+export function reservedSyncSummary(result: { reserved?: unknown; skipped?: unknown; failed?: unknown; scanned?: unknown } | null | undefined) {
+  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : 0);
+  const reserved = count(result?.reserved);
+  const skipped = count(result?.skipped);
+  const failed = count(result?.failed);
+  const orders = (n: number) => `${n} ${n === 1 ? "order" : "orders"}`;
+  const text = `Reserved stock for ${orders(reserved)}; ${skipped} already reserved or not applicable${failed ? `; ${orders(failed)} failed` : ""}.`;
+  return {
+    reserved,
+    skipped,
+    failed,
+    text: failed ? `${text} A failed order usually means the warehouse does not have enough stock for it; open the order to see its reservation status.` : text,
+  };
+}
+
 /** First problem with a designer's collect request, or null. */
 export function collectRequestProblem(input: { quantity: number | null; packageCount: number | null }): string | null {
   if (input.quantity == null || !Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 999) return "Enter a quantity between 1 and 999.";

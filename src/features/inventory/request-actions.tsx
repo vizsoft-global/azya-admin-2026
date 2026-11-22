@@ -9,7 +9,7 @@ import { cancelEnquiry, cancelRequest, patchRequest, receiveEnquiry } from "./da
 import { cancelRestoresStock } from "./enquiry";
 import type { RequestView } from "./model";
 import { AcceptDialog, EditRequestDialog, EnquiryDialog, PickupDialog } from "./request-dialogs";
-import { approveBlockedReason, approvePatch, archivePatch, declinePatch, mustDesignerAccept, readyPatch, requestTitle, type RequestAction } from "./requests";
+import { approveBlockedReason, approvePatch, archivePatch, declinePatch, heldQuantity, mustDesignerAccept, readyPatch, requestTitle, returnHoldsStock, type RequestAction } from "./requests";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const pieces = (count: number) => `${count} ${count === 1 ? "piece" : "pieces"}`;
@@ -89,14 +89,22 @@ export function useRequestActions(requests: RequestView[]) {
         case "cancel": {
           const ok = await confirm({
             title: `Cancel ${title}?`,
-            description: view.delivery.refId
-              ? `${what}. A pickup is already booked, so the warehouse is asked to cancel it first. If it refuses, the request stays as it is. This cannot be undone.`
-              : `${what}. The request moves to Archived. This cannot be undone.`,
+            description: returnHoldsStock(view)
+              ? `${what}. A delivery back to the designer is already booked, so the warehouse is asked to cancel it first. If it refuses, the request stays as it is. Once cancelled, the ${pieces(heldQuantity(view))} held for this return become available to order again. This cannot be undone.`
+              : view.delivery.refId
+                ? `${what}. A pickup is already booked, so the warehouse is asked to cancel it first. If it refuses, the request stays as it is. Stock numbers are not changed. This cannot be undone.`
+                : `${what}. The request moves to Archived. Stock numbers are not changed. This cannot be undone.`,
             confirmLabel: "Cancel request",
             cancelLabel: "Keep it",
             destructive: true,
           });
-          if (ok) await write("Cancelling…", "Request cancelled.", "The request was not cancelled", () => cancelRequest(view));
+          if (ok)
+            await write(
+              "Cancelling…",
+              returnHoldsStock(view) ? `Request cancelled. ${pieces(heldQuantity(view))} are available to order again.` : "Request cancelled.",
+              "The request was not cancelled",
+              () => cancelRequest(view),
+            );
           return;
         }
         case "cancelEnquiry": {

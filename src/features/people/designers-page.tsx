@@ -326,7 +326,7 @@ function DesignerView({ id }: { id: string }) {
       {status === "Approved" ? (
         <>
           <ContractCard kind="designer" userId={id} name={name} data={data} canEdit={canEdit} />
-          <PayoutCard payout={readPayout(data, "designer")} userId={id} canPay={canEdit} />
+          <PayoutCard payout={readPayout(data, "designer")} userId={id} canPay={allowed("sales") && !scope.isDesigner} />
           <EntityDetail
             title="Bank details"
             description={bank.bankName || bank.iban || bank.accountNumber ? "Entered by the designer on their own profile." : "The designer has not entered bank details yet."}

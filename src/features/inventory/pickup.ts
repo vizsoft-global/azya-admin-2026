@@ -21,6 +21,25 @@ export function pickupBatchProblem(views: RequestView[]): string | null {
   return null;
 }
 
+const label = (view: RequestView) => view.requestId || view.movementLogId || view.id;
+
+/**
+ * Requests that already have a pickup, named, or null. A warehouse intake
+ * cannot be cancelled, so a second one must never be booked for the same
+ * restock: this runs on copies read from the database just before sending.
+ */
+export function alreadyBookedProblem(views: RequestView[]): string | null {
+  const booked = views.filter((view) => view.delivery.refId !== "" || view.delivery.trackingId !== "");
+  if (!booked.length) return null;
+  const names = booked.map((view) => (view.delivery.trackingId ? `${label(view)} (tracking ${view.delivery.trackingId})` : label(view))).join(", ");
+  return `A pickup is already booked for ${names}. Nothing was sent to the warehouse. Reload the page to see the current state.`;
+}
+
+/** Last check before a pickup is sent, on freshly read requests: none booked already, and all still ready. */
+export function freshPickupProblem(views: RequestView[]): string | null {
+  return alreadyBookedProblem(views) ?? pickupBatchProblem(views);
+}
+
 /** What is missing from a pickup or warehouse address, in the reader's words, or null. */
 export function addressProblem(address: AddressView, whose: string): string | null {
   const missing = [

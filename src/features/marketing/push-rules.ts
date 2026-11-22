@@ -124,3 +124,36 @@ export function outcomeText(outcome: PushOutcome) {
   if (!sent) return `Nobody was reached: ${people(failed)} could not be sent to.`;
   return `Sent to ${people(sent)}; ${people(failed)} could not be reached.`;
 }
+
+/**
+ * Where a send stands when one of its calls fails. `outcomes` holds the answers of the calls that
+ * completed, in order, so the call that failed is `batches[outcomes.length]`:
+ *  - people in completed calls were either reached or reported as not reachable, and must not be sent to again;
+ *  - people in the failed call may or may not have received it (a call that times out can still finish on the server);
+ *  - people in later calls were never sent to.
+ * `remaining` (the failed call plus the later ones) is who stays selected for another try.
+ */
+export type StoppedSend = { reached: number; notReached: number; uncertain: string[]; untried: string[]; remaining: string[] };
+
+export function stoppedSend(batches: string[][], outcomes: PushOutcome[]): StoppedSend {
+  const done = mergeOutcomes(outcomes);
+  const uncertain = batches[outcomes.length] ?? [];
+  const untried = batches.slice(outcomes.length + 1).flat();
+  return { reached: done.sent.length, notReached: done.failed.length, uncertain, untried, remaining: [...uncertain, ...untried] };
+}
+
+/** What to tell the person after a stopped send: counts for each group, and what a retry would do. */
+export function stoppedSendText(stop: StoppedSend, reason: string) {
+  const people = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "person" : "people"}`;
+  const parts = [`Sending stopped: ${reason}.`];
+  if (stop.reached || stop.notReached) parts.push(`Sent to ${people(stop.reached)}${stop.notReached ? `; ${people(stop.notReached)} could not be reached` : ""}.`);
+  else parts.push("Nobody is confirmed as sent to.");
+  if (stop.uncertain.length) parts.push(`${people(stop.uncertain.length)} may or may not have received it: the call that failed was sending to them.`);
+  if (stop.untried.length) parts.push(`${people(stop.untried.length)} ${stop.untried.length === 1 ? "was" : "were"} not sent to.`);
+  if (stop.remaining.length) {
+    const who = stop.remaining.length === 1 ? "Only that 1 person is" : `Only those ${people(stop.remaining.length)} are`;
+    parts.push(`${who} still selected, and your message is still here.`);
+    if (stop.uncertain.length) parts.push(stop.uncertain.length === 1 ? "Sending again may reach that person a second time." : `Sending again may reach some of the ${people(stop.uncertain.length)} a second time.`);
+  }
+  return parts.join(" ");
+}
