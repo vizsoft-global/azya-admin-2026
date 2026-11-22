@@ -12,17 +12,19 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getFirebase } from "@/lib/firebase";
+import { useDocRow } from "@/lib/firestore-ui";
 import { formatDate, toNumber } from "@/lib/format";
 import { InventoryRequestType, isReturnToDesigner } from "@/lib/store-valley/request-type";
 import { mergeSelectedReady } from "@/lib/store-valley/restock";
 import { uploadFile } from "@/lib/upload";
 import { useRoleScope } from "@/lib/use-role-scope";
-import { createPickup, patchRequest, raiseEnquiry, raiseRequest, receiveIntoStock, requestProductOf } from "./data";
+import { cn } from "@/lib/utils";
+import { createPickup, INVENTORY, patchRequest, raiseEnquiry, raiseRequest, receiveIntoStock, requestProductOf } from "./data";
 import { ENQUIRY_ISSUES, enquiryProblem, MAX_ENQUIRY_IMAGES } from "./enquiry";
 import { readProduct, type RequestView, type Row } from "./model";
 import { pickupBatchProblem, pickupCreatedMessage } from "./pickup";
 import { acceptPatch, archivePatch, editPatch, newRequestProblem, REQUEST_TYPE_OPTIONS, requestTitle } from "./requests";
-import { receiveQuantityProblem } from "./stock-moves";
+import { mayAlreadyBeCounted, olderRestockNote, receiveChoiceProblem, type ReceiveChoice } from "./stock-moves";
 import { tx } from "@/lib/i18n/tx";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -499,27 +501,33 @@ export function EnquiryDialog({ view, onClose }: { view: RequestView | null; onC
   );
 }
 
-/** A super admin adds the pieces of a completed restock to the stock the app sells from. */
+/**
+ * A super admin confirms a completed restock into stock. There are two answers
+ * and no default: add the full requested quantity, or say it is already counted.
+ * Damaged or missing pieces are not deducted here; an enquiry does that afterwards.
+ */
 export function ReceiveDialog({ view, onClose }: { view: RequestView | null; onClose: () => void }) {
-  const [quantity, setQuantity] = useState<number | null>(null);
+  const [choice, setChoice] = useState<ReceiveChoice | null>(null);
   const [problem, setProblem] = useState("");
   const [saving, setSaving] = useState(false);
+  const stockRow = useDocRow(INVENTORY, view?.inventoryDocId || null);
+  const stockNow = stockRow.row ? Math.trunc(toNumber(stockRow.row.data.stock) ?? 0) : null;
   useEffect(() => {
-    setQuantity(view?.quantity ?? null);
+    setChoice(null);
     setProblem("");
-  }, [view?.id, view?.quantity]);
+  }, [view?.id]);
 
   async function submit() {
     if (!view) return;
-    const found = receiveQuantityProblem(quantity, view.quantity);
-    if (found || quantity == null) {
-      setProblem(found ?? tx("Enter the quantity."));
+    const found = receiveChoiceProblem(choice);
+    if (found || !choice) {
+      setProblem(found ?? "");
       return;
     }
     setSaving(true);
     try {
-      await receiveIntoStock(view, quantity);
-      toast.success(quantity > 0 ? tx("Added {count} to stock. The app can sell them now.", { count: quantity }) : tx("Recorded as received. Stock was not changed."));
+      const added = await receiveIntoStock(view, choice);
+      toast.success(added > 0 ? tx("Added {count} to stock. The app can sell them now.", { count: added }) : tx("Marked as already counted. Stock was not changed."));
       onClose();
     } catch (error) {
       toast.error(tx("Stock was not changed: {reason}", { reason: message(error) }));
@@ -528,6 +536,13 @@ export function ReceiveDialog({ view, onClose }: { view: RequestView | null; onC
     }
   }
 
+  const options: { value: ReceiveChoice; title: string; text: string }[] = view
+    ? [
+        { value: "add", title: tx("Add {count} to stock", { count: view.quantity }), text: tx("The full requested quantity is added to the stock the app sells from.") },
+        { value: "counted", title: tx("Already counted, add nothing"), text: tx("These pieces are already included in the stock figure. Only the restock is marked as done.") },
+      ]
+    : [];
+
   return (
     <FormModal
       open={view != null}
@@ -535,25 +550,36 @@ export function ReceiveDialog({ view, onClose }: { view: RequestView | null; onC
       title={tx("Add to stock")}
       description={
         view
-          ? tx("{id} · {product}. The warehouse has stored this restock. Adding it raises the stock the app sells from, once; it cannot be added again.", { id: requestTitle(view), product: view.productName || view.productId })
+          ? tx("{id} · {product}. The warehouse has stored this restock. This is done once and cannot be repeated.", { id: requestTitle(view), product: view.productName || view.productId })
           : undefined
       }
       onSubmit={submit}
       submitting={saving}
-      submitLabel={tx("Add to stock")}
-      size="sm"
+      submitDisabled={!choice}
+      submitLabel={tx("Confirm")}
     >
-      <NumberField
-        label={tx("Pieces to add")}
-        required
-        integer
-        min={0}
-        max={view?.quantity || undefined}
-        value={quantity}
-        onChange={setQuantity}
-        error={problem || undefined}
-        hint={view ? tx("{count} were requested. Enter fewer if some were missing or damaged, or 0 if this stock was already counted.", { count: view.quantity }) : undefined}
-      />
+      {view && mayAlreadyBeCounted(view) ? <p className="rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">{olderRestockNote(stockNow)}</p> : null}
+      {view && stockNow != null && !mayAlreadyBeCounted(view) ? <p className="text-[12px] text-muted-foreground">{tx("Stock the app sells from now: {count}.", { count: stockNow })}</p> : null}
+      <div role="radiogroup" aria-label={tx("Add to stock")} className="grid gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={choice === option.value}
+            onClick={() => {
+              setChoice(option.value);
+              setProblem("");
+            }}
+            className={cn("rounded-lg border p-3 text-start transition-colors", choice === option.value ? "border-primary bg-muted" : "border-border hover:bg-muted")}
+          >
+            <span className="block text-[13px] font-medium text-foreground">{option.title}</span>
+            <span className="mt-0.5 block text-[12px] text-muted-foreground">{option.text}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-[12px] text-muted-foreground">{tx("If some pieces were damaged or missing, record them afterwards with an enquiry on this restock: the enquiry takes them out of stock again.")}</p>
+      {problem ? <p role="alert" className="text-[12px] text-destructive">{problem}</p> : null}
     </FormModal>
   );
 }

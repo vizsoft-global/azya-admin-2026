@@ -77,6 +77,10 @@ export type WarehouseStock = {
   stockReserved: unknown;
   /** `store_valley_inventory/<product>_WH-KWT-MAIN.stored_quantity`; 0 when the warehouse has no record. */
   storedQuantity: unknown;
+  /** `inventory.stock`: the number the app sells from. */
+  stock?: unknown;
+  /** `inventory.stock_on_hand`. */
+  stockOnHand?: unknown;
 };
 
 /** Warehouse stored − reserved − unavailable, never below zero: the old admin's and the functions' formula. */
@@ -170,18 +174,35 @@ function addressFields(prefix: string, address: AddressView): Patch {
   };
 }
 
+/** What an approval took out of the stock the app sells from, stamped on the request so a cancel can give exactly that back. */
+export type StockTaken = { stock: number; stockOnHand: number };
+
 /**
  * What the request gets once the warehouse accepted the delivery. A return is
- * approved and marked outbound; an enquiry keeps its request state and records
- * the shipment under `enquiry_delivery_info`, which is what "enquiry received"
- * and "cancel enquiry" read.
+ * approved, marked outbound and stamped with the pieces taken out of stock; an
+ * enquiry keeps its request state and records the shipment under
+ * `enquiry_delivery_info`, which is what "enquiry received" and "cancel
+ * enquiry" read.
  */
-export function deliveryRequestPatch(input: { kind: DeliveryKind; deliveryRef: unknown; deliveryId: number | string; trackingId: string; warehouse: AddressView; designer: AddressView }): Patch {
+export function deliveryRequestPatch(input: {
+  kind: DeliveryKind;
+  deliveryRef: unknown;
+  deliveryId: number | string;
+  trackingId: string;
+  warehouse: AddressView;
+  designer: AddressView;
+  /** For a return: what the same transaction took out of `stock` and `stock_on_hand`. */
+  taken?: StockTaken | null;
+}): Patch {
   const info = input.kind === "enquiry" ? "enquiry_delivery_info" : "request_delivery_info";
   const state: Patch =
     input.kind === "enquiry"
       ? { "enquiry_info.fulfill_status": "DeliveryPartnerAssigned" }
       : { status: "outbound", "request_info.request_status": "Accepted", "request_info.fulfill_status": "DeliveryPartnerAssigned" };
+  if (input.kind === "return" && input.taken) {
+    state["request_info.stock_returned_quantity"] = input.taken.stock;
+    state["request_info.stock_on_hand_returned_quantity"] = input.taken.stockOnHand;
+  }
   return {
     update_at: NOW,
     ...state,
@@ -197,23 +218,96 @@ export function deliveryRequestPatch(input: { kind: DeliveryKind; deliveryRef: u
 }
 
 /**
- * The hold an approved return puts on stock, from the stock record as read in
- * the transaction: `stock_unavailable` up by the quantity, `available_for_order`
- * recomputed. An enquiry shipment makes no hold (null).
+ * What an approved return does to the stock record, from the record as read in
+ * the transaction:
+ * - the hold, as in the old admin: `stock_unavailable` up by the quantity and
+ *   `available_for_order` recomputed;
+ * - the pieces leave the stock the app sells from: `stock` and `stock_on_hand`
+ *   down by the quantity, never below zero. `taken` is what actually came off
+ *   each, to stamp on the request.
+ * An enquiry shipment changes nothing (null): raising the enquiry already took
+ * its pieces out of stock and put them on hold.
  */
-export function deliveryHoldPatch(kind: DeliveryKind, quantity: number, stock: WarehouseStock): Patch | null {
+export function deliveryStockMove(kind: DeliveryKind, quantity: number, stock: WarehouseStock): { inventory: Patch; taken: StockTaken } | null {
   if (kind === "enquiry") return null;
   const unavailable = whole(stock.stockUnavailable) + quantity;
+  const stockBefore = Math.max(0, whole(stock.stock));
+  const onHandBefore = Math.max(0, whole(stock.stockOnHand));
+  const taken = { stock: Math.min(quantity, stockBefore), stockOnHand: Math.min(quantity, onHandBefore) };
   return {
-    updated_at: NOW,
-    stock_unavailable: unavailable,
-    available_for_order: availableForOrder({ stored: whole(stock.storedQuantity), reserved: whole(stock.stockReserved), unavailable }),
+    taken,
+    inventory: {
+      updated_at: NOW,
+      stock_unavailable: unavailable,
+      available_for_order: availableForOrder({ stored: whole(stock.storedQuantity), reserved: whole(stock.stockReserved), unavailable }),
+      stock: whole(stock.stock) - taken.stock,
+      stock_on_hand: whole(stock.stockOnHand) - taken.stockOnHand,
+    },
   };
+}
+
+type LookupResult = { status?: unknown; body?: unknown };
+
+/**
+ * Reads the answer to "does the warehouse already have a delivery under this
+ * id?" (`GET /orders/{clientOrderId}`, as the server's delivery jobs ask before
+ * they post). An open one is adopted and recorded instead of posting again,
+ * which would send a second code and may be refused. A cancelled one means the
+ * id is used up.
+ */
+export function existingDelivery(result: LookupResult): { state: "none" } | { state: "open"; trackingId: string } | { state: "cancelled" } {
+  const status = typeof result.status === "number" ? result.status : 500;
+  const body = result.body && typeof result.body === "object" ? (result.body as Record<string, unknown>) : {};
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  const id = text(body.order_id) || text(body.request_id) || text(body.delivery_order_id) || text(body.client_order_id);
+  if (status < 200 || status >= 300 || !id) return { state: "none" };
+  const state = text(body.status).toLowerCase();
+  if (state === "cancelled" || state === "canceled") return { state: "cancelled" };
+  return { state: "open", trackingId: id };
+}
+
+/** Said when the id was already used for a delivery that the warehouse cancelled. */
+export function cancelledAtWarehouse(clientOrderId: string) {
+  return tx("The warehouse already has a cancelled delivery under {id}, so it cannot be booked again under the same ID. Nothing was changed; tell an administrator.", { id: clientOrderId });
+}
+
+/**
+ * Which delivery could still be recorded for this request: a pending return
+ * with no delivery, or an open enquiry about damaged pieces with no shipment.
+ * Used to look for a warehouse booking that was accepted but never recorded.
+ */
+export function unrecordedDeliveryKind(view: RequestView): DeliveryKind | null {
+  if (returnApprovalBlocked(view) === null) return "return";
+  if (enquiryShipmentBlocked(view) === null) return "enquiry";
+  return null;
+}
+
+/**
+ * The tracking id of a warehouse booking found in `logistics_response` for a
+ * request that shows none: the proxy stores every accepted request there, so
+ * it survives a failed save here. Null when there is none (or it was cancelled).
+ */
+export function unrecordedTrackingId(rows: { data: Record<string, unknown> }[]): string | null {
+  for (const row of rows) {
+    const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+    const status = (text(row.data.status) || text(row.data.state)).toLowerCase();
+    if (status === "cancelled" || status === "canceled") continue;
+    const id = text(row.data.swftTrackID) || text(row.data.id) || text(row.data.delivery_order_id);
+    if (id) return id;
+  }
+  return null;
+}
+
+/** Shown on the request while the warehouse holds a booking that is not recorded here. It stays until it is recorded. */
+export function unrecordedDeliveryNote(kind: DeliveryKind, trackingId: string) {
+  return kind === "enquiry"
+    ? tx("The warehouse already accepted a return shipment for this enquiry (tracking ID {trackingId}) but it is not recorded here. Choose “Book return shipment” again: it records this one and does not book a second.", { trackingId })
+    : tx("The warehouse already accepted a delivery for this return (tracking ID {trackingId}) but it is not recorded here. Choose “Approve” again: it records this one and does not book a second.", { trackingId });
 }
 
 /** Said when the warehouse took the booking but it could not be recorded here. */
 export function acceptedNotRecorded(trackingId: string, reason: string) {
-  return tx("The warehouse accepted the delivery (tracking ID {trackingId}) but it was not recorded here: {reason} Do not book it again; note the tracking ID and tell an administrator.", {
+  return tx("The warehouse accepted the delivery (tracking ID {trackingId}) but it was not recorded here: {reason} Try again from the request: it finds this delivery and records it, without booking a second one.", {
     trackingId: trackingId || tx("not given"),
     reason,
   });

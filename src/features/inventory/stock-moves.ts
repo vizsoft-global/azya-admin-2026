@@ -1,6 +1,6 @@
 import { tx } from "@/lib/i18n/tx";
 import { isRestock } from "@/lib/store-valley/request-type";
-import { inc, NOW, union, type InventoryView, type Patch, type RequestView } from "./model";
+import { DELETE, inc, NOW, union, type InventoryView, type Patch, type RequestView } from "./model";
 
 /**
  * The two steps that raise the stock the app sells from.
@@ -12,9 +12,13 @@ import { inc, NOW, union, type InventoryView, type Patch, type RequestView } fro
  * `stock` are hidden. So:
  *
  * 1. "Add to stock": once the warehouse has stored a restock (fulfilment
- *    "Completed"), a super admin adds the received pieces to `stock` and
- *    `stock_on_hand`, as the old admin's "Received" button did. The request
- *    moves to "Received" and is stamped, so it can never be added twice.
+ *    "Completed"), a super admin adds the full requested quantity to `stock`
+ *    and `stock_on_hand`, as the old admin's "Received" button did, or marks it
+ *    as already counted. The request moves to "Received" and is stamped, so it
+ *    can never be added twice. Damaged or missing pieces are not deducted here:
+ *    they are recorded afterwards with an enquiry, which is the one place that
+ *    takes them out again. Either order of the two would otherwise count twice,
+ *    so an enquiry can only be raised once this step is done (`stockCounted`).
  * 2. "Adjust stock": a super admin corrects the figure by hand, with a reason,
  *    and a movement record is kept.
  */
@@ -32,28 +36,57 @@ export function receiveBlocked(view: RequestView): string | null {
   return null;
 }
 
-/** First problem with the quantity to add, or null. Zero records the receipt without changing stock. */
-export function receiveQuantityProblem(quantity: number | null, requested: number): string | null {
-  if (quantity == null || !Number.isInteger(quantity) || quantity < 0) return tx("Enter a whole number, 0 or more.");
-  if (requested > 0 && quantity > requested) return tx("You cannot add more than the {count} pieces requested.", { count: requested });
-  return null;
+/** The pieces of this restock are in the stock figure: added here, or by the old admin's "Received" button. */
+export function stockCounted(view: RequestView) {
+  return view.stockReceived || view.fulfillStatus === "Received";
+}
+
+/** The two answers the "Add to stock" dialog offers. There is no default: the person has to pick one. */
+export type ReceiveChoice = "add" | "counted";
+
+export function receiveChoiceProblem(choice: ReceiveChoice | null): string | null {
+  return choice ? null : tx("Choose whether to add the pieces or mark them as already counted.");
+}
+
+/** How many pieces the choice adds: the full requested quantity, or none. */
+export function receiveQuantity(choice: ReceiveChoice, requested: number) {
+  return choice === "add" ? Math.max(0, requested) : 0;
+}
+
+/** Restocks last changed before this day were completed before "Add to stock" existed. */
+export const STOCK_RECEIPT_START = new Date(Date.UTC(2026, 10, 22));
+
+/** True for an older restock, whose pieces may already have been put into the stock figure by hand. */
+export function mayAlreadyBeCounted(view: RequestView) {
+  return !view.updatedAt || view.updatedAt.getTime() < STOCK_RECEIPT_START.getTime();
 }
 
 /**
  * What "Add to stock" writes. The request is stamped and moved to "Received" in
  * the same transaction that raises the stock, so a second attempt is refused by
- * `receiveBlocked`. `at` is the browser time, used only inside the dated note.
+ * `receiveBlocked`. The stock record's "open restock" marker is cleared when it
+ * points at this request, as the old admin's "Received" button cleared it; a
+ * marker for a newer request is left alone. `at` is the browser time, used only
+ * inside the dated note.
  */
-export function receiveWrites(input: { quantity: number; at: Date }): { request: Patch; inventory: Patch | null } {
+export function receiveWrites(input: { choice: ReceiveChoice; requested: number; at: Date; markerIsThisRequest: boolean }): { request: Patch; inventory: Patch; quantity: number } {
+  const quantity = receiveQuantity(input.choice, input.requested);
+  const inventory: Patch = { updated_at: NOW };
+  if (quantity > 0) {
+    inventory.stock = inc(quantity);
+    inventory.stock_on_hand = inc(quantity);
+  }
+  if (input.markerIsThisRequest) inventory.restock_request_raised_ref = DELETE;
   return {
+    quantity,
     request: {
       update_at: NOW,
       "request_info.fulfill_status": "Received",
-      stock_received_quantity: input.quantity,
+      stock_received_quantity: quantity,
       stock_received_at: NOW,
-      movement_info: union({ movement_date: input.at, movement_info: `Received into stock: +${input.quantity}` }),
+      movement_info: union({ movement_date: input.at, movement_info: quantity > 0 ? `Received into stock: +${quantity}` : "Received: already counted in stock, nothing added" }),
     },
-    inventory: input.quantity > 0 ? { updated_at: NOW, stock: inc(input.quantity), stock_on_hand: inc(input.quantity) } : null,
+    inventory,
   };
 }
 
@@ -68,6 +101,17 @@ export function adjustProblem(input: { mode: AdjustMode; value: number | null; r
   if (input.mode === "set" && input.value === input.stock) return tx("Stock is already {count}.", { count: input.stock });
   if (input.reason.trim().length < 3) return tx("Give the reason for this adjustment.");
   return null;
+}
+
+/**
+ * "Set the new quantity" is typed against the figure the dialog showed. If the
+ * stock moved in the meantime (a sale, another admin), setting it would silently
+ * undo that, so it is refused with the current figure. Adding or removing pieces
+ * is relative and stays valid.
+ */
+export function adjustStale(input: { mode: AdjustMode; shown: number; stock: number }): string | null {
+  if (input.mode !== "set" || input.shown === input.stock) return null;
+  return tx("Stock is {count} now, not {shown} as it was when you opened this. Check the new figure and try again.", { count: input.stock, shown: input.shown });
 }
 
 /** The stock figure after the adjustment. */
@@ -127,9 +171,16 @@ export function isAdjustment(view: RequestView) {
   return view.requestStatus === "" && view.requestId === "" && view.enquiry.id === "" && view.movements.length > 0;
 }
 
-/** Shown where a completed restock is still waiting to be added to stock. */
+/** Shown where completed restocks have not been confirmed into stock yet. Worded as a to-do, not an error. */
 export function awaitingStockNote(count: number) {
   return count === 1
-    ? tx("1 restock is stored at the warehouse but not yet in the stock the app sells from. A super admin adds it with “Add to stock”.")
-    : tx("{count} restocks are stored at the warehouse but not yet in the stock the app sells from. A super admin adds them with “Add to stock”.", { count });
+    ? tx("1 completed restock has not been confirmed into stock yet. A super admin opens it and chooses “Add to stock”: either add its pieces, or mark them as already counted.")
+    : tx("{count} completed restocks have not been confirmed into stock yet. A super admin opens each one and chooses “Add to stock”: either add its pieces, or mark them as already counted.", { count });
+}
+
+/** Shown in the dialog for a restock completed before this step existed. */
+export function olderRestockNote(stock: number | null) {
+  return stock == null
+    ? tx("This restock was completed before this step existed. Its pieces may already be included in the stock figure. Check the current stock first, and choose “Already counted” if they are.")
+    : tx("This restock was completed before this step existed. Its pieces may already be included in the stock figure, which is {count} now. Check it first, and choose “Already counted” if they are.", { count: stock });
 }

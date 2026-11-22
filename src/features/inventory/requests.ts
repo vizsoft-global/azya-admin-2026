@@ -7,6 +7,7 @@ import { isFulfillComplete } from "@/lib/store-valley/intake-tracking";
 import { canReturnQty, InventoryRequestType, isRestock, isReturnToDesigner, movementStatus, needsSuperadminApprove } from "@/lib/store-valley/request-type";
 import { designerMustAccept, RestockRequestOrigin } from "@/lib/store-valley/restock";
 import { DELETE, NOW, type Patch, type RequestView } from "./model";
+import { stockCounted } from "./stock-moves";
 
 /**
  * Rules of the restock / return request life cycle, as the Flutter admin's
@@ -111,7 +112,7 @@ export function requestActions(view: RequestView, scope: RoleScope): Set<Request
   }
   if (accepted) {
     if (!complete && view.fulfillStatus !== "Cancelled") actions.add("cancel");
-    if (complete && restock && view.enquiry.status === "") actions.add("raiseEnquiry");
+    if (complete && restock && view.enquiry.status === "" && stockCounted(view)) actions.add("raiseEnquiry");
     if (restock && view.fulfillStatus === "Completed" && !view.stockReceived) actions.add("receive");
   }
   if (restock && view.enquiry.status === "active" && view.enquiry.fulfillStatus === "Enquiry open" && view.enquiry.issueType === "Damaged" && !view.enquiryDelivery.refId) {
@@ -331,14 +332,25 @@ export type StockState = {
   stockReserved: unknown;
   /** `store_valley_inventory/<product>_WH-KWT-MAIN.stored_quantity`; 0 when the warehouse has no record. */
   storedQuantity: unknown;
+  /** `inventory.stock` and `inventory.stock_on_hand`, needed only to give back what an approval took. */
+  stock?: unknown;
+  stockOnHand?: unknown;
 };
+
+/** True when approving this return in this panel took pieces out of `stock`, so a cancel gives them back. */
+export function returnTookStock(view: RequestView) {
+  return returnHoldsStock(view) && view.stockReturned != null;
+}
 
 /**
  * What cancelling writes. For a return to designer with a booked delivery the
  * held pieces become available again: `stock_unavailable` drops by the held
  * quantity (never below zero) and `available_for_order` is recomputed as the
  * old admin and the cloud functions do: warehouse stored − reserved −
- * unavailable, never below zero. Any other cancel leaves stock numbers alone.
+ * unavailable, never below zero. `stock` and `stock_on_hand` get back exactly
+ * what the approval stamped on the request; a return approved in the old admin
+ * has no stamp and took nothing from them, so nothing is credited. Any other
+ * cancel leaves stock numbers alone.
  */
 export function cancelWrites(view: RequestView, stock: StockState | null): { request: Patch; inventory: Patch } {
   const inventory = inventoryClearedPatch();
@@ -346,6 +358,10 @@ export function cancelWrites(view: RequestView, stock: StockState | null): { req
     const unavailable = Math.max(0, whole(stock.stockUnavailable) - heldQuantity(view));
     inventory.stock_unavailable = unavailable;
     inventory.available_for_order = availableForOrder({ stored: whole(stock.storedQuantity), reserved: whole(stock.stockReserved), unavailable });
+    if (view.stockReturned != null) {
+      inventory.stock = whole(stock.stock) + view.stockReturned;
+      inventory.stock_on_hand = whole(stock.stockOnHand) + (view.stockOnHandReturned ?? view.stockReturned);
+    }
   }
   return { request: cancelPatch(), inventory };
 }

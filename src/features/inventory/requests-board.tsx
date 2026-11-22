@@ -234,7 +234,7 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
           </TabsList>
         </Tabs>
       ) : null}
-      {awaiting ? <p className="rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">{awaitingStockNote(awaiting)}</p> : null}
+      {awaiting ? <p className="rounded-lg bg-tint-info px-3 py-2 text-[12px] text-foreground">{awaitingStockNote(awaiting)}</p> : null}
       <DataTable
         rows={rows}
         columns={columns}

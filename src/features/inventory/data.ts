@@ -41,7 +41,9 @@ import {
   acceptedNotRecorded,
   deliveryBlocked,
   deliveryClientId,
-  deliveryHoldPatch,
+  cancelledAtWarehouse,
+  deliveryStockMove,
+  existingDelivery,
   deliveryQuantity,
   deliveryRequestPatch,
   deliveryStockProblem,
@@ -51,7 +53,7 @@ import {
   type WarehouseStock,
 } from "./returns";
 import { lowStockNotification, thresholdPatch } from "./stock";
-import { adjustProblem, adjustWrites, receiveBlocked, receiveQuantityProblem, receiveWrites, type AdjustMode } from "./stock-moves";
+import { adjustProblem, adjustStale, adjustWrites, receiveBlocked, receiveWrites, type AdjustMode, type ReceiveChoice } from "./stock-moves";
 import { liveStatusPatch, readLiveTracking, trackingIdOf, type LogisticsView } from "./tracking";
 
 export const REQUESTS = "inventorymovementlog";
@@ -205,7 +207,13 @@ export async function cancelRequest(view: RequestView, proxy: Proxy = liveProxy)
       const data = stockSnap.data();
       const productId = String(data.product_id ?? "") || fresh.productId;
       const cache = productId ? await txn.get(doc(db(), storeValleyInventoryCollection, warehouseCacheDocId(productId, StoreValleyConfig.warehouseId))) : null;
-      stock = { stockUnavailable: data.stock_unavailable, stockReserved: data.stock_reserved, storedQuantity: cache?.exists() ? cache.data().stored_quantity : 0 };
+      stock = {
+        stockUnavailable: data.stock_unavailable,
+        stockReserved: data.stock_reserved,
+        storedQuantity: cache?.exists() ? cache.data().stored_quantity : 0,
+        stock: data.stock,
+        stockOnHand: data.stock_on_hand,
+      };
     }
     const writes = cancelWrites(fresh, stock);
     txn.update(ref, resolved(writes.request));
@@ -429,18 +437,23 @@ export async function refreshTracking(view: RequestView, logisticsDocId: string 
  * completed and not yet added, raises `stock` and `stock_on_hand`, and moves the
  * request to "Received" with a stamp, so the same pieces can never be added twice.
  */
-export async function receiveIntoStock(view: RequestView, quantity: number) {
+export async function receiveIntoStock(view: RequestView, choice: ReceiveChoice) {
   const ref = requestRef(view.id);
-  await runTransaction(db(), async (txn) => {
+  return runTransaction(db(), async (txn) => {
     const snap = await txn.get(ref);
     if (!snap.exists()) throw new Error(tx("This request no longer exists. Nothing was changed."));
     const fresh = readRequest({ id: snap.id, data: snap.data() });
-    const problem = receiveBlocked(fresh) ?? receiveQuantityProblem(quantity, fresh.quantity);
+    const problem = receiveBlocked(fresh);
     if (problem) throw new Error(problem);
-    const writes = receiveWrites({ quantity, at: new Date() });
-    if (writes.inventory && !fresh.inventoryDocId) throw new Error(tx("This request has no stock record, so its pieces cannot be added to stock. Nothing was changed."));
+    if (!fresh.inventoryDocId) throw new Error(tx("This request has no stock record, so its pieces cannot be added to stock. Nothing was changed."));
+    const stockRef = inventoryRef(fresh.inventoryDocId);
+    const stockSnap = await txn.get(stockRef);
+    if (!stockSnap.exists()) throw new Error(tx("The stock record of this request was not found. Nothing was changed."));
+    const marker = readInventory({ id: stockSnap.id, data: stockSnap.data() }).restockRequestId;
+    const writes = receiveWrites({ choice, requested: fresh.quantity, at: new Date(), markerIsThisRequest: marker === fresh.id });
     txn.update(ref, resolved(writes.request));
-    if (writes.inventory) txn.update(inventoryRef(fresh.inventoryDocId), resolved(writes.inventory));
+    txn.update(stockRef, resolved(writes.inventory));
+    return writes.quantity;
   });
 }
 
@@ -449,7 +462,16 @@ export async function receiveIntoStock(view: RequestView, quantity: number) {
  * stock record is read inside the transaction, the new figures are worked out
  * from it, and a movement record with the reason is written alongside.
  */
-export async function adjustStock(input: { inventoryDocId: string; mode: AdjustMode; value: number; reason: string; by: string; productName: string }) {
+export async function adjustStock(input: {
+  inventoryDocId: string;
+  mode: AdjustMode;
+  value: number;
+  reason: string;
+  by: string;
+  productName: string;
+  /** The stock figure the dialog was showing when the person typed the value. */
+  shown: number;
+}) {
   const counters = await idMapRef();
   const stockRef = inventoryRef(input.inventoryDocId);
   const movementRef = doc(collection(db(), REQUESTS));
@@ -457,7 +479,7 @@ export async function adjustStock(input: { inventoryDocId: string; mode: AdjustM
     const snap = await txn.get(stockRef);
     if (!snap.exists()) throw new Error(tx("This stock record no longer exists. Nothing was changed."));
     const record = readInventory({ id: snap.id, data: snap.data() });
-    const problem = adjustProblem({ mode: input.mode, value: input.value, reason: input.reason, stock: record.stock });
+    const problem = adjustStale({ mode: input.mode, shown: input.shown, stock: record.stock }) ?? adjustProblem({ mode: input.mode, value: input.value, reason: input.reason, stock: record.stock });
     if (problem) throw new Error(problem);
     const { movement_log_id: movementLogId } = await takeIds(txn, counters, ["movement_log_id"] as const);
     const writes = adjustWrites({
@@ -491,6 +513,14 @@ export async function bookDesignerDelivery(view: RequestView, kind: DeliveryKind
   const blocked = deliveryBlocked(current, kind);
   if (blocked) throw new Error(blocked);
 
+  // The warehouse may already hold this delivery: accepted on an earlier try that could not be recorded here.
+  // Ask first and adopt it; posting again would send a second code and may be refused. An adopted delivery is
+  // only recorded, so the checks that guard a new booking (stock at the warehouse, a complete address) are skipped.
+  const clientOrderId = deliveryClientId(current, kind);
+  const found = existingDelivery(await proxy({ method: "GET", path: `/orders/${encodeURIComponent(clientOrderId)}` }));
+  if (found.state === "cancelled") throw new Error(cancelledAtWarehouse(clientOrderId));
+  const adopting = found.state === "open";
+
   const ref = requestRef(current.id);
   const stockRef = inventoryRef(current.inventoryDocId);
   const stockData = await requireDoc(stockRef, tx("The stock record of this request was not found. Nothing was changed."));
@@ -501,8 +531,10 @@ export async function bookDesignerDelivery(view: RequestView, kind: DeliveryKind
     stockUnavailable: stock.stock_unavailable,
     stockReserved: stock.stock_reserved,
     storedQuantity: cache?.stored_quantity ?? 0,
+    stock: stock.stock,
+    stockOnHand: stock.stock_on_hand,
   });
-  const stockProblem = deliveryStockProblem(kind, quantity, stockOf(stockData, (await getDoc(cacheRef)).data()));
+  const stockProblem = adopting ? null : deliveryStockProblem(kind, quantity, stockOf(stockData, (await getDoc(cacheRef)).data()));
   if (stockProblem) throw new Error(stockProblem);
 
   const designer = await requireDoc(doc(db(), "users", current.designerUid), tx("The designer's profile was not found. Nothing was changed."));
@@ -513,7 +545,7 @@ export async function bookDesignerDelivery(view: RequestView, kind: DeliveryKind
   const product = await requireDoc(current.productRef as DocumentReference, tx("The product of this request was not found. Nothing was changed."));
   const to = { uid: current.designerUid, designerId: String(main.designer_id ?? ""), address: readAddress(main.designer_pickup_address) };
   const plan = planDesignerDelivery({
-    clientOrderId: deliveryClientId(current, kind),
+    clientOrderId,
     line: {
       quantity,
       productId: String(product.product_id ?? "") || current.productId,
@@ -522,7 +554,7 @@ export async function bookDesignerDelivery(view: RequestView, kind: DeliveryKind
     },
     designer: to,
   });
-  if ("problem" in plan) throw new Error(plan.problem);
+  if ("problem" in plan && !adopting) throw new Error(plan.problem);
 
   // Read the request again inside a transaction and take the delivery number only after those reads.
   const counters = await idMapRef();
@@ -533,13 +565,20 @@ export async function bookDesignerDelivery(view: RequestView, kind: DeliveryKind
     if (stillBlocked) throw new Error(stillBlocked);
     const stockSnap = await txn.get(stockRef);
     const cacheSnap = await txn.get(cacheRef);
-    const problem = deliveryStockProblem(kind, quantity, stockOf(stockSnap.data() ?? {}, cacheSnap.data()));
+    const problem = adopting ? null : deliveryStockProblem(kind, quantity, stockOf(stockSnap.data() ?? {}, cacheSnap.data()));
     if (problem) throw new Error(problem);
     return (await takeIds(txn, counters, ["delivery_id"] as const)).delivery_id;
   });
 
-  const answer = readPickupResult(await proxy(plan.call), tx("The warehouse did not accept the delivery request."));
-  if (!answer.ok) throw new Error(tx("{problem} Nothing was changed; you can try again.", { problem: answer.message }));
+  let answer: { trackingId: string };
+  if (found.state === "open") {
+    answer = { trackingId: found.trackingId };
+  } else {
+    if ("problem" in plan) throw new Error(plan.problem);
+    const posted = readPickupResult(await proxy(plan.call), tx("The warehouse did not accept the delivery request."));
+    if (!posted.ok) throw new Error(tx("{problem} Nothing was changed; you can try again.", { problem: posted.message }));
+    answer = posted;
+  }
 
   const deliveryRef = doc(collection(db(), "delivery"));
   try {
@@ -550,13 +589,14 @@ export async function bookDesignerDelivery(view: RequestView, kind: DeliveryKind
       if (stillBlocked) throw new Error(stillBlocked);
       const stockSnap = await txn.get(stockRef);
       const cacheSnap = await txn.get(cacheRef);
-      const hold = stockSnap.exists() ? deliveryHoldPatch(kind, quantity, stockOf(stockSnap.data(), cacheSnap.data())) : null;
+      const move = stockSnap.exists() ? deliveryStockMove(kind, quantity, stockOf(stockSnap.data(), cacheSnap.data())) : null;
+      if (kind === "return" && !move) throw new Error(tx("The stock record of this request was not found. Nothing was changed."));
       txn.set(deliveryRef, resolved(designerDeliveryDoc({ deliveryId, trackingId: answer.trackingId, requestRef: ref, assignedBy: scope.userDocId ? doc(db(), "users", scope.userDocId) : null })));
-      txn.update(ref, resolved(deliveryRequestPatch({ kind, deliveryRef, deliveryId, trackingId: answer.trackingId, warehouse, designer: to.address })));
-      if (hold) txn.update(stockRef, resolved(hold));
+      txn.update(ref, resolved(deliveryRequestPatch({ kind, deliveryRef, deliveryId, trackingId: answer.trackingId, warehouse, designer: to.address, taken: move?.taken })));
+      if (move) txn.update(stockRef, resolved(move.inventory));
     });
   } catch (error) {
     throw new Error(acceptedNotRecorded(answer.trackingId, error instanceof Error ? error.message : String(error)));
   }
-  return { trackingId: answer.trackingId, quantity };
+  return { trackingId: answer.trackingId, quantity, adopted: adopting };
 }

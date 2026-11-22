@@ -2,6 +2,7 @@ import { tx, txKey } from "@/lib/i18n/tx";
 import { isFulfillComplete } from "@/lib/store-valley/intake-tracking";
 import { isRestock } from "@/lib/store-valley/request-type";
 import { DELETE, inc, NOW, type Patch, type RequestView } from "./model";
+import { stockCounted } from "./stock-moves";
 
 /**
  * An enquiry is raised on a completed restock when the warehouse received
@@ -33,6 +34,9 @@ export function raiseEnquiryBlocked(view: RequestView): string | null {
   }
   if (!isRestock(view.requestType)) return tx("An enquiry can only be raised on a restock. Nothing was changed.");
   if (view.requestStatus !== "Accepted" || !isFulfillComplete(view.fulfillStatus)) return tx("An enquiry can only be raised once the restock is completed. Nothing was changed.");
+  if (!stockCounted(view)) {
+    return tx("Add this restock to stock first (or mark it as already counted). The enquiry then takes the damaged or missing pieces out again. Nothing was changed.");
+  }
   return null;
 }
 

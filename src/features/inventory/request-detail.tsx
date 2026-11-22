@@ -18,6 +18,7 @@ import { refreshTracking, resendPickupOtpByTracking } from "./data";
 import { enquiryStageLabel } from "./enquiry";
 import { addressLine, type RequestView } from "./model";
 import { fulfillLabel, requestTitle, type RequestAction } from "./requests";
+import { deliveryClientId, unrecordedDeliveryKind, unrecordedDeliveryNote, unrecordedTrackingId } from "./returns";
 import { awaitingStockNote, awaitsStock } from "./stock-moves";
 import { hasTracking, readLogistics, timelineView, trackingIdOf, type LogisticsView } from "./tracking";
 
@@ -202,6 +203,27 @@ export function RequestDetailSheet({
   );
 }
 
+/**
+ * Stays on the request while the warehouse holds a delivery for it that is not
+ * recorded here (accepted on an earlier try whose save failed). The proxy keeps
+ * every accepted request in `logistics_response`, so the tracking id is read
+ * back from there. It disappears once the delivery is recorded.
+ */
+function UnrecordedDeliveryNotice({ view }: { view: RequestView }) {
+  const kind = unrecordedDeliveryKind(view);
+  const clientId = kind ? deliveryClientId(view, kind) : "";
+  const byClient = useQueryRows("logistics_response", { where: [["client_order_id", "==", clientId]], limit: 5, enabled: clientId !== "" });
+  // Some answers carry the id as the external request id instead.
+  const byExternal = useQueryRows("logistics_response", { where: [["external_request_id", "==", clientId]], limit: 5, enabled: clientId !== "" && !byClient.loading && byClient.rows.length === 0 });
+  const trackingId = kind ? unrecordedTrackingId([...byClient.rows, ...byExternal.rows]) : null;
+  if (!kind || !trackingId) return null;
+  return (
+    <p role="status" className="rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">
+      {unrecordedDeliveryNote(kind, trackingId)}
+    </p>
+  );
+}
+
 function DetailBody({ view, actions, designerName, onAction }: { view: RequestView; actions: Set<RequestAction>; designerName?: string; onAction: (action: RequestAction, view: RequestView) => void }) {
   const list = orderedActions(actions);
   const items: DetailItem[] = [
@@ -241,7 +263,8 @@ function DetailBody({ view, actions, designerName, onAction }: { view: RequestVi
             ))}
           </div>
         ) : null}
-        {awaitsStock(view) ? <p className="rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">{awaitingStockNote(1)}</p> : null}
+        <UnrecordedDeliveryNotice view={view} />
+        {awaitsStock(view) ? <p className="rounded-lg bg-tint-info px-3 py-2 text-[12px] text-foreground">{awaitingStockNote(1)}</p> : null}
         {view.stockReceived ? (
           <p className="rounded-lg bg-tint-success px-3 py-2 text-[12px] text-foreground">
             {tx("{count} pieces from this restock were added to the stock the app sells from.", { count: view.stockReceivedQuantity })}

@@ -139,6 +139,12 @@ export type RequestView = {
   stockReceived: boolean;
   /** `stock_received_quantity`: how many pieces that step added. */
   stockReceivedQuantity: number;
+  /**
+   * `request_info.stock_returned_quantity` / `stock_on_hand_returned_quantity`: what approving a return to
+   * designer in this panel took out of `stock` and `stock_on_hand`. Null on returns approved in the old admin.
+   */
+  stockReturned: number | null;
+  stockOnHandReturned: number | null;
   /** `movement_info[]`: dated notes on the record (stock received, stock adjusted). */
   movements: { at: Date | null; text: string }[];
 };
@@ -181,6 +187,8 @@ export function readRequest(row: Row): RequestView {
     enquiryDelivery: readDeliveryInfo(data.enquiry_delivery_info),
     stockReceived: data.stock_received_at != null,
     stockReceivedQuantity: int(data.stock_received_quantity),
+    stockReturned: info.stock_returned_quantity == null ? null : int(info.stock_returned_quantity),
+    stockOnHandReturned: info.stock_on_hand_returned_quantity == null ? null : int(info.stock_on_hand_returned_quantity),
     movements: (Array.isArray(data.movement_info) ? data.movement_info : []).map((entry) => ({ at: toDate(map(entry).movement_date), text: text(map(entry).movement_info) })),
   };
 }

@@ -85,13 +85,13 @@ export function useRequestActions(requests: RequestView[]) {
             const ok = await confirm({
               title: tx("Approve {id}?", { id: title }),
               description: tx(
-                "{what}. Approving books a warehouse delivery to the designer's address on their profile, with a one-time code. {pieces} are held as unavailable until the warehouse reports them delivered.",
+                "{what}. Approving books a warehouse delivery to the designer's address on their profile, with a one-time code. {pieces} are taken out of the stock the app sells from and held at the warehouse until it reports them delivered.",
                 { what, pieces: held },
               ),
               confirmLabel: tx("Approve and book delivery"),
             });
             if (ok)
-              await write(tx("Booking the delivery…"), tx("Return approved and delivery booked. {pieces} are now held as unavailable.", { pieces: held }), tx("The return was not approved"), () =>
+              await write(tx("Booking the delivery…"), tx("Return approved and delivery booked. {pieces} were taken out of stock.", { pieces: held }), tx("The return was not approved"), () =>
                 bookDesignerDelivery(view, "return", scope),
               );
             return;

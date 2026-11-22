@@ -112,7 +112,7 @@ function AdjustStockDialog({ row, by, onClose }: { row: StockRow | null; by: str
     }
     setSaving(true);
     try {
-      const result = await adjustStock({ inventoryDocId: row.id, mode, value, reason, by, productName: row.product?.storedName || row.name });
+      const result = await adjustStock({ inventoryDocId: row.id, mode, value, reason, by, productName: row.product?.storedName || row.name, shown: stock });
       toast.success(tx("Stock changed from {before} to {after}.", { before: result.before, after: result.after }));
       onClose();
     } catch (error) {
@@ -253,7 +253,7 @@ export function StockPage() {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<StockRow | null>(null);
   const [collecting, setCollecting] = useState<StockRow | null>(null);
-  const [adjusting, setAdjusting] = useState<StockRow | null>(null);
+  const [adjustingId, setAdjustingId] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
 
   const all = useMemo<StockRow[]>(
@@ -418,7 +418,7 @@ export function StockPage() {
                   <Link href={`/inventory-sm?id=${row.view.restockRequestId}`}>{tx("Open restock request")}</Link>
                 </DropdownMenuItem>
               ) : null}
-              {scope.isSuperAdmin ? <DropdownMenuItem onSelect={() => setAdjusting(row)}>{tx("Adjust stock")}</DropdownMenuItem> : null}
+              {scope.isSuperAdmin ? <DropdownMenuItem onSelect={() => setAdjustingId(row.id)}>{tx("Adjust stock")}</DropdownMenuItem> : null}
               {canEdit ? <DropdownMenuItem onSelect={() => setEditing(row)}>{tx("Change alert threshold")}</DropdownMenuItem> : null}
               {canNotify ? <DropdownMenuItem onSelect={() => void notify(row)}>{tx("Notify designer")}</DropdownMenuItem> : null}
               {canCollect ? <DropdownMenuItem onSelect={() => setCollecting(row)}>{tx("Raise collect request")}</DropdownMenuItem> : null}
@@ -492,7 +492,7 @@ export function StockPage() {
       />
       <ThresholdDialog row={editing} onClose={() => setEditing(null)} />
       <CollectRequestDialog row={collecting} onClose={() => setCollecting(null)} />
-      <AdjustStockDialog row={adjusting} by={scope.displayName || scope.email} onClose={() => setAdjusting(null)} />
+      <AdjustStockDialog row={adjustingId ? (all.find((row) => row.id === adjustingId) ?? null) : null} by={scope.displayName || scope.email} onClose={() => setAdjustingId(null)} />
     </div>
   );
 }
