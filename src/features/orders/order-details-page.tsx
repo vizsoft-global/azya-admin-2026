@@ -48,6 +48,7 @@ import {
   type Shipment,
 } from "./model";
 import { OrdersPage } from "./orders-page";
+import { PackingSlipButton } from "./packing-slip-view";
 import { Fact, LineRow, LineStateBadge, PaymentBadge, Section } from "./parts";
 import { requestGroups } from "./shipping-model";
 
@@ -150,6 +151,7 @@ function OrderView({ id }: { id: string }) {
           </h2>
           <p className="mt-0.5 text-[12px] text-muted-foreground">Placed {formatDate(order.created_at, true) || "on an unknown date"}</p>
         </div>
+        <PackingSlipButton order={order} />
       </div>
 
       <div className={cn("grid items-start gap-3", staff && "lg:grid-cols-[minmax(0,1fr)_320px]")}>

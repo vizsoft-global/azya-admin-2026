@@ -37,6 +37,7 @@ import {
   type SvRequest,
   type SvResponse,
 } from "./returns-model";
+import { lineOptionRefs, optionName, type OptionNames } from "./packing-slip";
 import { acceptedButNotRecorded, buildRequest, deliveryRecord, existingRequest, requestGroups, requestTrackingId, withRequestRecorded, type RequestGroup } from "./shipping-model";
 
 const db = () => getFirebase().db;
@@ -305,4 +306,29 @@ export async function createShippingRequest(orderDocId: string, groupKey: string
     }
   }
   return { trackingId, reused: Boolean(found), stockNote };
+}
+
+/* ---------- packing slip ---------- */
+
+/** Names of the options (size, colour ...) on the given lines, from `attributes` and `brands`, in the panel's language. */
+export async function loadOptionNames(lines: Dict[], lang: "en" | "ar"): Promise<OptionNames> {
+  const refs = lines.flatMap(lineOptionRefs);
+  const read = async (name: string, field: string, prefix: "attribute" | "brand", ids: unknown[]) => {
+    const wanted = [...new Map(ids.filter((id) => text(id)).map((id) => [text(id), id])).values()];
+    const found: Record<string, string> = {};
+    for (let start = 0; start < wanted.length; start += 30) {
+      // The ids are compared as stored (number or text), the way the app looks them up.
+      const snap = await getDocs(query(collection(db(), name), where(field, "in", wanted.slice(start, start + 30))));
+      for (const item of snap.docs) {
+        const label = optionName(item.data(), prefix, lang);
+        if (label) found[text(item.data()[field])] = label;
+      }
+    }
+    return found;
+  };
+  const [attributes, terms] = await Promise.all([
+    read("attributes", "attribute_id", "attribute", refs.map((ref) => ref.attributeId)),
+    read("brands", "brand_id", "brand", refs.map((ref) => ref.termId)),
+  ]);
+  return { attributes, terms };
 }

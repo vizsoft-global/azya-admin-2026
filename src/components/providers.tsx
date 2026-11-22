@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { ThemeProvider } from "next-themes";
 import { Direction } from "radix-ui";
 import { AuthProvider, useAuth } from "./auth-provider";
@@ -8,6 +8,7 @@ import { ConfirmProvider } from "./shared/confirm-dialog";
 import { Toaster } from "./ui/sonner";
 import { TooltipProvider } from "./ui/tooltip";
 import { UpdateWatcher } from "./update-watcher";
+import { setTxLang } from "@/lib/i18n/tx";
 
 /** Everything mounted once around the whole app: theme, auth, text direction, tooltips, confirmations, toasts, update watcher. */
 export function Providers({ children }: { children: ReactNode }) {
@@ -32,10 +33,15 @@ export function Providers({ children }: { children: ReactNode }) {
 function Directional({ children }: { children: ReactNode }) {
   const { lang } = useAuth();
   const dir = lang === "ar" ? "rtl" : "ltr";
+  // `tx()` reads the language from a module value, so it is set before anything below renders,
+  // and the page tree is re-mounted on a language change so every label is rebuilt.
+  setTxLang(lang);
   return (
     <Direction.Provider dir={dir}>
       <TooltipProvider delayDuration={200}>
-        <ConfirmProvider>{children}</ConfirmProvider>
+        <ConfirmProvider>
+          <Fragment key={lang}>{children}</Fragment>
+        </ConfirmProvider>
         <UpdateWatcher />
         <Toaster position={dir === "rtl" ? "top-left" : "top-right"} dir={dir} closeButton />
       </TooltipProvider>
