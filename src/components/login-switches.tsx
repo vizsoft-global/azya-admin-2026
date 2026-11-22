@@ -11,6 +11,8 @@ import {
   readLoginOptions,
   type LoginOption,
 } from "@/lib/login-options";
+import { Button } from "./ui/button";
+import { Switch } from "./ui/switch";
 
 /**
  * On/off switches for the sign-in buttons in the customer app. They live on the
@@ -42,18 +44,18 @@ export function LoginSwitches() {
   }
 
   return (
-    <section className="mb-4 rounded-[14px] bg-white p-4" aria-labelledby="login-options-title">
-      <p id="login-options-title" className="text-sm font-semibold">Login options</p>
-      <p className="mt-1 text-xs text-[#757575]">Choose which sign-in buttons customers see in the app. Email sign-in is always on.</p>
+    <section className="rounded-[14px] bg-card p-4" aria-labelledby="login-options-title">
+      <p id="login-options-title" className="text-sm font-semibold text-heading">Login options</p>
+      <p className="mt-1 text-xs text-muted-foreground">Choose which sign-in buttons customers see in the app. Email sign-in is always on.</p>
 
-      {loading && <p className="mt-3 text-xs text-[#a9a9a9]">Loading…</p>}
-      {error && <p className="mt-3 text-xs text-[#b42318]">Login options could not be loaded: {error}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
+      {error && <p className="mt-3 text-xs text-destructive">Login options could not be loaded: {error}</p>}
       {!loading && !error && !company && (
-        <p className="mt-3 text-xs text-[#b42318]">No Company settings record was found, so there is nothing to switch.</p>
+        <p className="mt-3 text-xs text-destructive">No Company settings record was found, so there is nothing to switch.</p>
       )}
 
       {company && (
-        <ul className="mt-3 divide-y divide-[#f0f0f0]">
+        <ul className="mt-3 divide-y divide-border">
           {LOGIN_OPTIONS.map((option) => {
             const on = values[option.field];
             const locked = !canSetLoginOption(option, !on);
@@ -61,40 +63,26 @@ export function LoginSwitches() {
             return (
               <li key={option.field} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
                 <div className="min-w-0 flex-1 basis-56">
-                  <p className="text-[13px] font-medium">{option.label}</p>
-                  <p className="text-xs text-[#757575]">{option.hint}</p>
+                  <p className="text-[13px] font-medium text-foreground">{option.label}</p>
+                  <p className="text-xs text-muted-foreground">{option.hint}</p>
                 </div>
                 {pendingOff === option.field ? (
                   <div className="flex items-center gap-2">
                     <span className="text-xs">Hide this button for all customers?</span>
-                    <button
-                      className="rounded-lg bg-[#1a1a1a] px-2.5 py-1 text-xs text-white hover:bg-black"
-                      onClick={() => save(option, false)}
-                    >
+                    <Button size="sm" onClick={() => save(option, false)}>
                       Turn off
-                    </button>
-                    <button
-                      className="rounded-lg border border-[#e3e3e3] bg-white px-2.5 py-1 text-xs hover:bg-[#fafafa]"
-                      onClick={() => setPendingOff(null)}
-                    >
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setPendingOff(null)}>
                       Keep on
-                    </button>
+                    </Button>
                   </div>
                 ) : (
-                  <button
-                    role="switch"
-                    aria-checked={on}
+                  <Switch
+                    checked={on}
                     aria-label={`${option.label} sign-in`}
                     disabled={locked || busy}
-                    onClick={() => (on ? setPendingOff(option.field) : save(option, true))}
-                    className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                      on ? "bg-[#1a1a1a]" : "bg-[#d4d4d4]"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? "left-[22px]" : "left-0.5"}`}
-                    />
-                  </button>
+                    onCheckedChange={(next) => (next ? save(option, true) : setPendingOff(option.field))}
+                  />
                 )}
               </li>
             );
@@ -102,7 +90,7 @@ export function LoginSwitches() {
         </ul>
       )}
 
-      {note && <p className="mt-2 text-xs text-[#757575]" role="status">{note}</p>}
+      {note && <p className="mt-2 text-xs text-muted-foreground" role="status">{note}</p>}
     </section>
   );
 }

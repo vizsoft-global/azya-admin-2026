@@ -1,6 +1,8 @@
 # Route parity
 
-The Flutter admin stays the source of behaviour. Nested FlutterFlow widgets (product builder, size chart editor, live chat thread) are ported as the same Firestore documents and the same actions, edited through the document form plus the action panel on that page. Visual-only widget polish is the later page-by-page pass.
+The Flutter admin was the source of behaviour. Every route below now has its own screen in `src/features/<area>/` (catalog, orders, inventory, people, marketing, finance) or one of the three earlier pages (customer waitlist, designer pending, creator promotions); the generic record editor is only a read-only fallback.
+
+Removed because the Flutter screens were static mock-ups with no data behind them, or did nothing: `/theme`, `/support`, `/discounts`, `/new-promotion`, `/shipping-discounts`, `/media-videos`, `/order-shipping-label`, `/edit-weight`.
 
 | Path | Flutter route | Permission |
 |---|---|---|
@@ -12,7 +14,6 @@ The Flutter admin stays the source of behaviour. Nested FlutterFlow widgets (pro
 | /edit-profile | Edit-profile | signed in |
 | /home-setting | home_setting | settings |
 | /home-setting-category | home setting category | settings |
-| /theme | Theme | settings |
 | /location | Location | settings |
 | /products | Products | product |
 | /products-grid | products grid | product |
@@ -41,8 +42,6 @@ The Flutter admin stays the source of behaviour. Nested FlutterFlow widgets (pro
 | /order-details | Order-Details | order |
 | /shipping-orders | ShippingOrders | order |
 | /create-shipping-label | Create-Shipping-Label | order |
-| /order-shipping-label | Order-Shipping-Label | order |
-| /edit-weight | edit weight | order |
 | /return-orders | Return-Orders | return |
 | /refund | Refund | return |
 | /customers | Customers | customer |
@@ -70,17 +69,12 @@ The Flutter admin stays the source of behaviour. Nested FlutterFlow widgets (pro
 | /analytics | Analytics | signed in |
 | /discount | Discount | discount |
 | /create-coupon | CreateNewCoupon | discount |
-| /discounts | Discounts | discount |
-| /new-promotion | NewPromotion | discount |
-| /shipping-discounts | Create-Shipping-Discounts | discount |
 | /loyalty | LoyaltyProgramTiers | discount |
 | /media | Media | media |
 | /media-pictures | media pictures | media |
-| /media-videos | media videos | media |
 | /tryon | TryOn | tryon |
 | /send-notification | Send-Notification | notification |
 | /notifications | in-app notifications | notification |
-| /support | Customer-support-list | signed in |
 | /translation | Translation | settings |
 | /translation-banner | TranslationBanner | settings |
 | /translation-creator-banner | TranslationCreatorBanner | settings |

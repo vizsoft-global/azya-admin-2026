@@ -1,8 +1,12 @@
-# Known gaps for the later page-by-page pass
+# Known gaps
 
-- Product add/edit writes the same `products` document fields, but the FlutterFlow step builder (variations, attributes, translations) is the JSON document, not a stepped form.
-- Live chat is the support user list plus `notification` records. The streamed chat thread UI is not rebuilt yet.
-- Google Maps pickup-address picker is not on the profile page yet. PACI parsing from the Flutter address helper is ported and tested.
-- Algolia user search keys are env placeholders. Lists read Firestore directly.
-- Lists load the first 250 documents and filter in the browser so we do not add new Firestore indexes.
-- `proxy.vizsoft.in` payment calls are wrapped in `src/lib/api.ts`. The admin still does not charge cards itself; payouts write `transactions`.
+- Nothing in this panel has been tried against live data: it is covered by unit tests, type-check, lint and a production build only.
+- Database rules do not enforce roles. "A designer sees only their own records" is applied by the screens, not by the database.
+- Store Valley (warehouse and delivery) requests are built and unit-tested but have not been sent from this panel; the vendor acceptance run has not happened.
+- A failed delivery job cannot be cancelled from the browser (rules deny writes to `store_valley_delivery_jobs`), so releasing stock is refused while a failed warehouse job can still be retried by the server.
+- There is no rule for what a designer is paid from a sale, so designer balances are not computed; creator balances follow the customer app's wallet formula.
+- A completed restock does not raise `inventory.stock`; the screens say so.
+- Push notifications cannot open a chosen page on tap until the cloud function sends `initialPageName`.
+- Delivery partner sign-in is not set up from here; the old plain-text `password` field is never read into a screen or written.
+- Search on the lists covers the loaded rows only (Algolia keys are placeholders).
+- Pictures are uploaded to Firebase Storage under the uploader's own folder and added to `images`; the old PHP upload endpoint is not used.

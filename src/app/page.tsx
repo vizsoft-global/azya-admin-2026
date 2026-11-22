@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { PageLoading } from "@/components/shared/page-loading";
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -10,5 +11,5 @@ export default function Home() {
   useEffect(() => {
     if (!loading) router.replace(user ? "/dashboard" : "/login");
   }, [user, loading, router]);
-  return <p className="p-8 text-sm text-[#a9a9a9]">Loading…</p>;
+  return <PageLoading fullScreen />;
 }

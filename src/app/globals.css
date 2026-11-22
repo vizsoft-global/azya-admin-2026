@@ -1,27 +1,363 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* Navy and black are the two dark themes; `dark:` utilities apply under either. */
+@custom-variant dark (&:is(.navy *, .black *));
+
+/*
+ * State variants the primitives in src/components/ui rely on (data-open:,
+ * data-checked:, data-horizontal: …). They match both Radix's data-state
+ * attribute and a bare data-* flag.
+ */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-selected {
+  &:where([data-selected="true"]) {
+    @slot;
+  }
+}
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
 
 @theme inline {
   --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-heading: var(--font-inter), system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  /* Two extra text tiers, the outer canvas, the brand mark and state colours. */
+  --color-heading: var(--heading);
+  --color-subtle: var(--subtle);
+  --color-canvas: var(--ba-canvas);
+  --color-success: var(--ba-success);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-tint-danger: var(--tint-danger);
+  --color-tint-success: var(--tint-success);
+  --color-tint-warning: var(--tint-warning);
+  --color-tint-info: var(--tint-info);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 :root {
-  --background: #ebebeb;
+  --background: #f1f1f1;
   --foreground: #303030;
+  --card: #ffffff;
+  --card-foreground: #303030;
+  --popover: #ffffff;
+  --popover-foreground: #303030;
+  --primary: #1a1a1a;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: #eeeeee;
+  --input: #eeeeee;
+  --ring: oklch(0.708 0 0);
+  /* Heading text and the muted/secondary tiers. */
+  --heading: #1a1a1a;
+  --subtle: #a9a9a9;
+  --muted: #f6f6f6;
+  --muted-foreground: #8a8a8a;
+  --destructive: #f52525;
+  /* Row/cell tints for good/bad states; dark values are the same hue at low alpha. */
+  --tint-danger: #fff4f4;
+  --tint-success: #eefaf3;
+  --tint-warning: #fff6e5;
+  --tint-info: #eef4ff;
+  --chart-1: #f52525;
+  --chart-2: #f04438;
+  --chart-3: #17b26a;
+  --chart-4: #e6e7e4;
+  --chart-5: #303030;
+  --radius: 0.75rem;
+  --sidebar: #fcfcfc;
+  --ba-canvas: #ebebeb;
+  --ba-success: #067647;
+  --ba-danger: #f52525;
+  /* Azyaa's lime mark, used for the logo tile and avatar fallbacks. */
+  --brand: #c6f54a;
+  --brand-foreground: #111111;
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: #f1f1f1;
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
+.navy,
+.black {
+  /*
+   * Navy, not black. A pure-black panel with grey cards reads as a switched-off
+   * screen; the blue keeps surfaces distinguishable from each other and from
+   * the page, which matters because this panel is mostly tables on cards.
+   */
+  color-scheme: dark;
+  --background: #0d1526;
+  --foreground: #e6ecf7;
+  --card: #111c33;
+  --card-foreground: #e6ecf7;
+  --popover: #16233d;
+  --popover-foreground: #e6ecf7;
+  --primary: #3b63c9;
+  --primary-foreground: #ffffff;
+  --secondary: #16233d;
+  --secondary-foreground: #e6ecf7;
+  --muted: #16233d;
+  --muted-foreground: #93a3bd;
+  --heading: #f4f7ff;
+  --subtle: #7f90ad;
+  --accent: #1b2a47;
+  --accent-foreground: #e6ecf7;
+  --destructive: #ff7b7b;
+  --tint-danger: rgba(255, 123, 123, 0.14);
+  --tint-success: rgba(74, 222, 128, 0.14);
+  --tint-warning: rgba(245, 208, 138, 0.16);
+  --tint-info: rgba(96, 140, 255, 0.18);
+  --border: rgba(148, 163, 189, 0.18);
+  --input: rgba(148, 163, 189, 0.22);
+  --ring: #3b63c9;
+  --ba-canvas: #0a1120;
+  --ba-success: #4ade80;
+  --ba-danger: #ff7b7b;
+  --chart-1: #ff7b7b;
+  --chart-2: #f08a8a;
+  --chart-3: #4ade80;
+  --chart-4: #26364f;
+  --chart-5: #c9d6ea;
+  --sidebar: #0f1a2e;
+  --sidebar-foreground: #e6ecf7;
+  --sidebar-primary: #3b63c9;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1b2a47;
+  --sidebar-accent-foreground: #e6ecf7;
+  --sidebar-border: rgba(148, 163, 189, 0.16);
+  --sidebar-ring: #3b63c9;
 }
 
-html {
-  font-family: var(--font-sans);
+/*
+ * The Black theme: the same dark layout without the blue cast. It shares every
+ * dark rule (tints, chart colours) and only replaces the surface ramp, so the
+ * two dark options cannot drift apart structurally.
+ */
+.black {
+  --background: #08080a;
+  --foreground: #ededed;
+  --card: #121214;
+  --card-foreground: #ededed;
+  --popover: #17171a;
+  --popover-foreground: #ededed;
+  --primary: #2a2a2e;
+  --primary-foreground: #f5f5f5;
+  --secondary: #1a1a1d;
+  --secondary-foreground: #ededed;
+  --muted: #1a1a1d;
+  --muted-foreground: #a1a1a6;
+  --heading: #fafafa;
+  --subtle: #8a8a90;
+  --accent: #202024;
+  --accent-foreground: #ededed;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #3f3f46;
+  --ba-canvas: #050506;
+  --sidebar: #0e0e10;
+  --sidebar-foreground: #ededed;
+  --sidebar-primary: #2a2a2e;
+  --sidebar-primary-foreground: #f5f5f5;
+  --sidebar-accent: #202024;
+  --sidebar-accent-foreground: #ededed;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #3f3f46;
 }
 
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Browsers center <th> by default while <td> is start-aligned; keep headers
+     over their cells everywhere. Columns that want another alignment set it. */
+  th {
+    text-align: start;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* Arabic UI: pair the Latin sans with an Arabic face; digits stay Latin. */
 html[lang="ar"] body {
   font-family: var(--font-arabic), var(--font-inter), system-ui, sans-serif;
 }
+html[dir="rtl"] input[type="tel"],
+html[dir="rtl"] input[type="email"],
+html[dir="rtl"] input[type="url"],
+html[dir="rtl"] input[type="number"] {
+  direction: ltr;
+  text-align: end;
+}
 
-th {
-  text-align: start;
+/*
+ * Tailwind's 50/100 tints and 600/700 text shades assume a white page. They are
+ * used for status pills, and a light tint with light text is unreadable on a
+ * dark surface. One override here covers every use of the same classes.
+ */
+:is(.navy, .black) .bg-red-50,
+:is(.navy, .black) .bg-red-100 {
+  background-color: var(--tint-danger);
+}
+:is(.navy, .black) .bg-amber-50,
+:is(.navy, .black) .bg-amber-100,
+:is(.navy, .black) .bg-orange-50 {
+  background-color: var(--tint-warning);
+}
+:is(.navy, .black) .bg-emerald-50,
+:is(.navy, .black) .bg-emerald-100,
+:is(.navy, .black) .bg-green-50 {
+  background-color: var(--tint-success);
+}
+:is(.navy, .black) .bg-blue-50,
+:is(.navy, .black) .bg-sky-50,
+:is(.navy, .black) .bg-indigo-50 {
+  background-color: var(--tint-info);
+}
+:is(.navy, .black) .bg-neutral-50,
+:is(.navy, .black) .bg-neutral-100,
+:is(.navy, .black) .bg-gray-50,
+:is(.navy, .black) .bg-gray-100 {
+  background-color: rgba(148, 163, 189, 0.16);
+}
+
+:is(.navy, .black) .text-red-500,
+:is(.navy, .black) .text-red-600,
+:is(.navy, .black) .text-red-700 {
+  color: #ff8f8f;
+}
+:is(.navy, .black) .text-amber-700,
+:is(.navy, .black) .text-amber-800,
+:is(.navy, .black) .text-amber-900,
+:is(.navy, .black) .text-amber-950 {
+  color: #f5d08a;
+}
+:is(.navy, .black) .text-emerald-600,
+:is(.navy, .black) .text-emerald-700,
+:is(.navy, .black) .text-green-700 {
+  color: #6ee7a0;
+}
+:is(.navy, .black) .text-blue-600,
+:is(.navy, .black) .text-blue-700,
+:is(.navy, .black) .text-sky-700 {
+  color: #8fb4ff;
+}
+:is(.navy, .black) .text-neutral-500,
+:is(.navy, .black) .text-neutral-600,
+:is(.navy, .black) .text-neutral-700,
+:is(.navy, .black) .text-gray-500,
+:is(.navy, .black) .text-gray-600 {
+  color: #93a3bd;
+}
+
+:is(.navy, .black) .border-red-200,
+:is(.navy, .black) .border-red-300 {
+  border-color: rgba(255, 143, 143, 0.35);
+}
+:is(.navy, .black) .border-amber-200,
+:is(.navy, .black) .border-amber-300 {
+  border-color: rgba(245, 208, 138, 0.35);
+}
+:is(.navy, .black) .border-neutral-200,
+:is(.navy, .black) .border-gray-200 {
+  border-color: var(--border);
 }

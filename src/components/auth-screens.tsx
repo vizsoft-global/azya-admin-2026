@@ -1,10 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "./auth-provider";
 import { t } from "@/lib/i18n";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Spinner } from "./ui/spinner";
+
+/** Centred card every signed-out screen sits in. */
+function AuthCard({ title, onSubmit, children }: { title: string; onSubmit: (event: FormEvent) => void; children: ReactNode }) {
+  return (
+    <div className="flex min-h-svh items-start justify-center bg-canvas px-4 pt-24 pb-10">
+      <form className="w-full max-w-sm space-y-4 rounded-[14px] bg-card p-6 ring-1 ring-foreground/5" onSubmit={onSubmit}>
+        <div className="flex items-center gap-2">
+          <span className="grid size-[26px] shrink-0 place-items-center rounded-[6px] bg-brand text-[15px] leading-none font-bold text-brand-foreground" aria-hidden>
+            ✱
+          </span>
+          <span className="text-[14px] font-semibold tracking-tight text-foreground">azyaa</span>
+        </div>
+        <h1 className="text-xl font-semibold tracking-tight text-heading">{title}</h1>
+        {children}
+      </form>
+    </div>
+  );
+}
+
+function AuthField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  autoComplete,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: "text" | "email" | "password";
+  autoComplete?: string;
+}) {
+  const id = useId();
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} className="h-9" placeholder={label} type={type} autoComplete={autoComplete} value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+const linkClass = "text-muted-foreground underline-offset-4 hover:text-foreground hover:underline";
 
 export function LoginForm() {
   const { login, lang } = useAuth();
@@ -14,8 +60,8 @@ export function LoginForm() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
-    <form
-      className="mx-auto mt-24 w-full max-w-sm space-y-3 rounded-[14px] bg-white p-6"
+    <AuthCard
+      title={t(lang, "login")}
       onSubmit={async (event) => {
         event.preventDefault();
         setBusy(true);
@@ -31,16 +77,26 @@ export function LoginForm() {
         }
       }}
     >
-      <h1 className="text-xl font-semibold">{t(lang, "login")}</h1>
-      <input className="w-full rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3 py-2 text-sm outline-none focus:border-[#bdbdbd]" placeholder={t(lang, "email")} value={email} onChange={(e) => setEmail(e.target.value)} />
-      <input className="w-full rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3 py-2 text-sm outline-none focus:border-[#bdbdbd]" placeholder={t(lang, "password")} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      {error && <p className="text-sm text-[#f52525]">{error}</p>}
-      <button disabled={busy} className="w-full rounded-lg bg-[#1a1a1a] py-2 text-sm font-medium text-white hover:bg-black">{t(lang, "login")}</button>
+      <AuthField label={t(lang, "email")} value={email} onChange={setEmail} autoComplete="username" />
+      <AuthField label={t(lang, "password")} type="password" value={password} onChange={setPassword} autoComplete="current-password" />
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      <Button type="submit" size="lg" disabled={busy} className="w-full">
+        {busy ? <Spinner size="sm" className="text-current" /> : null}
+        {t(lang, "login")}
+      </Button>
       <div className="flex justify-between text-sm">
-        <Link href="/forgot-password">Forgot password</Link>
-        <Link href="/register">Register</Link>
+        <Link href="/forgot-password" className={linkClass}>
+          Forgot password
+        </Link>
+        <Link href="/register" className={linkClass}>
+          Register
+        </Link>
       </div>
-    </form>
+    </AuthCard>
   );
 }
 
@@ -52,8 +108,8 @@ export function RegisterForm() {
   const [done, setDone] = useState("");
   const [error, setError] = useState("");
   return (
-    <form
-      className="mx-auto mt-24 w-full max-w-sm space-y-3 rounded-[14px] bg-white p-6"
+    <AuthCard
+      title="Register"
       onSubmit={async (event) => {
         event.preventDefault();
         try {
@@ -64,15 +120,26 @@ export function RegisterForm() {
         }
       }}
     >
-      <h1 className="text-xl font-semibold">Register</h1>
-      <input className="w-full rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3 py-2 text-sm outline-none focus:border-[#bdbdbd]" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-      <input className="w-full rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3 py-2 text-sm outline-none focus:border-[#bdbdbd]" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-      <input className="w-full rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3 py-2 text-sm outline-none focus:border-[#bdbdbd]" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      {error && <p className="text-sm text-[#f52525]">{error}</p>}
-      {done && <p className="text-sm">{done}</p>}
-      <button className="w-full rounded-lg bg-[#1a1a1a] py-2 text-sm font-medium text-white hover:bg-black">Create account</button>
-      <Link className="block text-sm" href="/login">Back to login</Link>
-    </form>
+      <AuthField label="Name" value={name} onChange={setName} autoComplete="name" />
+      <AuthField label="Email" value={email} onChange={setEmail} autoComplete="username" />
+      <AuthField label="Password" type="password" value={password} onChange={setPassword} autoComplete="new-password" />
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      {done && (
+        <p className="text-sm text-foreground" role="status">
+          {done}
+        </p>
+      )}
+      <Button type="submit" size="lg" className="w-full">
+        Create account
+      </Button>
+      <Link className={`block text-sm ${linkClass}`} href="/login">
+        Back to login
+      </Link>
+    </AuthCard>
   );
 }
 
@@ -82,8 +149,8 @@ export function ForgotForm() {
   const [done, setDone] = useState("");
   const [error, setError] = useState("");
   return (
-    <form
-      className="mx-auto mt-24 w-full max-w-sm space-y-3 rounded-[14px] bg-white p-6"
+    <AuthCard
+      title="Forgot password"
       onSubmit={async (event) => {
         event.preventDefault();
         try {
@@ -94,12 +161,23 @@ export function ForgotForm() {
         }
       }}
     >
-      <h1 className="text-xl font-semibold">Forgot password</h1>
-      <input className="w-full rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3 py-2 text-sm outline-none focus:border-[#bdbdbd]" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-      {error && <p className="text-sm text-[#f52525]">{error}</p>}
-      {done && <p className="text-sm">{done}</p>}
-      <button className="w-full rounded-lg bg-[#1a1a1a] py-2 text-sm font-medium text-white hover:bg-black">Send reset link</button>
-      <Link className="block text-sm" href="/login">Back to login</Link>
-    </form>
+      <AuthField label="Email" value={email} onChange={setEmail} autoComplete="username" />
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      {done && (
+        <p className="text-sm text-foreground" role="status">
+          {done}
+        </p>
+      )}
+      <Button type="submit" size="lg" className="w-full">
+        Send reset link
+      </Button>
+      <Link className={`block text-sm ${linkClass}`} href="/login">
+        Back to login
+      </Link>
+    </AuthCard>
   );
 }

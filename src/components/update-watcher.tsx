@@ -103,7 +103,7 @@ export function UpdateWatcher() {
 
   return (
     <div className="fixed inset-x-0 bottom-4 z-[100] flex justify-center px-4">
-      <div className="flex items-center gap-3 rounded-full bg-[#1a1a1a] py-2 ps-4 pe-2 text-[13px] text-white shadow-lg">
+      <div role="status" className="flex items-center gap-3 rounded-full bg-foreground py-2 ps-4 pe-2 text-[13px] text-background shadow-lg">
         <span>
           {blocked
             ? "A new version is ready. Save your changes and it will update."
@@ -112,7 +112,7 @@ export function UpdateWatcher() {
         <button
           type="button"
           onClick={() => void apply(latest)}
-          className="rounded-full bg-white px-3 py-1 font-medium text-[#1a1a1a] hover:bg-[#f1f1f1]"
+          className="rounded-full bg-background px-3 py-1 font-medium text-foreground hover:bg-muted"
         >
           {blocked ? "Update anyway" : "Update now"}
         </button>
