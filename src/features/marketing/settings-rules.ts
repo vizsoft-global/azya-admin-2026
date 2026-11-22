@@ -24,6 +24,11 @@ export type SettingField = {
   permission?: string;
   /** Spans the full width of the card. */
   wide?: boolean;
+  /**
+   * For a switch the app tests with "is exactly false": anything else, a missing
+   * value included, counts as on. The control then shows what the app really does.
+   */
+  onUnlessFalse?: boolean;
 };
 
 export type SettingsSection = {
@@ -45,6 +50,12 @@ const VERSION = "settings_app_version_info";
 /** The three amounts the customer app reads at checkout to price delivery. */
 export const SHIPPING = "settings_logistics_info";
 const LOYALTY = "settings_loyalty";
+/**
+ * Catalogue mode, spelled as stored. The customer app shows its add-to-bag and buy
+ * controls (the shared cart button, the purchase panel of the product page and the
+ * tick box on product cards) only when this is exactly `false`.
+ */
+export const CATALOGUE_MODE = "settings_secret_feature.settings_catllog_feature";
 
 /** Countries the warehouse can be in, with the two-letter code stored beside the name. */
 export const WAREHOUSE_COUNTRIES = [
@@ -149,6 +160,21 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     fields: [{ path: "settings_inapp_purchase_status", label: "Offer in-app purchase on iPhone", kind: "switch" }],
   },
   {
+    key: "catalogue",
+    title: "Catalogue mode",
+    description: "Lets customers look at the shop without being able to buy.",
+    permissions: ["settings_catalog_mode"],
+    fields: [
+      {
+        path: CATALOGUE_MODE,
+        label: "Catalogue mode",
+        kind: "switch",
+        onUnlessFalse: true,
+        hint: "On: customers can browse products, but the add-to-bag and buy buttons are hidden on every product page and product list, so nobody can order.",
+      },
+    ],
+  },
+  {
     key: "promotions",
     title: "Creator promotions",
     description: "How long a custom creator promotion runs once it is approved.",
@@ -177,7 +203,7 @@ export function readSetting(field: SettingField, data: Record<string, unknown> |
   const stored = getPath(data, field.path);
   switch (field.kind) {
     case "switch":
-      return stored === true;
+      return field.onUnlessFalse ? stored !== false : stored === true;
     case "int":
     case "money":
       return toNumber(stored);
@@ -365,4 +391,89 @@ export function followOnChanges(changes: Record<string, SettingValue>, now: unkn
 /** Short names of the changed fields, for the "saved" toast. Never includes values. */
 export function changedLabels(fields: SettingField[], changes: Record<string, unknown>) {
   return fields.filter((field) => field.path in changes).map((field) => field.label);
+}
+
+/* ---------- saves that change what every customer can do ---------- */
+
+export type SaveConfirmation = { title: string; description: string; confirmLabel: string };
+
+/** The question to ask before a save, or null when the changes need none. */
+export function saveConfirmation(changes: Record<string, unknown>): SaveConfirmation | null {
+  const catalogue = changes[CATALOGUE_MODE];
+  if (catalogue === true) {
+    return {
+      title: "Turn catalogue mode on?",
+      description: "As soon as you save, the add-to-bag and buy buttons disappear for every customer, on product pages and product lists. People can still browse, but nobody can order until you turn it off again.",
+      confirmLabel: "Turn on",
+    };
+  }
+  if (catalogue === false) {
+    return {
+      title: "Turn catalogue mode off?",
+      description: "As soon as you save, every customer gets the add-to-bag and buy buttons back and can order again.",
+      confirmLabel: "Turn off",
+    };
+  }
+  return null;
+}
+
+/** True when the catalogue switch has never been saved as a yes or no; the app then behaves as if it were on. */
+export function catalogueModeUnrecorded(data: Record<string, unknown> | undefined) {
+  return typeof getPath(data, CATALOGUE_MODE) !== "boolean";
+}
+
+/* ---------- access codes for secret-code mode ---------- */
+
+/** Where the codes live. In secret-code mode the app lets someone in when their code is in this list, "Pending" and not past its `validity`; it then removes the code. */
+export const ACCESS_CODES = "settings_secret_feature.settings_app_access_list";
+export const ACCESS_CODE_TARGET = 10;
+export const ACCESS_CODE_DAYS = 5;
+
+export type AccessCode = Record<string, unknown>;
+
+export function accessCodes(data: Record<string, unknown> | undefined): AccessCode[] {
+  const list = getPath(data, ACCESS_CODES);
+  return Array.isArray(list) ? (list.filter((item) => item && typeof item === "object") as AccessCode[]) : [];
+}
+
+function codeDate(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  const stamp = value as { toDate?: () => Date; seconds?: number } | null;
+  if (stamp && typeof stamp.toDate === "function") return stamp.toDate();
+  if (stamp && typeof stamp.seconds === "number") return new Date(stamp.seconds * 1000);
+  return null;
+}
+
+export function accessCodeExpiry(code: AccessCode) {
+  return codeDate(code.validity);
+}
+
+/** A code the app would still accept at `now`. */
+export function accessCodeUsable(code: AccessCode, now: Date) {
+  const expiry = accessCodeExpiry(code);
+  return code.status === "Pending" && typeof code.code === "string" && expiry !== null && expiry.getTime() >= now.getTime();
+}
+
+/**
+ * Tops the list up to ten usable codes, as the Flutter admin's "Generate" did: six digits,
+ * "Pending", valid until the start of today plus five days. Unlike Flutter, codes the app can
+ * no longer accept (expired or not Pending) are dropped first; there they filled the ten places
+ * for good, so no new code could ever be made. `random` returns a number in [0, 1).
+ */
+export function topUpAccessCodes(list: AccessCode[], input: { now: Date; createdBy: unknown; random: () => number }): { list: AccessCode[]; added: string[]; removed: number } {
+  const kept = list.filter((code) => accessCodeUsable(code, input.now));
+  const taken = new Set(kept.map((code) => String(code.code)));
+  const startOfToday = new Date(input.now.getFullYear(), input.now.getMonth(), input.now.getDate());
+  const validity = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), startOfToday.getDate() + ACCESS_CODE_DAYS);
+  const added: string[] = [];
+  let attempts = 0;
+  while (kept.length + added.length < ACCESS_CODE_TARGET && attempts < 1000) {
+    attempts += 1;
+    const code = String(100000 + Math.min(899999, Math.floor(input.random() * 900000)));
+    if (taken.has(code)) continue;
+    taken.add(code);
+    added.push(code);
+  }
+  const fresh = added.map((code) => ({ created_at: input.now, updated_at: input.now, created_by: input.createdBy, code, status: "Pending", validity }));
+  return { list: [...kept, ...fresh], added, removed: list.length - kept.length };
 }

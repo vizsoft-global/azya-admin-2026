@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCESS_CODES,
+  CATALOGUE_MODE,
   SETTINGS_SECTIONS,
   SHIPPING,
   WAREHOUSE,
+  accessCodeUsable,
+  accessCodes,
   accessMode,
   accessModeUpdate,
   applyPaymentDraft,
+  catalogueModeUnrecorded,
   changedLabels,
   followOnChanges,
   gatewayList,
@@ -15,8 +20,11 @@ import {
   primaryGatewayName,
   readDraft,
   readLatLng,
+  readSetting,
+  saveConfirmation,
   sectionByKey,
   settingsChanges,
+  topUpAccessCodes,
   validateDraft,
 } from "@/features/marketing/settings-rules";
 
@@ -146,5 +154,85 @@ describe("app access", () => {
     expect(accessModeUpdate("secret")).toEqual({ "settings_secret_feature.settings_waitlist_feature": false, "settings_secret_feature.settings_secret_feature": true });
     expect(accessModeUpdate("open")).toEqual({ "settings_secret_feature.settings_waitlist_feature": false, "settings_secret_feature.settings_secret_feature": false });
     expect(accessModeUpdate("waitlist")).toEqual({ "settings_secret_feature.settings_waitlist_feature": true, "settings_secret_feature.settings_secret_feature": false });
+  });
+});
+
+describe("catalogue mode", () => {
+  const section = sectionByKey("catalogue")!;
+  const field = section.fields[0];
+  const on = { settings_secret_feature: { settings_catllog_feature: true, settings_waitlist_feature: true } };
+  const off = { settings_secret_feature: { settings_catllog_feature: false } };
+
+  it("is one switch on the path the app queries, behind the catalogue permission", () => {
+    expect(CATALOGUE_MODE).toBe("settings_secret_feature.settings_catllog_feature");
+    expect(section.fields.map((item) => item.path)).toEqual([CATALOGUE_MODE]);
+    expect(field.kind).toBe("switch");
+    expect(section.permissions).toEqual(["settings_catalog_mode"]);
+    expect(field.hint).toMatch(/add-to-bag and buy buttons are hidden/);
+  });
+  it("shows what the app does: only an exact false means customers can buy", () => {
+    expect(readSetting(field, off)).toBe(false);
+    expect(readSetting(field, on)).toBe(true);
+    // The app asks the database for "catalogue mode is false"; a record without the field does not match.
+    expect(readSetting(field, { settings_secret_feature: {} })).toBe(true);
+    expect(readSetting(field, {})).toBe(true);
+    expect(catalogueModeUnrecorded({})).toBe(true);
+    expect(catalogueModeUnrecorded(off)).toBe(false);
+  });
+  it("writes that one dotted path as a boolean, and only when it changes", () => {
+    expect(settingsChanges(section.fields, off, { [CATALOGUE_MODE]: true })).toEqual({ [CATALOGUE_MODE]: true });
+    expect(settingsChanges(section.fields, on, { [CATALOGUE_MODE]: false })).toEqual({ [CATALOGUE_MODE]: false });
+    expect(settingsChanges(section.fields, on, { [CATALOGUE_MODE]: true })).toEqual({});
+    expect(settingsChanges(section.fields, off, { [CATALOGUE_MODE]: false })).toEqual({});
+    // Never saved: turning it off writes an explicit false, which is what lets customers buy.
+    expect(settingsChanges(section.fields, {}, { [CATALOGUE_MODE]: false })).toEqual({ [CATALOGUE_MODE]: false });
+    expect(validateDraft(section.fields, { [CATALOGUE_MODE]: true })).toEqual({});
+  });
+  it("asks before saving, in either direction, and for nothing else", () => {
+    expect(saveConfirmation({ [CATALOGUE_MODE]: true })).toMatchObject({ title: "Turn catalogue mode on?", confirmLabel: "Turn on" });
+    expect(saveConfirmation({ [CATALOGUE_MODE]: true })!.description).toMatch(/nobody can order/);
+    expect(saveConfirmation({ [CATALOGUE_MODE]: false })).toMatchObject({ title: "Turn catalogue mode off?", confirmLabel: "Turn off" });
+    expect(saveConfirmation({ "settings_company_info.company_name": "A" })).toBeNull();
+    expect(saveConfirmation({})).toBeNull();
+  });
+});
+
+describe("access codes", () => {
+  const now = new Date(2026, 10, 22, 14, 0);
+  const later = new Date(2026, 10, 25);
+  const earlier = new Date(2026, 10, 20);
+  const good = { code: "111111", status: "Pending", validity: later, requestId: "keep-me" };
+  const expired = { code: "222222", status: "Pending", validity: earlier };
+  const used = { code: "333333", status: "Completed", validity: later };
+  const data = { settings_secret_feature: { settings_app_access_list: [good, expired, used, "junk"] } };
+
+  it("reads the list from where the app looks", () => {
+    expect(ACCESS_CODES).toBe("settings_secret_feature.settings_app_access_list");
+    expect(accessCodes(data)).toEqual([good, expired, used]);
+    expect(accessCodes({})).toEqual([]);
+  });
+  it("knows which codes the app would still accept", () => {
+    expect(accessCodeUsable(good, now)).toBe(true);
+    expect(accessCodeUsable(expired, now)).toBe(false);
+    expect(accessCodeUsable(used, now)).toBe(false);
+    expect(accessCodeUsable({ code: "444444", status: "Pending", validity: { seconds: later.getTime() / 1000 } }, now)).toBe(true);
+    expect(accessCodeUsable({ code: "444444", status: "Pending" }, now)).toBe(false);
+  });
+  it("tops up to ten working codes, keeping the good ones and dropping the dead ones", () => {
+    let n = 0;
+    // The first draw repeats the kept code and must be skipped.
+    const draws = [(111111 - 100000) / 900000, ...Array.from({ length: 20 }, (_, i) => (i + 1) / 100)];
+    const result = topUpAccessCodes(accessCodes(data), { now, createdBy: "users/me", random: () => draws[n++] });
+    expect(result.removed).toBe(2);
+    expect(result.added).toHaveLength(9);
+    expect(result.list).toHaveLength(10);
+    expect(result.list[0]).toBe(good);
+    expect(new Set(result.list.map((item) => item.code)).size).toBe(10);
+    expect(result.added.every((code) => /^[1-9]\d{5}$/.test(code))).toBe(true);
+    expect(result.list[1]).toEqual({ created_at: now, updated_at: now, created_by: "users/me", code: result.added[0], status: "Pending", validity: new Date(2026, 10, 27) });
+  });
+  it("does nothing when ten codes already work", () => {
+    const full = Array.from({ length: 10 }, (_, i) => ({ code: String(500000 + i), status: "Pending", validity: later }));
+    expect(topUpAccessCodes(full, { now, createdBy: null, random: () => 0.5 })).toEqual({ list: full, added: [], removed: 0 });
   });
 });
