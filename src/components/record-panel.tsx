@@ -3,178 +3,285 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { doc, getDoc, type DocumentData } from "firebase/firestore";
+import { ChevronDown, Plus, X } from "lucide-react";
+import { toast } from "sonner";
 import { getFirebase } from "@/lib/firebase";
 import { docToJson, jsonToDoc } from "@/lib/json-doc";
 import { useUnsavedChanges } from "@/lib/unsaved";
-import { cellText, removeDoc, saveDoc, useCollection, type Row } from "@/lib/firestore-ui";
+import { removeDoc, saveDoc, useCollection, type Row } from "@/lib/firestore-ui";
+import { valueText } from "@/lib/describe-value";
+import { humanize } from "@/lib/format";
 import type { AdminRoute } from "@/lib/routes";
+import { useAuth } from "./auth-provider";
+import { useConfirm } from "./shared/confirm-dialog";
+import { idColumn, statusColumn, textColumn } from "./shared/columns";
+import { DataTable, type Column } from "./shared/data-table";
+import { RecordFields } from "./shared/entity-detail";
+import { PageHeader } from "./shared/page-header";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
 
+const STATUS_KEY = /(^|_)status$/;
+
+/**
+ * Generic page for a route that has no screen of its own yet: a read-only
+ * table of the route's collection and a formatted, read-only view of the
+ * selected record. Only a super admin gets the raw document editor, under
+ * "Advanced", and every save or delete there is confirmed first.
+ */
 export function RecordPanel({
   route,
   extra,
 }: {
   route: AdminRoute;
-  extra?: (row: Row | null, refreshNote: (text: string) => void) => ReactNode;
+  /** Action boxes for the selected row, shown beside the table. `notify` shows a toast. */
+  extra?: (row: Row | null, notify: (text: string) => void) => ReactNode;
 }) {
+  const { allowed } = useAuth();
+  const superAdmin = allowed("super_admin");
   const { rows, loading, error, hasMore, loadMore } = useCollection(route.collection, 100, route.filters);
   const params = useSearchParams();
-  const [q, setQ] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [note, setNote] = useState("");
+  const [fetched, setFetched] = useState<Row | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) => JSON.stringify(row.data).toLowerCase().includes(needle) || row.id.toLowerCase().includes(needle));
-  }, [rows, q]);
-
-  const columns = route.columns ?? Object.keys(rows[0]?.data ?? {}).slice(0, 6);
-  const [fetched, setFetched] = useState<Row | null>(null);
+  const keys = useMemo(() => route.columns ?? Object.keys(rows[0]?.data ?? {}).slice(0, 6), [route.columns, rows]);
+  const columns = useMemo<Column<Row>[]>(
+    () => [idColumn("ID"), ...keys.map((key) => (STATUS_KEY.test(key) ? statusColumn(key, humanize(key)) : textColumn(key, humanize(key))))],
+    [keys],
+  );
   const current = rows.find((row) => row.id === selected) ?? (fetched?.id === selected ? fetched : null);
-  useUnsavedChanges(creating || (current != null && draft !== docToJson(current.data)));
-
-  function open(row: Row) {
-    setCreating(false);
-    setSelected(row.id);
-    setDraft(docToJson(row.data));
-    setNote("");
-  }
 
   const wanted = params.get("id");
   useEffect(() => {
     if (!wanted || selected || loading) return;
-    const row = rows.find((item) => item.id === wanted);
-    if (row) {
-      open(row);
+    if (rows.some((item) => item.id === wanted)) {
+      setSelected(wanted);
       return;
     }
     if (!route.collection) return;
-    getDoc(doc(getFirebase().db, route.collection, wanted)).then((snap) => {
-      if (!snap.exists()) return setNote(`${wanted} was not found in ${route.collection}.`);
-      const found = { id: snap.id, data: snap.data() };
-      setFetched(found);
-      open(found);
-    });
+    let cancelled = false;
+    getDoc(doc(getFirebase().db, route.collection, wanted))
+      .then((snap) => {
+        if (cancelled) return;
+        if (!snap.exists()) {
+          toast.error(`${wanted} was not found in ${route.collection}.`);
+          return;
+        }
+        setFetched({ id: snap.id, data: snap.data() });
+        setSelected(snap.id);
+      })
+      .catch((err) => !cancelled && toast.error(err instanceof Error ? err.message : "The record could not be loaded."));
+    return () => {
+      cancelled = true;
+    };
   }, [wanted, rows, selected, loading, route.collection]);
 
-  async function save() {
-    if (!route.collection) return;
-    const parsed = jsonToDoc(draft, getFirebase().db);
-    const id = creating ? null : selected;
-    const saved = await saveDoc(route.collection, id, parsed);
-    setSelected(saved);
-    setCreating(false);
-    setNote(`Saved ${saved}`);
-  }
-
-  const aside = extra?.(current, setNote);
-  const showAside = Boolean(aside) || Boolean(selected) || creating;
+  const aside = extra?.(current, (text) => toast(text));
+  const showAside = Boolean(aside) || Boolean(current) || creating;
 
   return (
-    <div className={`grid gap-4 ${showAside ? "lg:grid-cols-[1fr_340px]" : ""}`}>
-      <section className="min-w-0 rounded-[14px] bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search"
-            className="h-9 w-full max-w-sm rounded-lg border border-[#eee] bg-[#fafafa] px-3 text-[13px] outline-none focus:border-[#d4d4d4]"
-          />
-          <button
-            className="rounded-lg bg-[#1a1a1a] px-3 py-1.5 text-[13px] font-medium text-white hover:bg-black"
-            onClick={() => {
-              setCreating(true);
-              setSelected(null);
-              const seed: DocumentData = { ...(route.filters ?? {}), status: "Published" };
-              setDraft(JSON.stringify(seed, null, 2));
-            }}
-          >
-            + Create
-          </button>
-        </div>
-        {error && <p className="px-4 pb-3 text-[13px] text-[#f52525]">{error}</p>}
-        <div className="overflow-x-auto">
-          <table className="w-full text-start text-[13px]">
-            <thead className="text-[#a9a9a9]">
-              <tr>
-                <th className="whitespace-nowrap px-4 py-2 font-medium">ID</th>
-                {columns.map((col) => (
-                  <th key={col} className="whitespace-nowrap px-4 py-2 font-medium">{label(col)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading && rows.length === 0 ? (
-                <tr><td colSpan={columns.length + 1} className="px-4 py-8 text-[#a9a9a9]">Loading…</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={columns.length + 1} className="px-4 py-8 text-[#a9a9a9]">{q ? "No rows match your search." : "No records yet."}</td></tr>
-              ) : (
-                filtered.map((row) => (
-                  <tr
-                    key={row.id}
-                    onClick={() => open(row)}
-                    className={`cursor-pointer border-t border-[#f3f3f3] ${selected === row.id ? "bg-[#f5f9ff]" : "hover:bg-[#fafafa]"}`}
-                  >
-                    <td className="px-4 py-3 font-mono text-[12px] text-[#757575]">{row.id.slice(0, 10)}</td>
-                    {columns.map((col) => (
-                      <td key={col} className="max-w-56 truncate px-4 py-3">{cellText(row.data[col]) || "—"}</td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex items-center justify-between px-4 py-3 text-[12px] text-[#a9a9a9]">
-          <span>{filtered.length.toLocaleString()}{hasMore ? "+" : ""} rows</span>
-          {hasMore && (
-            <button className="rounded-lg border border-[#eee] px-3 py-1 text-[#303030] hover:bg-[#fafafa]" onClick={loadMore}>
-              Load more
-            </button>
-          )}
-        </div>
-      </section>
-      {showAside && (
-        <aside className="space-y-3">
+    <>
+      {superAdmin && route.collection ? (
+        <PageHeader
+          actions={
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => {
+                setSelected(null);
+                setCreating(true);
+              }}
+            >
+              <Plus /> New document
+            </Button>
+          }
+        />
+      ) : null}
+      <div className={`grid items-start gap-4 ${showAside ? "lg:grid-cols-[minmax(0,1fr)_360px]" : ""}`}>
+      <DataTable
+        rows={rows}
+        columns={columns}
+        loading={loading}
+        error={error ? `These records could not be loaded: ${error}` : null}
+        emptyMessage="No records yet."
+        searchText={(row) => `${row.id} ${Object.values(row.data).map(valueText).join(" ")}`}
+        hasMore={hasMore}
+        onLoadMore={loadMore}
+        exportName={route.path}
+        onRowClick={(row) => {
+          setCreating(false);
+          setSelected(row.id);
+        }}
+        activeRowId={selected}
+      />
+      {showAside ? (
+        <aside className="min-w-0 space-y-3">
           {aside}
-          {(selected || creating) && (
-            <div className="rounded-[14px] bg-white p-4">
-              <p className="mb-2 truncate text-[13px] font-medium">{creating ? "New document" : selected}</p>
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                className="h-80 w-full rounded-lg border border-[#eee] bg-[#fafafa] p-2 font-mono text-[12px] outline-none"
-              />
-              <div className="mt-2 flex gap-2">
-                <button className="rounded-lg bg-[#1a1a1a] px-3 py-1.5 text-[13px] text-white" onClick={() => save().catch((err) => setNote(String(err.message ?? err)))}>
-                  Save
-                </button>
-                {selected && route.collection && (
-                  <button
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-[13px] text-[#f52525]"
-                    onClick={() => removeDoc(route.collection!, selected).then(() => setNote("Deleted"))}
-                  >
-                    Delete
-                  </button>
-                )}
-                <button className="ms-auto text-[12px] text-[#a9a9a9] hover:text-[#303030]" onClick={() => { setSelected(null); setCreating(false); }}>
-                  Close
-                </button>
+          {current && !creating ? (
+            <section className="rounded-[14px] bg-card p-4">
+              <div className="mb-3 flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold text-heading">Record details</h3>
+                  <p className="truncate font-mono text-[11px] text-subtle" dir="ltr" title={current.id}>
+                    {current.id}
+                  </p>
+                </div>
+                <Button variant="ghost" size="icon-sm" aria-label="Close record details" onClick={() => setSelected(null)}>
+                  <X />
+                </Button>
               </div>
-              {note && <p className="mt-2 text-[12px] text-[#757575]">{note}</p>}
-            </div>
-          )}
+              <RecordFields data={current.data} />
+            </section>
+          ) : null}
+          {superAdmin && route.collection && (creating || current) ? (
+            <AdvancedEditor
+              key={creating ? "new" : current!.id}
+              collectionName={route.collection}
+              row={creating ? null : current}
+              seed={{ ...(route.filters ?? {}), status: "Published" }}
+              onSaved={(id) => {
+                setCreating(false);
+                setSelected(id);
+              }}
+              onDeleted={() => setSelected(null)}
+              onCancel={() => setCreating(false)}
+            />
+          ) : null}
         </aside>
-      )}
-    </div>
+      ) : null}
+      </div>
+    </>
   );
 }
 
-function label(key: string) {
-  const text = key.replace(/_/g, " ");
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
+/**
+ * Raw document editor, super admins only. It writes the JSON as typed, so it
+ * can change or remove any field; it stays folded until asked for, and both
+ * Save and Delete ask for confirmation.
+ */
+function AdvancedEditor({
+  collectionName,
+  row,
+  seed,
+  onSaved,
+  onDeleted,
+  onCancel,
+}: {
+  collectionName: string;
+  /** `null` while writing a new document. */
+  row: Row | null;
+  seed: DocumentData;
+  onSaved: (id: string) => void;
+  onDeleted: () => void;
+  onCancel: () => void;
+}) {
+  const confirm = useConfirm();
+  const original = row ? docToJson(row.data) : JSON.stringify(seed, null, 2);
+  const [open, setOpen] = useState(row === null);
+  const [draft, setDraft] = useState(original);
+  const [busy, setBusy] = useState(false);
+  const dirty = open && draft !== original;
+  useUnsavedChanges(dirty || (row === null && open));
 
+  async function save() {
+    let parsed: DocumentData;
+    try {
+      parsed = jsonToDoc(draft, getFirebase().db);
+    } catch (err) {
+      toast.error(`This is not valid JSON, so nothing was saved: ${err instanceof Error ? err.message : "parse error"}.`);
+      return;
+    }
+    const ok = await confirm({
+      title: row ? "Save the raw document?" : "Create this document?",
+      description: row
+        ? `This overwrites the fields of ${row.id} in ${collectionName} exactly as typed, without any of the checks a normal form runs. The apps read this record straight away.`
+        : `This adds a new document to ${collectionName} exactly as typed, without any of the checks a normal form runs.`,
+      confirmLabel: row ? "Save document" : "Create document",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const id = await saveDoc(collectionName, row?.id ?? null, parsed);
+      toast.success(row ? `Saved ${id}.` : `Created ${id}.`);
+      onSaved(id);
+    } catch (err) {
+      toast.error(`The document was not saved: ${err instanceof Error ? err.message : "something went wrong"}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!row) return;
+    const ok = await confirm({
+      title: "Delete this document?",
+      description: `${row.id} will be removed from ${collectionName} for good. Anything that points at it will break. This cannot be undone.`,
+      confirmLabel: "Delete document",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await removeDoc(collectionName, row.id);
+      toast.success(`Deleted ${row.id}.`);
+      onDeleted();
+    } catch (err) {
+      toast.error(`The document was not deleted: ${err instanceof Error ? err.message : "something went wrong"}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-[14px] bg-card">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 rounded-[14px] px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-heading">Advanced</span>
+          <span className="block text-[12px] text-muted-foreground">{row ? "Edit the raw document (super admin only)" : "New raw document (super admin only)"}</span>
+        </span>
+        <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? (
+        <div className="space-y-2 px-4 pb-4">
+          <p className="rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">
+            This writes the document exactly as typed. References are <code className="font-mono">{'{ "$ref": "collection/id" }'}</code> and dates are{" "}
+            <code className="font-mono">{'{ "$time": "ISO date" }'}</code>.
+          </p>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            dir="ltr"
+            aria-label="Raw document JSON"
+            className="h-80 max-h-[60vh] field-sizing-fixed font-mono text-[12px] md:text-[12px]"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button disabled={busy || (row !== null && !dirty)} onClick={() => void save()}>
+              {row ? "Save document" : "Create document"}
+            </Button>
+            {row ? (
+              <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
+                Delete document
+              </Button>
+            ) : (
+              <Button variant="outline" disabled={busy} onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+            {row && dirty ? (
+              <Button variant="ghost" className="ms-auto" disabled={busy} onClick={() => setDraft(original)}>
+                Reset
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
