@@ -18,6 +18,7 @@ import {
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "@/lib/firebase";
+import { tx } from "@/lib/i18n/tx";
 import { callFunction, releaseWarehouseStock, retryStoreValleyDelivery, storeValleyProxy } from "@/lib/functions";
 import { idMapRef, takeIds } from "@/lib/id-map";
 import type { RoleScope } from "@/lib/role-scope";
@@ -37,6 +38,7 @@ import {
   type SvRequest,
   type SvResponse,
 } from "./returns-model";
+import { lineOptionRefs, optionName, type OptionNames } from "./packing-slip";
 import { acceptedButNotRecorded, buildRequest, deliveryRecord, existingRequest, requestGroups, requestTrackingId, withRequestRecorded, type RequestGroup } from "./shipping-model";
 
 const db = () => getFirebase().db;
@@ -151,10 +153,10 @@ export async function approveReturn(ret: { id: string; data: Dict }, scope: Role
         return;
       }
       const counters = await idMapRef();
-      await runTransaction(store, async (tx) => {
-        const ids = await takeIds(tx, counters, ["delivery_id"]);
+      await runTransaction(store, async (trx) => {
+        const ids = await takeIds(trx, counters, ["delivery_id"]);
         const now = Timestamp.now();
-        tx.set(doc(collection(store, "delivery")), {
+        trx.set(doc(collection(store, "delivery")), {
           created_at: now,
           updated_at: now,
           status: "REQUESTED",
@@ -172,35 +174,35 @@ export async function approveReturn(ret: { id: string; data: Dict }, scope: Role
 
   // The live copy decides, so two people approving at once cannot both book.
   const fresh = await docData(returnRef);
-  if (!fresh) return { ok: false as const, message: "This return no longer exists.", booked: [] };
+  if (!fresh) return { ok: false as const, message: tx("This return no longer exists."), booked: [] };
   return bookReturnPickup(deps, { id: ret.id, data: fresh }, who, Timestamp.now());
 }
 
 async function patchReturn(id: string, build: (current: Dict) => { patch: Dict } | { error: string }) {
   const ref = doc(db(), "return_requests", id);
-  await runTransaction(db(), async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error("This return no longer exists.");
+  await runTransaction(db(), async (trx) => {
+    const snap = await trx.get(ref);
+    if (!snap.exists()) throw new Error(tx("This return no longer exists."));
     const result = build(snap.data());
     if ("error" in result) throw new Error(result.error);
-    tx.update(ref, result.patch);
+    trx.update(ref, result.patch);
   });
 }
 
 export function rejectReturn(id: string, input: { reason: string; message: string }, scope: RoleScope) {
   return patchReturn(id, (current) =>
-    returnStatus(current) === RETURN_STATUS.pending ? rejectPatch(input, approverOf(scope), Timestamp.now()) : { error: `This return is already ${returnStatus(current).toLowerCase()}. Nothing was changed.` },
+    returnStatus(current) === RETURN_STATUS.pending ? rejectPatch(input, approverOf(scope), Timestamp.now()) : { error: tx("This return is already {status}. Nothing was changed.", { status: tx(returnStatus(current)).toLowerCase() }) },
   );
 }
 
 export function saveReturnOutcome(id: string, input: OutcomeInput, scope: RoleScope) {
   return patchReturn(id, (current) =>
-    returnStatus(current) === RETURN_STATUS.accepted ? outcomePatch(input, approverOf(scope), Timestamp.now()) : { error: "An outcome can only be recorded on an accepted return." },
+    returnStatus(current) === RETURN_STATUS.accepted ? outcomePatch(input, approverOf(scope), Timestamp.now()) : { error: tx("An outcome can only be recorded on an accepted return.") },
   );
 }
 
 export function markReturnReceived(id: string) {
-  return patchReturn(id, (current) => (returnStatus(current) === RETURN_STATUS.accepted ? { patch: receivedPatch(Timestamp.now()) } : { error: "Only an accepted return can be marked as received." }));
+  return patchReturn(id, (current) => (returnStatus(current) === RETURN_STATUS.accepted ? { patch: receivedPatch(Timestamp.now()) } : { error: tx("Only an accepted return can be marked as received.") }));
 }
 
 /* ---------- order lines and shipments ---------- */
@@ -208,13 +210,13 @@ export function markReturnReceived(id: string) {
 /** A designer marks one of their lines ready; the server then books the courier. */
 export async function markLineReady(orderDocId: string, key: string, pickupAddress: unknown) {
   const ref = doc(db(), "orders", orderDocId);
-  await runTransaction(db(), async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error("This order no longer exists.");
+  await runTransaction(db(), async (trx) => {
+    const snap = await trx.get(ref);
+    if (!snap.exists()) throw new Error(tx("This order no longer exists."));
     const order = snap.data();
     const result = withLineReady(orderLines(order), key, pickupAddress, Timestamp.now());
     if ("error" in result) throw new Error(result.error);
-    tx.update(ref, { "order_items.cart_items": result.items, updated_at: Timestamp.now() });
+    trx.update(ref, { "order_items.cart_items": result.items, updated_at: Timestamp.now() });
   });
 }
 
@@ -225,14 +227,14 @@ export function savePaymentComment(orderDocId: string, comment: string) {
 /** Cancels a warehouse delivery at Store Valley, then records it on the order and the delivery record. */
 export async function cancelShipment(orderDocId: string, shipment: Shipment) {
   const response = await storeValley({ method: "DELETE", path: `/orders/${shipment.trackingId}` });
-  if (response.status < 200 || response.status >= 300) throw new Error(text(response.body.message) || "Store Valley refused the cancellation. The delivery is unchanged.");
+  if (response.status < 200 || response.status >= 300) throw new Error(text(response.body.message) || tx("Store Valley refused the cancellation. The delivery is unchanged."));
   const ref = doc(db(), "orders", orderDocId);
   const now = Timestamp.now();
-  await runTransaction(db(), async (tx) => {
-    const snap = await tx.get(ref);
+  await runTransaction(db(), async (trx) => {
+    const snap = await trx.get(ref);
     const patch = snap.exists() ? withShipmentCancelled(snap.data(), shipment.trackingId) : null;
-    if (patch) tx.update(ref, { ...patch, updated_at: now });
-    if (shipment.deliveryDocId) tx.set(doc(db(), "delivery", shipment.deliveryDocId), { status: "cancelled", state: "cancelled", updated_at: now }, { merge: true });
+    if (patch) trx.update(ref, { ...patch, updated_at: now });
+    if (shipment.deliveryDocId) trx.set(doc(db(), "delivery", shipment.deliveryDocId), { status: "cancelled", state: "cancelled", updated_at: now }, { merge: true });
   });
 }
 
@@ -262,7 +264,7 @@ export async function createShippingRequest(orderDocId: string, groupKey: string
   const ref = doc(store, "orders", orderDocId);
   const order = await docData(ref);
   const group = order ? requestGroups(order, await loadJobs(text(order.order_id))).find((item) => item.key === groupKey) : undefined;
-  if (!order || !group) throw new Error("These items no longer need a request by hand: they are on a delivery, or the server is handling them. Reload the order.");
+  if (!order || !group) throw new Error(tx("These items no longer need a request by hand: they are on a delivery, or the server is handling them. Reload the order."));
   const context = await loadRequestContext(group);
 
   let built = buildRequest({ order, group, notes, ...context });
@@ -277,19 +279,19 @@ export async function createShippingRequest(orderDocId: string, groupKey: string
   if (!built.ok) throw new Error(built.message);
 
   const response = found ?? (await storeValley({ method: "POST", path: built.path, body: built.body, notifyCustomer: built.notifyCustomer }));
-  if (response.status < 200 || response.status >= 300) throw new Error(text(response.body.message) || "Store Valley refused the request. Nothing was recorded.");
+  if (response.status < 200 || response.status >= 300) throw new Error(text(response.body.message) || tx("Store Valley refused the request. Nothing was recorded."));
   const trackingId = requestTrackingId(built.path, response.body);
-  if (!trackingId) throw new Error("Store Valley accepted the request but returned no tracking number. Check Store Valley before trying again.");
+  if (!trackingId) throw new Error(tx("Store Valley accepted the request but returned no tracking number. Check Store Valley before trying again."));
 
   const deliveryRef = doc(collection(store, "delivery"));
   const now = Timestamp.now();
   const deliveryType = built.deliveryType;
   try {
-    await runTransaction(store, async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists()) throw new Error("the order was deleted while the request was being made");
-      tx.set(deliveryRef, deliveryRecord({ trackingId, deliveryType, orderRef: ref, assignedBy: approverOf(scope).ref, now }));
-      tx.update(ref, withRequestRecorded(snap.data(), { group, trackingId, deliveryType, deliveryRef, otp: response.pickup_otp ?? "", now }));
+    await runTransaction(store, async (trx) => {
+      const snap = await trx.get(ref);
+      if (!snap.exists()) throw new Error(tx("the order was deleted while the request was being made"));
+      trx.set(deliveryRef, deliveryRecord({ trackingId, deliveryType, orderRef: ref, assignedBy: approverOf(scope).ref, now }));
+      trx.update(ref, withRequestRecorded(snap.data(), { group, trackingId, deliveryType, deliveryRef, otp: response.pickup_otp ?? "", now }));
     });
   } catch (error) {
     throw new Error(acceptedButNotRecorded(trackingId, error instanceof Error ? error.message : String(error)));
@@ -301,8 +303,33 @@ export async function createShippingRequest(orderDocId: string, groupKey: string
     try {
       await releaseWarehouseStock({ orderId: orderDocId, reason: "shipped", productIds: built.productIds });
     } catch (error) {
-      stockNote = ` The reserved stock was not released (${error instanceof Error ? error.message : "unknown error"}); release it as shipped on the order.`;
+      stockNote = tx("The reserved stock was not released ({reason}); release it as shipped on the order.", { reason: error instanceof Error ? error.message : tx("unknown error") });
     }
   }
   return { trackingId, reused: Boolean(found), stockNote };
+}
+
+/* ---------- packing slip ---------- */
+
+/** Names of the options (size, colour ...) on the given lines, from `attributes` and `brands`, in the panel's language. */
+export async function loadOptionNames(lines: Dict[], lang: "en" | "ar"): Promise<OptionNames> {
+  const refs = lines.flatMap(lineOptionRefs);
+  const read = async (name: string, field: string, prefix: "attribute" | "brand", ids: unknown[]) => {
+    const wanted = [...new Map(ids.filter((id) => text(id)).map((id) => [text(id), id])).values()];
+    const found: Record<string, string> = {};
+    for (let start = 0; start < wanted.length; start += 30) {
+      // The ids are compared as stored (number or text), the way the app looks them up.
+      const snap = await getDocs(query(collection(db(), name), where(field, "in", wanted.slice(start, start + 30))));
+      for (const item of snap.docs) {
+        const label = optionName(item.data(), prefix, lang);
+        if (label) found[text(item.data()[field])] = label;
+      }
+    }
+    return found;
+  };
+  const [attributes, terms] = await Promise.all([
+    read("attributes", "attribute_id", "attribute", refs.map((ref) => ref.attributeId)),
+    read("brands", "brand_id", "brand", refs.map((ref) => ref.termId)),
+  ]);
+  return { attributes, terms };
 }

@@ -14,13 +14,18 @@ import { getFirebase } from "@/lib/firebase";
 import { formatDate, humanize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { inboxItem, markReadPayload, sortInbox, unreadOnly, type InboxItem } from "./inbox-rules";
-import { errorText } from "./parts";
+import { errorText, txOptions } from "./parts";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 const FILTERS = [
-  { value: "all", label: "All notifications" },
-  { value: "unread", label: "Unread only" },
+  { value: "all", label: txKey("All notifications") },
+  { value: "unread", label: txKey("Unread only") },
 ];
 const PAGE = 200;
+
+/** `message_type` as stored → a readable name. Kinds without an entry are shown tidied up, in English. */
+const KIND_LABEL: Record<string, string> = { LOW_STOCK_ALERT: txKey("Low stock alert") };
+const kindLabel = (kind: string) => (KIND_LABEL[kind] ? tx(KIND_LABEL[kind]) : humanize(kind.toLowerCase()));
 
 /** Live notifications addressed to one `users` record (`to_userRef`). Sorted in the browser, so no extra database index is needed. */
 function useInbox(userDocId: string) {
@@ -67,7 +72,7 @@ export function MyNotificationsPage() {
     try {
       await updateDoc(doc(getFirebase().db, "notification", item.id), markReadPayload(serverTimestamp()));
     } catch (err) {
-      toast.error(`The notification was not marked as read: ${errorText(err)}.`);
+      toast.error(tx("The notification was not marked as read: {error}.", { error: errorText(err) }));
     }
   }
 
@@ -78,9 +83,9 @@ export function MyNotificationsPage() {
       const batch = writeBatch(db);
       for (const item of unread) batch.update(doc(db, "notification", item.id), markReadPayload(serverTimestamp()));
       await batch.commit();
-      toast.success(unread.length === 1 ? "1 notification marked as read." : `${unread.length} notifications marked as read.`);
+      toast.success(unread.length === 1 ? tx("1 notification marked as read.") : tx("{count} notifications marked as read.", { count: unread.length }));
     } catch (err) {
-      toast.error(`The notifications were not marked as read: ${errorText(err)}.`);
+      toast.error(tx("The notifications were not marked as read: {error}.", { error: errorText(err) }));
     } finally {
       setBusy(false);
     }
@@ -89,42 +94,43 @@ export function MyNotificationsPage() {
   return (
     <>
       <PageHeader
-        description="Messages sent to you by the system, such as low stock alerts. Notifications sent to customers are not listed here."
+        description={tx("Messages sent to you by the system, such as low stock alerts. Notifications sent to customers are not listed here.")}
         actions={
           unread.length ? (
             <Button variant="outline" disabled={busy} onClick={() => void markAllRead()}>
-              <CheckCheck /> Mark all as read
+              <CheckCheck /> {tx("Mark all as read")}
             </Button>
           ) : null
         }
       />
       {error ? (
-        <EmptyState icon={Bell} title="Your notifications could not be loaded" description={`${error} Reload the page to try again.`} />
+        <EmptyState icon={Bell} title={tx("Your notifications could not be loaded")} description={tx("{error} Reload the page to try again.", { error })} />
       ) : loading && !items.length ? (
-        <PageLoading label="Loading notifications…" />
+        <PageLoading label={tx("Loading notifications…")} />
       ) : (
         <div className="rounded-[14px] bg-card">
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-            <FilterSelect value={filter} onChange={setFilter} options={FILTERS} ariaLabel="Show notifications" />
-            <span className="ms-auto text-[12px] text-subtle">{unread.length.toLocaleString("en-US")} unread{items.length >= PAGE ? ` · showing the latest ${PAGE}` : ""}</span>
+            <FilterSelect value={filter} onChange={setFilter} options={txOptions(FILTERS)} ariaLabel={tx("Show notifications")} />
+            <span className="ms-auto text-[12px] text-subtle">{[tx("{count} unread", { count: unread.length.toLocaleString("en-US") }), items.length >= PAGE ? tx("showing the latest {count}", { count: PAGE }) : ""].filter(Boolean).join(" · ")}</span>
           </div>
           {!shown.length ? (
-            <EmptyState compact icon={Bell} title={filter === "unread" ? "Nothing unread" : "No notifications yet"} description={filter === "unread" ? "You have read everything." : "Alerts addressed to you will appear here."} />
+            <EmptyState compact icon={Bell} title={filter === "unread" ? tx("Nothing unread") : tx("No notifications yet")} description={filter === "unread" ? tx("You have read everything.") : tx("Alerts addressed to you will appear here.")} />
           ) : (
             <ul className="divide-y divide-border border-t border-border">
               {shown.map((item) => (
                 <li key={item.id} className={cn("flex items-start gap-3 px-4 py-3", !item.read && "bg-muted/50")}>
                   <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", item.read ? "bg-transparent" : "bg-primary")} aria-hidden />
                   <div className="min-w-0 flex-1">
-                    <p className={cn("text-[13px] text-foreground", !item.read && "font-medium")} dir="auto">{item.message || "No message text"}</p>
+                    <p className={cn("text-[13px] text-foreground", !item.read && "font-medium")} dir="auto">{item.message || tx("No message text")}</p>
                     <p className="mt-0.5 text-[12px] text-subtle">
-                      {[item.kind ? humanize(item.kind.toLowerCase()) : "", formatDate(item.at, true)].filter(Boolean).join(" · ")}
-                      {item.read ? "" : " · unread"}
+                      {item.kind ? <>{kindLabel(item.kind)} · </> : null}
+                      <span dir="ltr" lang="en">{formatDate(item.at, true)}</span>
+                      {item.read ? null : <> · {tx("unread")}</>}
                     </p>
                   </div>
                   {!item.read ? (
                     <Button variant="ghost" size="sm" disabled={busy} onClick={() => void markRead(item)}>
-                      Mark as read
+                      {tx("Mark as read")}
                     </Button>
                   ) : null}
                 </li>

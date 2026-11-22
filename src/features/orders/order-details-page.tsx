@@ -14,6 +14,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useDocRow, useQueryRows } from "@/lib/firestore-ui";
 import { formatDate, formatMoney } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { orderLinesInScope } from "@/lib/role-scope";
 import { customerShipmentOtpLabel } from "@/lib/store-valley/intake-tracking";
 import { useRoleScope } from "@/lib/use-role-scope";
@@ -41,13 +42,14 @@ import {
   releaseBlock,
   retryPlan,
   shipments,
-  statusText,
+  statusLabel,
   text,
   type Dict,
   type ReleaseReason,
   type Shipment,
 } from "./model";
 import { OrdersPage } from "./orders-page";
+import { PackingSlipButton } from "./packing-slip-view";
 import { Fact, LineRow, LineStateBadge, PaymentBadge, Section } from "./parts";
 import { requestGroups } from "./shipping-model";
 
@@ -57,11 +59,13 @@ export function OrderDetailsPage() {
   return id ? <OrderView key={id} id={id} /> : <OrdersPage />;
 }
 
-const backLink = (
-  <Link href="/orders" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "bg-card")}>
-    <ArrowLeft className="rtl:rotate-180" /> All orders
-  </Link>
-);
+function BackLink() {
+  return (
+    <Link href="/orders" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "bg-card")}>
+      <ArrowLeft className="rtl:rotate-180" /> {tx("All orders")}
+    </Link>
+  );
+}
 
 function OrderView({ id }: { id: string }) {
   const scope = useRoleScope();
@@ -79,10 +83,11 @@ function OrderView({ id }: { id: string }) {
   const [busyLine, setBusyLine] = useState("");
   const [releaseOpen, setReleaseOpen] = useState(false);
 
-  if (loading) return <PageLoading label="Loading the order…" />;
-  if (error) return <EmptyState icon={PackageX} title="The order could not be loaded" description={error} action={backLink} />;
-  if (missing || !row) return <EmptyState icon={PackageX} title="This order does not exist" description="It may have been deleted, or the link is incomplete." action={backLink} />;
-  if (!order) return <EmptyState icon={PackageX} title="This order has none of your products" description="You can open only orders that include your own items." action={backLink} />;
+  const backLink = <BackLink />;
+  if (loading) return <PageLoading label={tx("Loading the order…")} />;
+  if (error) return <EmptyState icon={PackageX} title={tx("The order could not be loaded")} description={error} action={backLink} />;
+  if (missing || !row) return <EmptyState icon={PackageX} title={tx("This order does not exist")} description={tx("It may have been deleted, or the link is incomplete.")} action={backLink} />;
+  if (!order) return <EmptyState icon={PackageX} title={tx("This order has none of your products")} description={tx("You can open only orders that include your own items.")} action={backLink} />;
 
   const lines = orderLinesInScope<Dict>(scope, order);
   const totals = orderTotals(order);
@@ -98,45 +103,50 @@ function OrderView({ id }: { id: string }) {
   const returnId = staff ? text(order.return_request_id) : "";
   const pickupAddress = dict(dict(profile?.designer_main_info).designer_pickup_address);
 
+  /** `failed` is an English text with a `{reason}` placeholder, marked with `txKey`. */
   async function run(action: () => Promise<unknown>, done: string, failed: string) {
     try {
       await action();
       toast.success(done);
     } catch (err) {
-      toast.error(`${failed}: ${err instanceof Error ? err.message : "unknown error"}`);
+      toast.error(tx(failed, { reason: err instanceof Error ? err.message : tx("unknown error") }));
     }
   }
 
   async function ready(line: Dict) {
     const sure = await confirm({
-      title: `Mark "${lineName(line)}" ready for pickup?`,
-      description: `A courier is booked to collect it from ${addressLine(readAddress(pickupAddress)) || "your saved pickup address"}. This cannot be taken back here.`,
-      confirmLabel: "Mark ready",
+      title: tx("Mark “{item}” ready for pickup?", { item: lineName(line) }),
+      description: addressLine(readAddress(pickupAddress))
+        ? tx("A courier is booked to collect it from {address}. This cannot be taken back here.", { address: addressLine(readAddress(pickupAddress)) })
+        : tx("A courier is booked to collect it from your saved pickup address. This cannot be taken back here."),
+      confirmLabel: tx("Mark ready"),
+      cancelLabel: tx("Cancel"),
     });
     if (!sure) return;
     setBusyLine(lineKey(line));
-    await run(() => markLineReady(id, lineKey(line), pickupAddress), "Marked ready. The courier is booked automatically in a moment.", "The item was not marked ready");
+    await run(() => markLineReady(id, lineKey(line), pickupAddress), tx("Marked ready. The courier is booked automatically in a moment."), txKey("The item was not marked ready: {reason}"));
     setBusyLine("");
   }
 
   async function retryRequests() {
     const sure = await confirm({
-      title: "Ask Store Valley again?",
-      description: plan.kind === "jobs" ? "The failed designer pickup requests are queued again. The warehouse delivery is not, because its stock is no longer reserved." : "Failed requests are queued again and items with no request get one. Items already on their way are not touched.",
-      confirmLabel: "Retry requests",
+      title: tx("Ask Store Valley again?"),
+      description: plan.kind === "jobs" ? tx("The failed designer pickup requests are queued again. The warehouse delivery is not, because its stock is no longer reserved.") : tx("Failed requests are queued again and items with no request get one. Items already on their way are not touched."),
+      confirmLabel: tx("Retry requests"),
+      cancelLabel: tx("Cancel"),
     });
-    if (sure) await run(() => runRetry(id, plan), describeRetry(plan), "The requests were not retried");
+    if (sure) await run(() => runRetry(id, plan), describeRetry(plan), txKey("The requests were not retried: {reason}"));
   }
 
   async function retryStock() {
-    const sure = await confirm({ title: "Try to reserve the stock again?", description: "If the warehouse now has enough units they are reserved for this order and its delivery is requested.", confirmLabel: "Retry reservation" });
+    const sure = await confirm({ title: tx("Try to reserve the stock again?"), description: tx("If the warehouse now has enough units they are reserved for this order and its delivery is requested."), confirmLabel: tx("Retry reservation"), cancelLabel: tx("Cancel") });
     if (!sure) return;
     try {
       const outcome = describeReserve(await retryStockReservation(id));
       if (outcome.ok) toast.success(outcome.message);
       else toast.warning(outcome.message);
     } catch (err) {
-      toast.error(`The stock is still not reserved: ${err instanceof Error ? err.message : "unknown error"}`);
+      toast.error(tx("The stock is still not reserved: {reason}", { reason: err instanceof Error ? err.message : tx("unknown error") }));
     }
   }
 
@@ -148,14 +158,15 @@ function OrderView({ id }: { id: string }) {
           <h2 className="flex flex-wrap items-center gap-2 text-[15px] font-semibold text-heading">
             <span dir="ltr" lang="en">{orderNumber || id}</span> <PaymentBadge status={order.payment_status} />
           </h2>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">Placed {formatDate(order.created_at, true) || "on an unknown date"}</p>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">{formatDate(order.created_at, true) ? tx("Placed on {date}", { date: formatDate(order.created_at, true) }) : tx("Placed on an unknown date")}</p>
         </div>
+        <PackingSlipButton order={order} />
       </div>
 
       <div className={cn("grid items-start gap-3", staff && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
         <div className="min-w-0 space-y-3">
           {list.length ? (
-            <Section title="Deliveries" description="Requests made to Store Valley for this order.">
+            <Section title={tx("Deliveries")} description={tx("Requests made to Store Valley for this order.")}>
               <div className="grid gap-3 sm:grid-cols-2">
                 {list.map((shipment) => (
                   <ShipmentCard key={shipment.trackingId || shipment.deliveryDocId} orderId={id} shipment={shipment} delivery={deliveries[shipment.deliveryDocId]} />
@@ -164,12 +175,12 @@ function OrderView({ id }: { id: string }) {
             </Section>
           ) : null}
 
-          <Section title={staff ? "Items" : "Your items"} description={paid ? undefined : "Nothing ships until the order is paid."}>
+          <Section title={staff ? tx("Items") : tx("Your items")} description={paid ? undefined : tx("Nothing ships until the order is paid.")}>
             {lines.map((line) => (
               <LineRow key={lineKey(line)} line={line} showPrice badge={<LineStateBadge order={order} line={line} />}>
                 {canMarkReady(scope, order, line) ? (
                   <Button size="sm" disabled={busyLine === lineKey(line)} onClick={() => void ready(line)}>
-                    Mark ready for pickup
+                    {tx("Mark ready for pickup")}
                   </Button>
                 ) : null}
               </LineRow>
@@ -177,39 +188,39 @@ function OrderView({ id }: { id: string }) {
           </Section>
 
           {staff && paid ? (
-            <Section title="Stock and delivery requests" description="The server reserves warehouse stock and asks Store Valley for deliveries by itself. Step in only when something below failed.">
-              <Fact label="Warehouse stock">{reservation ? <StatusBadge value={reservation} label={statusText(reservation)} tone={reservation === "stock_failed" ? "danger" : reservation === "reserved" ? "info" : "neutral"} /> : "Nothing to reserve"}</Fact>
-              <Fact label="Warehouse delivery request">{statusText(order.ready_shipping_request_status) || "None"}</Fact>
-              <Fact label="Designer pickup request">{statusText(order.custom_shipping_request_status) || "None"}</Fact>
+            <Section title={tx("Stock and delivery requests")} description={tx("The server reserves warehouse stock and asks Store Valley for deliveries by itself. Step in only when something below failed.")}>
+              <Fact label={tx("Warehouse stock")}>{reservation ? <StatusBadge value={reservation} label={statusLabel(reservation)} tone={reservation === "stock_failed" ? "danger" : reservation === "reserved" ? "info" : "neutral"} /> : tx("Nothing to reserve")}</Fact>
+              <Fact label={tx("Warehouse delivery request")}>{statusLabel(order.ready_shipping_request_status) || tx("None")}</Fact>
+              <Fact label={tx("Designer pickup request")}>{statusLabel(order.custom_shipping_request_status) || tx("None")}</Fact>
               {failedJobs.map((job) => (
                 <p key={job.id} className="mt-2 rounded-lg bg-tint-danger px-3 py-2 text-[12px] text-destructive">
-                  Request {job.id} failed after {job.attempts} attempt(s): {statusText(job.lastError) || "no reason given"}.
+                  {tx("Request {id} failed. Attempts: {attempts}. Reason: {reason}.", { id: job.id, attempts: job.attempts, reason: statusLabel(job.lastError) || tx("no reason given") })}
                 </p>
               ))}
               {admin ? (
                 <>
                   {reservation === "reserved" && releaseBlocked ? <p className="mt-2 rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">{releaseBlocked}</p> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {plan.kind !== "none" ? <Button variant="outline" size="sm" onClick={() => void retryRequests()}>Retry delivery requests</Button> : null}
-                    {reservation === "stock_failed" ? <Button variant="outline" size="sm" onClick={() => void retryStock()}>Retry stock reservation</Button> : null}
-                    {reservation === "reserved" ? <Button variant="outline" size="sm" disabled={Boolean(releaseBlocked)} onClick={() => setReleaseOpen(true)}>Release reserved stock…</Button> : null}
+                    {plan.kind !== "none" ? <Button variant="outline" size="sm" onClick={() => void retryRequests()}>{tx("Retry delivery requests")}</Button> : null}
+                    {reservation === "stock_failed" ? <Button variant="outline" size="sm" onClick={() => void retryStock()}>{tx("Retry stock reservation")}</Button> : null}
+                    {reservation === "reserved" ? <Button variant="outline" size="sm" disabled={Boolean(releaseBlocked)} onClick={() => setReleaseOpen(true)}>{tx("Release reserved stock…")}</Button> : null}
                     {manual.length ? (
                       <Link href={`/create-shipping-label?id=${encodeURIComponent(id)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-                        Request shipping by hand
+                        {tx("Request shipping by hand")}
                       </Link>
                     ) : null}
                   </div>
                 </>
               ) : (
-                <p className="mt-3 text-[12px] text-muted-foreground">Only a super admin can retry, release stock or request shipping by hand.</p>
+                <p className="mt-3 text-[12px] text-muted-foreground">{tx("Only a super admin can retry, release stock or request shipping by hand.")}</p>
               )}
             </Section>
           ) : null}
 
           {returnId ? (
-            <Section title="Return" description="The customer asked to return items from this order.">
+            <Section title={tx("Return")} description={tx("The customer asked to return items from this order.")}>
               <Link href={`/return-orders?return=${encodeURIComponent(returnId)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-                Open return {returnId}
+                {tx("Open return {id}", { id: returnId })}
               </Link>
             </Section>
           ) : null}
@@ -217,26 +228,26 @@ function OrderView({ id }: { id: string }) {
 
         {staff ? (
           <div className="min-w-0 space-y-3">
-            <Section title="Summary">
-              <Fact label={`Subtotal (${orderLines(order).length} items)`}>{formatMoney(totals.subtotal) || "—"}</Fact>
-              <Fact label="Shipping">{formatMoney(totals.shipping)}</Fact>
-              {totals.couponCode ? <Fact label={`Coupon ${totals.couponCode}`}>− {formatMoney(totals.discount)}</Fact> : null}
+            <Section title={tx("Summary")}>
+              <Fact label={tx("Subtotal (items: {count})", { count: orderLines(order).length })}>{formatMoney(totals.subtotal) || "—"}</Fact>
+              <Fact label={tx("Shipping")}>{formatMoney(totals.shipping)}</Fact>
+              {totals.couponCode ? <Fact label={tx("Coupon {code}", { code: totals.couponCode })}>− {formatMoney(totals.discount)}</Fact> : null}
               <div className="mt-1 border-t border-border pt-1 font-semibold">
-                <Fact label="Total">{formatMoney(totals.total) || "—"}</Fact>
+                <Fact label={tx("Total")}>{formatMoney(totals.total) || "—"}</Fact>
               </div>
-              {text(order.payment_method) ? <Fact label="Paid with">{text(order.payment_method)}</Fact> : null}
-              {text(order.payment_id) ? <Fact label="Payment reference" ltr>{text(order.payment_id)}</Fact> : null}
+              {text(order.payment_method) ? <Fact label={tx("Paid with")}>{text(order.payment_method)}</Fact> : null}
+              {text(order.payment_id) ? <Fact label={tx("Payment reference")} ltr>{text(order.payment_id)}</Fact> : null}
             </Section>
 
-            <Section title="Customer">
-              <Fact label="Name">{customer.name || "—"}</Fact>
-              <Fact label="Email" ltr>{customer.email || "—"}</Fact>
-              <Fact label="Phone" ltr>{customer.phone || "—"}</Fact>
-              <Fact label="Deliver to">{addressLine(customer) || "—"}</Fact>
+            <Section title={tx("Customer")}>
+              <Fact label={tx("Name")}>{customer.name || "—"}</Fact>
+              <Fact label={tx("Email")} ltr>{customer.email || "—"}</Fact>
+              <Fact label={tx("Phone")} ltr>{customer.phone || "—"}</Fact>
+              <Fact label={tx("Deliver to")}>{addressLine(customer) || "—"}</Fact>
             </Section>
 
             {designerUids.length ? (
-              <Section title={designerUids.length === 1 ? "Designer" : "Designers"}>
+              <Section title={designerUids.length === 1 ? tx("Designer") : tx("Designers")}>
                 {designerUids.map((uid) => (
                   <DesignerFacts key={uid} uid={uid} />
                 ))}
@@ -268,42 +279,42 @@ function ShipmentCard({ orderId, shipment, delivery }: { orderId: string; shipme
 
   async function cancel() {
     const sure = await confirm({
-      title: "Cancel this delivery?",
-      description: `Store Valley is told to cancel delivery ${shipment.trackingId}. The items stay off the reserved stock and are not sent again by themselves: request shipping by hand afterwards if they should still go out.`,
-      confirmLabel: "Cancel delivery",
-      cancelLabel: "Keep it",
+      title: tx("Cancel this delivery?"),
+      description: tx("Store Valley is told to cancel delivery {tracking}. The items stay off the reserved stock and are not sent again by themselves: request shipping by hand afterwards if they should still go out.", { tracking: shipment.trackingId }),
+      confirmLabel: tx("Cancel delivery"),
+      cancelLabel: tx("Keep it"),
       destructive: true,
     });
     if (!sure) return;
     try {
       await cancelShipment(orderId, shipment);
-      toast.success("Delivery cancelled.");
+      toast.success(tx("Delivery cancelled."));
     } catch (err) {
-      toast.error(`The delivery was not cancelled: ${err instanceof Error ? err.message : "unknown error"}`);
+      toast.error(tx("The delivery was not cancelled: {reason}", { reason: err instanceof Error ? err.message : tx("unknown error") }));
     }
   }
 
   return (
     <div className={cn("rounded-xl border border-border p-3", shipment.cancelled && "opacity-60")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[13px] font-medium text-foreground">{shipment.type === "custom" ? "Pickup from designer" : "Warehouse delivery"}</p>
-        <StatusBadge value={status.toLowerCase()} label={statusText(status) || "Unknown"} />
+        <p className="text-[13px] font-medium text-foreground">{shipment.type === "custom" ? tx("Pickup from designer") : tx("Warehouse delivery")}</p>
+        <StatusBadge value={status.toLowerCase()} label={statusLabel(status) || tx("Unknown")} />
       </div>
-      <Fact label="Tracking" ltr>{shipment.trackingId || "—"}</Fact>
-      <Fact label="Items">{shipment.productIds.length}</Fact>
-      {admin && otp ? <Fact label="Delivery code" ltr>{otp.replace(/^OTP\s*:\s*/, "")}</Fact> : null}
-      {otpStatus ? <Fact label="Code check">{statusText(otpStatus)}</Fact> : null}
+      <Fact label={tx("Tracking")} ltr>{shipment.trackingId || "—"}</Fact>
+      <Fact label={tx("Items")}>{shipment.productIds.length}</Fact>
+      {admin && otp ? <Fact label={tx("Delivery code")} ltr>{otp.replace(/^OTP\s*:\s*/, "")}</Fact> : null}
+      {otpStatus ? <Fact label={tx("Code check")}>{statusLabel(otpStatus)}</Fact> : null}
       {steps.map((step, index) => (
-        <Fact key={index} label={statusText(step.status)}>{formatDate(step.dateTime, true)}</Fact>
+        <Fact key={index} label={statusLabel(step.status)}>{formatDate(step.dateTime, true)}</Fact>
       ))}
       {staff && proof ? (
         <a href={proof} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12px] font-medium underline underline-offset-4">
-          Proof of delivery photo
+          {tx("Proof of delivery photo")}
         </a>
       ) : null}
       {canCancelShipment(scope, shipment) ? (
         <div className="mt-2">
-          <Button variant="destructive" size="sm" onClick={() => void cancel()}>Cancel delivery</Button>
+          <Button variant="destructive" size="sm" onClick={() => void cancel()}>{tx("Cancel delivery")}</Button>
         </div>
       ) : null}
     </div>
@@ -321,9 +332,9 @@ function DesignerFacts({ uid }: { uid: string }) {
   return (
     <div className="border-t border-border py-2 first:border-t-0 first:pt-0">
       <p className="text-[13px] font-medium text-foreground">{text(contact.name) || text(rows[0]?.data.display_name) || uid.slice(0, 8)}</p>
-      <Fact label="Designer ID" ltr>{text(info.designer_id) || "—"}</Fact>
-      <Fact label="Email" ltr>{text(contact.email) || "—"}</Fact>
-      <Fact label="Phone" ltr>{text(contact.phone) || "—"}</Fact>
+      <Fact label={tx("Designer ID")} ltr>{text(info.designer_id) || "—"}</Fact>
+      <Fact label={tx("Email")} ltr>{text(contact.email) || "—"}</Fact>
+      <Fact label={tx("Phone")} ltr>{text(contact.phone) || "—"}</Fact>
     </div>
   );
 }
@@ -339,14 +350,14 @@ function PaymentComment({ id, order }: { id: string; order: Dict }) {
   if (!editable && !stored) return null;
   if (!editable) {
     return (
-      <Section title="Payment note">
+      <Section title={tx("Payment note")}>
         <p className="text-[13px] whitespace-pre-wrap text-foreground">{stored}</p>
       </Section>
     );
   }
   return (
-    <Section title="Payment note" description="For staff only. The customer does not see it.">
-      <TextareaField value={value} onChange={setValue} rows={3} maxLength={500} placeholder="What happened with this payment" />
+    <Section title={tx("Payment note")} description={tx("For staff only. The customer does not see it.")}>
+      <TextareaField value={value} onChange={setValue} rows={3} maxLength={500} placeholder={tx("What happened with this payment")} />
       <Button
         size="sm"
         className="mt-2"
@@ -355,15 +366,15 @@ function PaymentComment({ id, order }: { id: string; order: Dict }) {
           setBusy(true);
           try {
             await savePaymentComment(id, value);
-            toast.success("Payment note saved.");
+            toast.success(tx("Payment note saved."));
           } catch (err) {
-            toast.error(`The note was not saved: ${err instanceof Error ? err.message : "unknown error"}`);
+            toast.error(tx("The note was not saved: {reason}", { reason: err instanceof Error ? err.message : tx("unknown error") }));
           } finally {
             setBusy(false);
           }
         }}
       >
-        Save note
+        {tx("Save note")}
       </Button>
     </Section>
   );
@@ -376,9 +387,10 @@ function ReleaseDialog({ onClose, onRelease }: { onClose: () => void; onRelease:
     <ConfirmDialog
       open
       onOpenChange={(open) => !open && onClose()}
-      title="Release the reserved stock?"
-      description="Choose what happened to the items. Either choice ends the reservation for this order and cannot be undone here."
-      confirmLabel={reason === "cancelled" ? "Release and put back on sale" : "Release as shipped"}
+      title={tx("Release the reserved stock?")}
+      description={tx("Choose what happened to the items. Either choice ends the reservation for this order and cannot be undone here.")}
+      confirmLabel={reason === "cancelled" ? tx("Release and put back on sale") : tx("Release as shipped")}
+      cancelLabel={tx("Cancel")}
       destructive={reason === "cancelled"}
       confirmDisabled={!reason}
       onConfirm={async () => {
@@ -393,8 +405,8 @@ function ReleaseDialog({ onClose, onRelease }: { onClose: () => void; onRelease:
           <label key={choice.value} className={cn("flex cursor-pointer gap-2 rounded-lg border border-border p-3", reason === choice.value && "border-foreground")}>
             <input type="radio" name="release-reason" className="mt-0.5" checked={reason === choice.value} onChange={() => setReason(choice.value)} />
             <span>
-              <span className="block text-[13px] font-medium text-foreground">{choice.label}</span>
-              <span className="mt-0.5 block text-[12px] text-muted-foreground">{choice.effect}</span>
+              <span className="block text-[13px] font-medium text-foreground">{tx(choice.label)}</span>
+              <span className="mt-0.5 block text-[12px] text-muted-foreground">{tx(choice.effect)}</span>
             </span>
           </label>
         ))}

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import type { Row } from "@/lib/firestore-ui";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 import {
   addAttribute,
@@ -83,10 +84,10 @@ export function DetailsSection({
   const { form, errors, disabled } = api;
   const set = setter(api);
   return (
-    <Section title="Details">
+    <Section title={tx("Details")}>
       <div className="grid gap-4">
-        <Field label="Product type" hint={mode === "edit" ? "The type is fixed once a product exists." : "Custom products are made to order and cannot be returned or refunded."}>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Product type">
+        <Field label={tx("Product type")} hint={mode === "edit" ? tx("The type is fixed once a product exists.") : tx("Custom products are made to order and cannot be returned or refunded.")}>
+          <div className="flex flex-wrap gap-2" role="group" aria-label={tx("Product type")}>
             {(["ready", "custom"] as const).map((type) => (
               <Button
                 key={type}
@@ -96,13 +97,13 @@ export function DetailsSection({
                 disabled={disabled || mode === "edit"}
                 onClick={() => api.update((current) => withType(current, type))}
               >
-                {type === "ready" ? "Ready made" : "Custom made"}
+                {type === "ready" ? tx("Ready made") : tx("Custom made")}
               </Button>
             ))}
           </div>
         </Field>
         <TextField
-          label="Title"
+          label={tx("Title")}
           required
           value={form.name}
           onChange={set("name")}
@@ -112,29 +113,29 @@ export function DetailsSection({
           hint={
             manualEnglishTitle ? (
               <>
-                Customers see the manual translation “{manualEnglishTitle}” instead.{" "}
+                {tx("Customers see the manual translation “{title}” instead.", { title: manualEnglishTitle })}{" "}
                 {translationHref ? (
                   <Link href={translationHref} className="underline underline-offset-2">
-                    Edit translations
+                    {tx("Edit translations")}
                   </Link>
                 ) : null}
               </>
             ) : undefined
           }
         />
-        <TextareaField label="Short description" value={form.shortDescription} onChange={set("shortDescription")} rows={2} disabled={disabled} />
-        <TextareaField label="Description" value={form.description} onChange={set("description")} rows={5} disabled={disabled} />
+        <TextareaField label={tx("Short description")} value={form.shortDescription} onChange={set("shortDescription")} rows={2} disabled={disabled} />
+        <TextareaField label={tx("Description")} value={form.description} onChange={set("description")} rows={5} disabled={disabled} />
         <div className="grid gap-4 sm:grid-cols-2">
           {designerLocked ? (
-            <TextField label="Designer" value={designerLabel} onChange={() => undefined} disabled hint={mode === "edit" ? "The designer is fixed once a product exists." : undefined} />
+            <TextField label={tx("Designer")} value={designerLabel} onChange={() => undefined} disabled hint={mode === "edit" ? tx("The designer is fixed once a product exists.") : undefined} />
           ) : (
             <SelectField
-              label="Designer"
+              label={tx("Designer")}
               required
               value={form.designerUid}
               // Size charts belong to a designer, so a chart chosen for the previous designer is dropped.
               onChange={(uid) => api.update((current) => (uid === current.designerUid ? current : { ...current, designerUid: uid, sizeChartUk: "", sizeChartUs: "" }))}
-              options={designerOptions} placeholder="Choose a designer" error={errors.designerUid} disabled={disabled} />
+              options={designerOptions} placeholder={tx("Choose a designer")} error={errors.designerUid} disabled={disabled} />
           )}
           {mode === "edit" ? (
             <NumberField
@@ -144,10 +145,10 @@ export function DetailsSection({
               integer
               error={errors.sku}
               disabled
-              hint="Issued when the product was created."
+              hint={tx("Issued when the product was created.")}
             />
           ) : (
-            <TextField label="SKU" value="" onChange={() => undefined} disabled placeholder="Issued when you save" />
+            <TextField label="SKU" value="" onChange={() => undefined} disabled placeholder={tx("Issued when you save")} />
           )}
         </div>
       </div>
@@ -161,19 +162,19 @@ export function PricingSection({ api, switches }: { api: FormApi; switches: Fiel
   const { form, errors, disabled } = api;
   const set = setter(api);
   return (
-    <Section title="Pricing and shipping" description="Amounts are in Kuwaiti dinar, to three decimals.">
+    <Section title={tx("Pricing and shipping")} description={tx("Amounts are in Kuwaiti dinar, to three decimals.")}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <MoneyField label="Price" required value={form.price} onChange={set("price")} error={errors.price} disabled={disabled} hint="What customers pay." />
+        <MoneyField label={tx("Price")} required value={form.price} onChange={set("price")} error={errors.price} disabled={disabled} hint={tx("What customers pay.")} />
         {switches.comparePrice ? (
-          <MoneyField label="Compare-at price" value={form.comparePrice} onChange={set("comparePrice")} error={errors.comparePrice} disabled={disabled} hint="Optional. Shown struck through." />
+          <MoneyField label={tx("Compare-at price")} value={form.comparePrice} onChange={set("comparePrice")} error={errors.comparePrice} disabled={disabled} hint={tx("Optional. Shown struck through.")} />
         ) : null}
-        {switches.procurementCost ? <MoneyField label="Cost" value={form.procurementCost} onChange={set("procurementCost")} error={errors.procurementCost} disabled={disabled} hint="Internal." /> : null}
+        {switches.procurementCost ? <MoneyField label={tx("Cost")} value={form.procurementCost} onChange={set("procurementCost")} error={errors.procurementCost} disabled={disabled} hint={tx("Internal.")} /> : null}
         {switches.procurementPrice ? (
-          <MoneyField label="Designer price" value={form.procurementPrice} onChange={set("procurementPrice")} error={errors.procurementPrice} disabled={disabled} hint="Paid to the designer." />
+          <MoneyField label={tx("Designer price")} value={form.procurementPrice} onChange={set("procurementPrice")} error={errors.procurementPrice} disabled={disabled} hint={tx("Paid to the designer.")} />
         ) : null}
-        <NumberField label="Weight" required value={form.weightGm} onChange={set("weightGm")} suffix="g" min={0} error={errors.weightGm} disabled={disabled} />
+        <NumberField label={tx("Weight")} required value={form.weightGm} onChange={set("weightGm")} suffix="g" min={0} error={errors.weightGm} disabled={disabled} />
         {switches.shippingDays ? (
-          <NumberField label="Ships in" value={form.shippingDays} onChange={set("shippingDays")} integer min={1} max={99} suffix="days" error={errors.shippingDays} disabled={disabled} />
+          <NumberField label={tx("Ships in")} value={form.shippingDays} onChange={set("shippingDays")} integer min={1} max={99} suffix={tx("days")} error={errors.shippingDays} disabled={disabled} />
         ) : null}
       </div>
     </Section>
@@ -187,14 +188,14 @@ export function StockAlertSection({ api, hasInventory }: { api: FormApi; hasInve
   const set = setter(api);
   if (form.type !== "ready") return null;
   return (
-    <Section title="Restock alert" description="Kept on the product's stock record.">
+    <Section title={tx("Restock alert")} description={tx("Kept on the product's stock record.")}>
       {hasInventory ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <NumberField label="Alert when stock falls to" value={form.thresholdStock} onChange={set("thresholdStock")} integer min={0} max={999} suffix="units" error={errors.thresholdStock} disabled={disabled} />
-          <SwitchField label="Tell the designer" hint="Notify the designer when the alert level is reached." checked={form.notifyDesigner} onChange={set("notifyDesigner")} disabled={disabled} className="self-center" />
+          <NumberField label={tx("Alert when stock falls to")} value={form.thresholdStock} onChange={set("thresholdStock")} integer min={0} max={999} suffix={tx("units")} error={errors.thresholdStock} disabled={disabled} />
+          <SwitchField label={tx("Tell the designer")} hint={tx("Notify the designer when the alert level is reached.")} checked={form.notifyDesigner} onChange={set("notifyDesigner")} disabled={disabled} className="self-center" />
         </div>
       ) : (
-        <p className="text-[13px] text-muted-foreground">This product has no stock record, so there is no alert level to set.</p>
+        <p className="text-[13px] text-muted-foreground">{tx("This product has no stock record, so there is no alert level to set.")}</p>
       )}
     </Section>
   );
@@ -205,21 +206,21 @@ export function ReturnsSection({ api }: { api: FormApi }) {
   const set = setter(api);
   if (form.type !== "ready") return null;
   return (
-    <Section title="Returns and refunds">
+    <Section title={tx("Returns and refunds")}>
       <div className="grid gap-4 sm:grid-cols-2">
         <SwitchField
-          label="Can be returned"
+          label={tx("Can be returned")}
           checked={form.returnable}
           onChange={(on) => api.update((current) => ({ ...current, returnable: on, returnDays: on ? current.returnDays : null }))}
           disabled={disabled}
           className="self-center"
         />
         {form.returnable ? (
-          <NumberField label="Return within" required value={form.returnDays} onChange={set("returnDays")} integer min={1} max={99} suffix="days" error={errors.returnDays} disabled={disabled} />
+          <NumberField label={tx("Return within")} required value={form.returnDays} onChange={set("returnDays")} integer min={1} max={99} suffix={tx("days")} error={errors.returnDays} disabled={disabled} />
         ) : (
           <span className="hidden sm:block" />
         )}
-        <SwitchField label="Can be refunded" checked={form.refundable} onChange={set("refundable")} disabled={disabled} className="self-center" />
+        <SwitchField label={tx("Can be refunded")} checked={form.refundable} onChange={set("refundable")} disabled={disabled} className="self-center" />
       </div>
     </Section>
   );
@@ -234,16 +235,16 @@ export function PicturesSection({ api }: { api: FormApi }) {
   const pickedIds = useRef(new Map<string, string>());
   return (
     <Section
-      title="Pictures"
-      description="The main picture is the one lists and the product page open with."
+      title={tx("Pictures")}
+      description={tx("The main picture is the one lists and the product page open with.")}
       actions={
         <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => setPicking(true)}>
-          <ImagePlus /> Add pictures
+          <ImagePlus /> {tx("Add pictures")}
         </Button>
       }
     >
       {form.gallery.length === 0 && !form.featureImage ? (
-        <p className={cn("text-[13px]", errors.featureImage ? "text-destructive" : "text-muted-foreground")}>{errors.featureImage ?? "No pictures yet."}</p>
+        <p className={cn("text-[13px]", errors.featureImage ? "text-destructive" : "text-muted-foreground")}>{errors.featureImage ?? tx("No pictures yet.")}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {(form.gallery.includes(form.featureImage) || !form.featureImage ? form.gallery : [form.featureImage, ...form.gallery]).map((url) => {
@@ -253,7 +254,7 @@ export function PicturesSection({ api }: { api: FormApi }) {
               <li key={url} className={cn("group relative overflow-hidden rounded-lg border bg-muted", main ? "border-primary" : "border-border")}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={url} alt="" loading="lazy" className="aspect-[4/5] w-full object-cover" />
-                {main ? <span className="absolute start-1.5 top-1.5 rounded bg-card/90 px-1.5 py-0.5 text-[11px] font-medium text-foreground">Main</span> : null}
+                {main ? <span className="absolute start-1.5 top-1.5 rounded bg-card/90 px-1.5 py-0.5 text-[11px] font-medium text-foreground">{tx("Main")}</span> : null}
                 <div className="flex items-center gap-1 border-t border-border bg-card p-1.5">
                   <Button
                     type="button"
@@ -262,10 +263,10 @@ export function PicturesSection({ api }: { api: FormApi }) {
                     disabled={disabled || main}
                     onClick={() => api.update((current) => ({ ...current, featureImage: url, featureImageId: pickedIds.current.get(url) ?? "" }))}
                   >
-                    <Star /> {main ? "Main picture" : "Make main"}
+                    <Star /> {main ? tx("Main picture") : tx("Make main")}
                   </Button>
                   {inGallery ? (
-                    <Button type="button" variant="ghost" size="icon-xs" className="ms-auto" aria-label="Remove picture" disabled={disabled} onClick={() => api.update((current) => removePicture(current, url))}>
+                    <Button type="button" variant="ghost" size="icon-xs" className="ms-auto" aria-label={tx("Remove picture")} disabled={disabled} onClick={() => api.update((current) => removePicture(current, url))}>
                       <X />
                     </Button>
                   ) : null}
@@ -280,7 +281,7 @@ export function PicturesSection({ api }: { api: FormApi }) {
         open={picking}
         onOpenChange={setPicking}
         multiple
-        title="Add pictures"
+        title={tx("Add pictures")}
         onPick={(items) => {
           for (const item of items) pickedIds.current.set(item.url, item.imageId);
           api.update((current) => addPictures(current, items.map((item) => ({ url: item.url, imageId: item.imageId }))));
@@ -302,9 +303,9 @@ export function AttributesSection({ api, attributes, brands, lang }: { api: Form
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return (
-    <Section title="Attributes" description="Choose the sizes, colours and other options this product comes in.">
+    <Section title={tx("Attributes")} description={tx("Choose the sizes, colours and other options this product comes in.")}>
       <div className="grid gap-4">
-        {form.attributes.length === 0 ? <p className="text-[13px] text-muted-foreground">No attributes yet.</p> : null}
+        {form.attributes.length === 0 ? <p className="text-[13px] text-muted-foreground">{tx("No attributes yet.")}</p> : null}
         {form.attributes.map((item) => {
           const attribute = byId.get(item.attributes_id);
           const terms = termsOfAttribute(attribute?.data, brands).filter((term) => term.data.status === "active" || item.attributes_brand_term_ids.includes(str(term.data.brand_id)));
@@ -312,15 +313,15 @@ export function AttributesSection({ api, attributes, brands, lang }: { api: Form
             <div key={item.attributes_id} className="rounded-lg border border-border p-3">
               <div className="mb-2 flex items-center gap-2">
                 <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
-                  {attribute ? taxonomyName(attribute.data, "attribute", lang) : `Attribute ${item.attributes_id}`}
+                  {attribute ? taxonomyName(attribute.data, "attribute", lang) : tx("Attribute {id}", { id: item.attributes_id })}
                   {attribute && attribute.data.status !== "active" ? <span className="ms-2 text-[12px] font-normal text-muted-foreground">({productStatusLabel(str(attribute.data.status)).toLowerCase()})</span> : null}
                 </p>
                 <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={() => api.update((current) => ({ ...current, attributes: removeAttribute(current.attributes, item.attributes_id) }))}>
-                  <X /> Remove
+                  <X /> {tx("Remove")}
                 </Button>
               </div>
               {terms.length === 0 ? (
-                <p className="text-[12px] text-muted-foreground">This attribute has no terms yet. Add them under Attributes.</p>
+                <p className="text-[12px] text-muted-foreground">{tx("This attribute has no terms yet. Add them under Attributes.")}</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {terms.map((term) => {
@@ -351,10 +352,10 @@ export function AttributesSection({ api, attributes, brands, lang }: { api: Form
         })}
         {addable.length ? (
           <SelectField
-            label="Add an attribute"
+            label={tx("Add an attribute")}
             value=""
             options={addable}
-            placeholder="Choose an attribute"
+            placeholder={tx("Choose an attribute")}
             disabled={disabled}
             className="max-w-xs"
             onChange={(attributeId) => {
@@ -377,36 +378,36 @@ export function SizeChartSection({ api, designer }: { api: FormApi; designer: Ro
   const charts = useMemo(() => readCharts(designer?.data), [designer]);
   if (!form.designerUid) {
     return (
-      <Section title="Size charts">
-        <p className="text-[13px] text-muted-foreground">Choose the designer first; size charts belong to a designer.</p>
+      <Section title={tx("Size charts")}>
+        <p className="text-[13px] text-muted-foreground">{tx("Choose the designer first; size charts belong to a designer.")}</p>
       </Section>
     );
   }
   return (
     <Section
-      title="Size charts"
-      description="The app shows these behind its UK / US switch on the product page."
+      title={tx("Size charts")}
+      description={tx("The app shows these behind its UK / US switch on the product page.")}
       actions={
         <Link href={`/size-chart?designer=${encodeURIComponent(form.designerUid)}`} className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-          Manage charts
+          {tx("Manage charts")}
         </Link>
       }
     >
       {charts.length === 0 && !form.sizeChartUk && !form.sizeChartUs ? (
-        <p className="text-[13px] text-muted-foreground">This designer has no size charts yet. Add one under Size chart, then choose it here.</p>
+        <p className="text-[13px] text-muted-foreground">{tx("This designer has no size charts yet. Add one under Size chart, then choose it here.")}</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {(
             [
-              ["UK chart", "sizeChartUk", "UK"],
-              ["US chart", "sizeChartUs", "US"],
+              [tx("UK chart"), "sizeChartUk", "UK"],
+              [tx("US chart"), "sizeChartUs", "US"],
             ] as const
           ).map(([label, key, type]) => (
             <div key={key} className="grid content-start gap-2">
-              <SelectField label={label} value={form[key]} onChange={set(key)} options={chartChoices(charts, type, form[key])} placeholder="No chart" clearable disabled={disabled} />
+              <SelectField label={label} value={form[key]} onChange={set(key)} options={chartChoices(charts, type, form[key])} placeholder={tx("No chart")} clearable disabled={disabled} />
               {form[key] ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={form[key]} alt={`${label} preview`} loading="lazy" className="max-h-40 w-full rounded-lg border border-border bg-muted object-contain" />
+                <img src={form[key]} alt={type === "UK" ? tx("UK chart preview") : tx("US chart preview")} loading="lazy" className="max-h-40 w-full rounded-lg border border-border bg-muted object-contain" />
               ) : null}
             </div>
           ))}
@@ -420,6 +421,7 @@ export function SizeChartSection({ api, designer }: { api: FormApi; designer: Ro
 
 export function MembershipSection({
   title,
+  searchLabel,
   kind,
   rows,
   selected,
@@ -428,6 +430,8 @@ export function MembershipSection({
   lang,
 }: {
   title: string;
+  /** Placeholder and name of the search box, e.g. "Search categories". */
+  searchLabel: string;
   kind: Extract<TaxonomyKind, "category" | "tag">;
   rows: Row[];
   /** Document ids. */
@@ -448,12 +452,12 @@ export function MembershipSection({
   const needle = term.trim().toLowerCase();
   const shown = needle ? options.filter((option) => option.name.toLowerCase().includes(needle)) : options;
   return (
-    <Section title={title} description={selected.length ? `${selected.length} chosen` : undefined}>
-      {options.length > 8 ? <Input type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder={`Search ${title.toLowerCase()}`} aria-label={`Search ${title.toLowerCase()}`} className="mb-2 h-8" /> : null}
+    <Section title={title} description={selected.length ? tx("{count} chosen", { count: selected.length }) : undefined}>
+      {options.length > 8 ? <Input type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder={searchLabel} aria-label={searchLabel} className="mb-2 h-8" /> : null}
       {options.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">None yet.</p>
+        <p className="text-[13px] text-muted-foreground">{tx("None yet.")}</p>
       ) : shown.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">Nothing matches your search.</p>
+        <p className="text-[13px] text-muted-foreground">{tx("Nothing matches your search.")}</p>
       ) : (
         <ul className="max-h-60 space-y-1 overflow-y-auto">
           {shown.map((option) => {
@@ -481,11 +485,11 @@ export function MerchandisingSection({ api }: { api: FormApi }) {
   const { form, disabled } = api;
   const set = setter(api);
   return (
-    <Section title="Merchandising" description="These decide which home and product-page rows show the product.">
+    <Section title={tx("Merchandising")} description={tx("These decide which home and product-page rows show the product.")}>
       <div className="grid gap-3">
-        <SwitchField label="Featured" checked={form.featured} onChange={set("featured")} disabled={disabled} />
-        <SwitchField label="Popular" checked={form.popular} onChange={set("popular")} disabled={disabled} />
-        <SwitchField label="Recommended" checked={form.recommended} onChange={set("recommended")} disabled={disabled} />
+        <SwitchField label={tx("Featured")} checked={form.featured} onChange={set("featured")} disabled={disabled} />
+        <SwitchField label={tx("Popular")} checked={form.popular} onChange={set("popular")} disabled={disabled} />
+        <SwitchField label={tx("Recommended")} checked={form.recommended} onChange={set("recommended")} disabled={disabled} />
       </div>
     </Section>
   );
@@ -495,14 +499,14 @@ export function AffiliateSection({ api }: { api: FormApi }) {
   const { form, errors, disabled } = api;
   const set = setter(api);
   return (
-    <Section title="Try-on and affiliation">
+    <Section title={tx("Try-on and affiliation")}>
       <div className="grid gap-3">
-        <SwitchField label="Virtual try-on" checked={form.virtualTryOn} onChange={set("virtualTryOn")} disabled={disabled} />
-        <SwitchField label="Creators can promote it" checked={form.affiliate} onChange={set("affiliate")} disabled={disabled} />
+        <SwitchField label={tx("Virtual try-on")} checked={form.virtualTryOn} onChange={set("virtualTryOn")} disabled={disabled} />
+        <SwitchField label={tx("Creators can promote it")} checked={form.affiliate} onChange={set("affiliate")} disabled={disabled} />
         {form.affiliate ? (
           <div className="grid grid-cols-2 gap-3">
-            <NumberField label="Commission" value={form.commissionRate} onChange={set("commissionRate")} min={0} max={100} suffix="%" error={errors.commissionRate} disabled={disabled} />
-            <NumberField label="Points" value={form.commissionPoints} onChange={set("commissionPoints")} integer min={0} error={errors.commissionPoints} disabled={disabled} />
+            <NumberField label={tx("Commission")} value={form.commissionRate} onChange={set("commissionRate")} min={0} max={100} suffix="%" error={errors.commissionRate} disabled={disabled} />
+            <NumberField label={tx("Points")} value={form.commissionPoints} onChange={set("commissionPoints")} integer min={0} error={errors.commissionPoints} disabled={disabled} />
           </div>
         ) : null}
       </div>

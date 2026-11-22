@@ -42,6 +42,7 @@ import {
   type DesignerApplication,
   type UploadedFile,
 } from "@/lib/designer-enrollment";
+import { tx } from "@/lib/i18n/tx";
 import { useAuth } from "./auth-provider";
 import { buttonVariants } from "./ui/button";
 import { Input } from "./ui/input";
@@ -93,35 +94,35 @@ export function DesignerEnrollmentPage() {
     <section className="rounded-[14px] bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="min-w-0 flex-1 basis-56">
-          <p className="text-sm font-semibold text-heading">Designer applications waiting for review: {applications.length}</p>
-          <p className="text-xs text-muted-foreground">Open an application to see the form, portfolio and ID documents, then approve or reject it.</p>
+          <p className="text-sm font-semibold text-heading">{tx("Designer applications waiting for review: {count}", { count: applications.length })}</p>
+          <p className="text-xs text-muted-foreground">{tx("Open an application to see the form, portfolio and ID documents, then approve or reject it.")}</p>
         </div>
         <Input
           type="search"
           value={q}
           onChange={(event) => setQ(event.target.value)}
-          placeholder="Search name, email, phone or request ID"
-          aria-label="Search designer applications"
+          placeholder={tx("Search name, email, phone or request ID")}
+          aria-label={tx("Search designer applications")}
           className="sm:w-64"
         />
       </div>
 
       {note && <p className={`mt-3 text-xs ${note.failed ? "text-destructive" : "text-muted-foreground"}`} role="status">{note.text}</p>}
-      {error && <p className="mt-3 text-xs text-destructive">Designer applications could not be loaded: {error}</p>}
-      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
+      {error && <p className="mt-3 text-xs text-destructive">{tx("Designer applications could not be loaded: {error}", { error })}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">{tx("Loading…")}</p>}
 
       {!loading && !error && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse">
             <thead>
               <tr className="border-b border-border">
-                <th className={th}>Request ID</th>
-                <th className={th}>Name</th>
-                <th className={th}>Email</th>
-                <th className={th}>Phone</th>
-                <th className={th}>Applying as</th>
-                <th className={th}>Submitted</th>
-                <th className={th}>Actions</th>
+                <th className={th}>{tx("Request ID")}</th>
+                <th className={th}>{tx("Name")}</th>
+                <th className={th}>{tx("Email")}</th>
+                <th className={th}>{tx("Phone")}</th>
+                <th className={th}>{tx("Applying as")}</th>
+                <th className={th}>{tx("Submitted")}</th>
+                <th className={th}>{tx("Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -134,7 +135,7 @@ export function DesignerEnrollmentPage() {
                   <td className={td}>{sellerType(item)}</td>
                   <td className={td}>{cellText(item.submittedAt)}</td>
                   <td className={td}>
-                    <button className={dark} onClick={() => { setNote(null); setOpenId(item.id); }}>Review</button>
+                    <button className={dark} onClick={() => { setNote(null); setOpenId(item.id); }}>{tx("Review")}</button>
                   </td>
                 </tr>
               ))}
@@ -142,7 +143,7 @@ export function DesignerEnrollmentPage() {
           </table>
           {shown.length === 0 && (
             <p className="py-6 text-center text-xs text-subtle">
-              {q.trim() ? "No application matches your search." : "No designer applications are waiting for review."}
+              {q.trim() ? tx("No application matches your search.") : tx("No designer applications are waiting for review.")}
             </p>
           )}
         </div>
@@ -150,8 +151,8 @@ export function DesignerEnrollmentPage() {
 
       {hasMore && (
         <div className="mt-3 flex items-center gap-2">
-          <button className={light} onClick={loadMore}>Load more</button>
-          <span className="text-xs text-subtle">The count covers the applications loaded so far.</span>
+          <button className={light} onClick={loadMore}>{tx("Load more")}</button>
+          <span className="text-xs text-subtle">{tx("The count covers the applications loaded so far.")}</span>
         </div>
       )}
     </section>
@@ -159,7 +160,7 @@ export function DesignerEnrollmentPage() {
 }
 
 function sellerType(application: DesignerApplication): string {
-  return application.licensedStore ? "Licensed store" : "Individual designer";
+  return application.licensedStore ? tx("Licensed store") : tx("Individual designer");
 }
 
 function ApplicationReview({
@@ -186,37 +187,37 @@ function ApplicationReview({
       const { db } = getFirebase();
       const counters = await getDocs(query(collection(db, ID_MAP_COLLECTION), where("type", "==", ID_MAP_TYPE), limit(1)));
       const counterRef = counters.docs[0]?.ref;
-      if (!counterRef) throw new Error("the record that hands out designer IDs was not found");
+      if (!counterRef) throw new Error(tx("the record that hands out designer IDs was not found"));
       const userRef = doc(db, USERS_COLLECTION, application.id);
       const salesRef = doc(collection(db, SALES_HISTORY_COLLECTION));
       const mailRef = doc(collection(db, MAIL_COLLECTION));
 
       // One transaction, so two admins approving at once can never hand out the same designer ID.
-      const result = await runTransaction(db, async (tx) => {
-        const [counterSnap, userSnap] = await Promise.all([tx.get(counterRef), tx.get(userRef)]);
+      const result = await runTransaction(db, async (txn) => {
+        const [counterSnap, userSnap] = await Promise.all([txn.get(counterRef), txn.get(userRef)]);
         const data = userSnap.data();
-        if (!data) throw new Error("this person's record no longer exists");
-        if (!canApprove(readApplication(data).status)) throw new Error("the application has already been approved or rejected");
+        if (!data) throw new Error(tx("this person's record no longer exists"));
+        if (!canApprove(readApplication(data).status)) throw new Error(tx("the application has already been approved or rejected"));
         const next = readIdCounters(counterSnap.data());
-        if (!next) throw new Error("the record that hands out designer IDs has no next designer or sales history number");
+        if (!next) throw new Error(tx("the record that hands out designer IDs has no next designer or sales history number"));
 
         const now = serverTimestamp();
         const designerId = designerIdFor(next.designerId);
         const recipient = approvalRecipient(data);
-        tx.set(salesRef, salesHistoryRecord({ data, userRef, saleHistoryId: next.saleHistoryId, now }));
-        tx.update(userRef, approveUpdate({ data, designerId, saleHistoryRef: salesRef, saleHistoryId: next.saleHistoryId, now }));
-        tx.update(counterRef, idCountersUpdate(increment(1)));
-        if (recipient.email) tx.set(mailRef, approvalMail({ ...recipient, now }));
+        txn.set(salesRef, salesHistoryRecord({ data, userRef, saleHistoryId: next.saleHistoryId, now }));
+        txn.update(userRef, approveUpdate({ data, designerId, saleHistoryRef: salesRef, saleHistoryId: next.saleHistoryId, now }));
+        txn.update(counterRef, idCountersUpdate(increment(1)));
+        if (recipient.email) txn.set(mailRef, approvalMail({ ...recipient, now }));
         return { designerId, email: recipient.email };
       });
 
       onDone(
         result.email
-          ? `Approved ${name}. Their designer ID is ${result.designerId} and an approval email to ${result.email} has been queued.`
-          : `Approved ${name}. Their designer ID is ${result.designerId}. No approval email was sent because the application has no email address.`,
+          ? tx("Approved {name}. Their designer ID is {id} and an approval email to {email} has been queued.", { name, id: result.designerId, email: result.email })
+          : tx("Approved {name}. Their designer ID is {id}. No approval email was sent because the application has no email address.", { name, id: result.designerId }),
       );
     } catch (err) {
-      setProblem(`${name} was not approved: ${err instanceof Error ? err.message : "something went wrong"}.`);
+      setProblem(tx("{name} was not approved: {reason}.", { name, reason: err instanceof Error ? err.message : tx("something went wrong") }));
       setStep("idle");
     } finally {
       setBusy(false);
@@ -229,15 +230,15 @@ function ApplicationReview({
     try {
       const { db } = getFirebase();
       const userRef = doc(db, USERS_COLLECTION, application.id);
-      await runTransaction(db, async (tx) => {
-        const data = (await tx.get(userRef)).data();
-        if (!data) throw new Error("this person's record no longer exists");
-        if (!canReject(readApplication(data).status)) throw new Error("the application has already been approved or rejected");
-        tx.update(userRef, rejectUpdate({ reason, message, now: serverTimestamp() }));
+      await runTransaction(db, async (txn) => {
+        const data = (await txn.get(userRef)).data();
+        if (!data) throw new Error(tx("this person's record no longer exists"));
+        if (!canReject(readApplication(data).status)) throw new Error(tx("the application has already been approved or rejected"));
+        txn.update(userRef, rejectUpdate({ reason, message, now: serverTimestamp() }));
       });
-      onDone(`Rejected the application from ${name}.`);
+      onDone(tx("Rejected the application from {name}.", { name }));
     } catch (err) {
-      setProblem(`The application was not rejected: ${err instanceof Error ? err.message : "something went wrong"}.`);
+      setProblem(tx("The application was not rejected: {reason}.", { reason: err instanceof Error ? err.message : tx("something went wrong") }));
     } finally {
       setBusy(false);
     }
@@ -251,7 +252,7 @@ function ApplicationReview({
     <div className="space-y-4">
       <section className="rounded-[14px] bg-card p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <button className={light} onClick={onBack} disabled={busy}>← All applications</button>
+          <button className={light} onClick={onBack} disabled={busy}>{tx("← All applications")}</button>
           {application.brandPhoto && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={application.brandPhoto} alt="" className="size-10 shrink-0 rounded-full bg-muted object-cover" />
@@ -259,28 +260,28 @@ function ApplicationReview({
           <div className="min-w-0 flex-1 basis-56">
             <p className="truncate text-sm font-semibold text-heading">{name}</p>
             <p className="text-xs text-muted-foreground">
-              {[application.requestId && `Request ${application.requestId}`, sellerType(application), application.submittedAt ? `submitted ${cellText(application.submittedAt)}` : ""]
+              {[application.requestId && tx("Request {id}", { id: application.requestId }), sellerType(application), application.submittedAt ? tx("submitted {date}", { date: cellText(application.submittedAt) }) : ""]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
           </div>
           {canEdit && step === "idle" && (
             <div className="flex items-center gap-2">
-              <button className={dark} disabled={busy} onClick={() => { setProblem(""); setStep("approve"); }}>Approve</button>
-              <button className={light} disabled={busy} onClick={() => { setProblem(""); setStep("reject"); }}>Reject</button>
+              <button className={dark} disabled={busy} onClick={() => { setProblem(""); setStep("approve"); }}>{tx("Approve")}</button>
+              <button className={light} disabled={busy} onClick={() => { setProblem(""); setStep("reject"); }}>{tx("Reject")}</button>
             </div>
           )}
         </div>
 
-        {!canEdit && <p className="mt-3 text-xs text-muted-foreground">You can view this application, but your role cannot approve or reject designers.</p>}
+        {!canEdit && <p className="mt-3 text-xs text-muted-foreground">{tx("You can view this application, but your role cannot approve or reject designers.")}</p>}
 
         {canEdit && step === "approve" && (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-muted p-3">
             <span className="min-w-0 flex-1 basis-56 text-xs">
-              Approve {name} as a designer? They get the next designer ID and an approval email.
+              {tx("Approve {name} as a designer? They get the next designer ID and an approval email.", { name })}
             </span>
-            <button className={dark} disabled={busy} onClick={approve}>{busy ? "Approving…" : "Approve"}</button>
-            <button className={light} disabled={busy} onClick={() => setStep("idle")}>Cancel</button>
+            <button className={dark} disabled={busy} onClick={approve}>{busy ? tx("Approving…") : tx("Approve")}</button>
+            <button className={light} disabled={busy} onClick={() => setStep("idle")}>{tx("Cancel")}</button>
           </div>
         )}
 
@@ -290,37 +291,37 @@ function ApplicationReview({
       </section>
 
       <section className="rounded-[14px] bg-card p-4">
-        <p className="text-sm font-semibold text-heading">Application details</p>
+        <p className="text-sm font-semibold text-heading">{tx("Application details")}</p>
         <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Detail label="Email" value={application.email || application.accountEmail} />
-          <Detail label="Phone" value={application.phone} ltr />
-          <Detail label="Location" value={application.location} />
-          <Detail label="Alternative email" value={application.alternativeEmail} />
-          <Detail label="Alternative phone" value={application.alternativePhone} ltr />
-          <Detail label="Applying as" value={sellerType(application)} />
-          <Detail label="Experience" value={`${application.experienceYears} years`} />
-          <Detail label="Preferred styles" value={application.styles.join(", ")} />
-          <Detail label="Production capacity" value={application.productionCapabilities && `${application.productionCapabilities} dresses per month`} />
-          <Detail label="Takes custom orders" value={application.customOrders ? "Yes" : "No"} />
-          <Detail label="Open to events and collaborations" value={application.eventCollaborations ? "Yes" : "No"} />
+          <Detail label={tx("Email")} value={application.email || application.accountEmail} />
+          <Detail label={tx("Phone")} value={application.phone} ltr />
+          <Detail label={tx("Location")} value={application.location} />
+          <Detail label={tx("Alternative email")} value={application.alternativeEmail} />
+          <Detail label={tx("Alternative phone")} value={application.alternativePhone} ltr />
+          <Detail label={tx("Applying as")} value={sellerType(application)} />
+          <Detail label={tx("Experience")} value={tx("{count} years", { count: application.experienceYears })} />
+          <Detail label={tx("Preferred styles")} value={application.styles.join(", ")} />
+          <Detail label={tx("Production capacity")} value={application.productionCapabilities && tx("{count} dresses per month", { count: application.productionCapabilities })} />
+          <Detail label={tx("Takes custom orders")} value={application.customOrders ? tx("Yes") : tx("No")} />
+          <Detail label={tx("Open to events and collaborations")} value={application.eventCollaborations ? tx("Yes") : tx("No")} />
           <div>
-            <dt className="text-xs text-muted-foreground">Portfolio link</dt>
+            <dt className="text-xs text-muted-foreground">{tx("Portfolio link")}</dt>
             <dd className="mt-0.5 break-words text-[13px]">
               {portfolioLink ? (
                 <a href={portfolioLink} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{portfolioLink}</a>
               ) : (
-                application.portfolioLink || <span className="text-subtle">Not given</span>
+                application.portfolioLink || <span className="text-subtle">{tx("Not given")}</span>
               )}
             </dd>
           </div>
-          <Detail label="About" value={application.bio} wide />
-          <Detail label="References and testimonials" value={application.testimonials} wide />
+          <Detail label={tx("About")} value={application.bio} wide />
+          <Detail label={tx("References and testimonials")} value={application.testimonials} wide />
         </dl>
       </section>
 
       <section className="rounded-[14px] bg-card p-4">
-        <p className="text-sm font-semibold text-heading">Portfolio and work samples</p>
-        {application.portfolio.length === 0 && <p className="mt-3 text-xs text-subtle">No portfolio files were uploaded.</p>}
+        <p className="text-sm font-semibold text-heading">{tx("Portfolio and work samples")}</p>
+        {application.portfolio.length === 0 && <p className="mt-3 text-xs text-subtle">{tx("No portfolio files were uploaded.")}</p>}
         {pictures.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-3">
             {pictures.map((file, index) => <FileTile key={`${file.url}-${index}`} file={file} onView={setViewing} />)}
@@ -334,10 +335,10 @@ function ApplicationReview({
       </section>
 
       <section className="rounded-[14px] bg-card p-4">
-        <p className="text-sm font-semibold text-heading">Identity verification</p>
+        <p className="text-sm font-semibold text-heading">{tx("Identity verification")}</p>
         <div className="mt-3 flex flex-wrap gap-6">
-          <Upload label={application.licensedStore ? "Store licence" : "ID document"} file={application.idDocument} onView={setViewing} />
-          <Upload label="Selfie" file={application.selfie} onView={setViewing} />
+          <Upload label={application.licensedStore ? tx("Store licence") : tx("ID document")} file={application.idDocument} onView={setViewing} />
+          <Upload label={tx("Selfie")} file={application.selfie} onView={setViewing} />
         </div>
       </section>
 
@@ -366,14 +367,14 @@ function RejectForm({
 
   return (
     <div className="mt-3 space-y-2 rounded-lg bg-muted p-3">
-      <p className="text-xs font-medium">Reject the application from {name}?</p>
-      {loading && <p className="text-xs text-subtle">Loading the reasons…</p>}
+      <p className="text-xs font-medium">{tx("Reject the application from {name}?", { name })}</p>
+      {loading && <p className="text-xs text-subtle">{tx("Loading the reasons…")}</p>}
       {!loading && reasons.length > 0 && (
         <div className="block text-xs text-muted-foreground">
-          <span id="reject-reason-label">Reason</span>
+          <span id="reject-reason-label">{tx("Reason")}</span>
           <Select value={picked || undefined} onValueChange={setPicked}>
             <SelectTrigger className="mt-1 bg-card text-foreground" aria-labelledby="reject-reason-label">
-              <SelectValue placeholder="Choose a reason…" />
+              <SelectValue placeholder={tx("Choose a reason…")} />
             </SelectTrigger>
             <SelectContent position="popper">
               {reasons.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
@@ -383,21 +384,21 @@ function RejectForm({
       )}
       {!loading && (
         <label className="block text-xs text-muted-foreground">
-          {mustType ? "Reason in your own words" : "More detail (optional)"}
+          {mustType ? tx("Reason in your own words") : tx("More detail (optional)")}
           <Textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             rows={3}
-            placeholder={mustType ? "Type the reason for rejecting this application" : "Anything to add to the reason"}
+            placeholder={mustType ? tx("Type the reason for rejecting this application") : tx("Anything to add to the reason")}
             className="mt-1 text-foreground"
           />
         </label>
       )}
       <div className="flex items-center gap-2">
         <button className={dark} disabled={busy || loading || !canSubmitRejection(reason, message)} onClick={() => onReject(reason, message)}>
-          {busy ? "Rejecting…" : "Reject application"}
+          {busy ? tx("Rejecting…") : tx("Reject application")}
         </button>
-        <button className={light} disabled={busy} onClick={onCancel}>Cancel</button>
+        <button className={light} disabled={busy} onClick={onCancel}>{tx("Cancel")}</button>
       </div>
     </div>
   );
@@ -408,7 +409,7 @@ export function Detail({ label, value, ltr, wide }: { label: string; value: stri
     <div className={wide ? "sm:col-span-2 lg:col-span-3" : undefined}>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 whitespace-pre-wrap break-words text-[13px]" dir={ltr ? "ltr" : undefined}>
-        {value || <span className="text-subtle">Not given</span>}
+        {value || <span className="text-subtle">{tx("Not given")}</span>}
       </dd>
     </div>
   );
@@ -418,7 +419,7 @@ function Upload({ label, file, onView }: { label: string; file: UploadedFile | n
   return (
     <div>
       <p className="mb-1 text-xs text-muted-foreground">{label}</p>
-      {!file && <p className="text-xs text-subtle">Not uploaded</p>}
+      {!file && <p className="text-xs text-subtle">{tx("Not uploaded")}</p>}
       {file && (file.isImage ? <FileTile file={file} onView={onView} /> : <FileLink file={file} />)}
     </div>
   );
@@ -429,7 +430,7 @@ export function FileTile({ file, onView }: { file: UploadedFile; onView: (file: 
   const [broken, setBroken] = useState(false);
   if (broken) return <FileLink file={file} />;
   return (
-    <button onClick={() => onView(file)} title={`View ${file.name}`} className="block overflow-hidden rounded-lg border border-border hover:opacity-90">
+    <button onClick={() => onView(file)} title={tx("View {name}", { name: file.name })} className="block overflow-hidden rounded-lg border border-border hover:opacity-90">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={file.url} alt={file.name} loading="lazy" onError={() => setBroken(true)} className="size-36 bg-muted object-cover" />
     </button>
@@ -439,7 +440,7 @@ export function FileTile({ file, onView }: { file: UploadedFile; onView: (file: 
 function FileLink({ file }: { file: UploadedFile }) {
   return (
     <a href={file.url} target="_blank" rel="noopener noreferrer" className="break-all text-[13px] underline">
-      Open {file.name || "file"}
+      {tx("Open {name}", { name: file.name || tx("file") })}
     </a>
   );
 }
@@ -458,8 +459,8 @@ export function ImageViewer({ file, onClose }: { file: UploadedFile; onClose: ()
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={file.url} alt={file.name} className="max-h-[82vh] max-w-full rounded-lg object-contain" onClick={(event) => event.stopPropagation()} />
       <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
-        <a href={file.url} target="_blank" rel="noopener noreferrer" className={light}>Open in a new tab</a>
-        <button className={light} onClick={onClose} autoFocus>Close</button>
+        <a href={file.url} target="_blank" rel="noopener noreferrer" className={light}>{tx("Open in a new tab")}</a>
+        <button className={light} onClick={onClose} autoFocus>{tx("Close")}</button>
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useQueryRows, type WhereClause } from "@/lib/firestore-ui";
 import { mediaItem, uploadMedia, type MediaItem } from "@/lib/media";
 import { useRoleScope } from "@/lib/use-role-scope";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 
 /**
@@ -40,7 +41,7 @@ export type MediaPickerProps = {
 };
 
 /** Dialog to choose pictures from the media library, or upload new ones into it. */
-export function MediaPicker({ open, onOpenChange, onPick, multiple = false, title = "Choose a picture" }: MediaPickerProps) {
+export function MediaPicker({ open, onOpenChange, onPick, multiple = false, title = tx("Choose a picture") }: MediaPickerProps) {
   const { items, loading, error, hasMore, loadMore } = useMediaLibrary();
   const [term, setTerm] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
@@ -63,9 +64,9 @@ export function MediaPicker({ open, onOpenChange, onPick, multiple = false, titl
       const added: string[] = [];
       for (const file of Array.from(files)) added.push((await uploadMedia(file)).id);
       setChosen((current) => (multiple ? [...current, ...added] : added.slice(-1)));
-      toast.success(added.length === 1 ? "Picture uploaded." : `${added.length} pictures uploaded.`);
+      toast.success(added.length === 1 ? tx("Picture uploaded.") : tx("{count} pictures uploaded.", { count: added.length }));
     } catch (err) {
-      toast.error(`The upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(tx("The upload failed: {reason}", { reason: err instanceof Error ? err.message : String(err) }));
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = "";
@@ -83,13 +84,13 @@ export function MediaPicker({ open, onOpenChange, onPick, multiple = false, titl
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{multiple ? "Select one or more pictures from the media library." : "Select a picture from the media library."}</DialogDescription>
+          <DialogDescription>{multiple ? tx("Select one or more pictures from the media library.") : tx("Select a picture from the media library.")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <Input type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search by name or ID" className="min-w-0 flex-1" aria-label="Search pictures" />
+          <Input type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder={tx("Search by name or ID")} className="min-w-0 flex-1" aria-label={tx("Search pictures")} />
           <input ref={fileInput} type="file" accept="image/*" multiple={multiple} hidden onChange={(e) => upload(e.target.files)} />
           <Button type="button" variant="outline" disabled={uploading} onClick={() => fileInput.current?.click()}>
-            {uploading ? <Spinner /> : <Upload />} Upload
+            {uploading ? <Spinner /> : <Upload />} {tx("Upload")}
           </Button>
         </div>
         <div className="max-h-[52vh] min-h-40 overflow-y-auto rounded-lg border border-border bg-muted/40 p-2">
@@ -98,7 +99,7 @@ export function MediaPicker({ open, onOpenChange, onPick, multiple = false, titl
           ) : loading && !items.length ? (
             <div className="flex h-40 items-center justify-center"><Spinner /></div>
           ) : !shown.length ? (
-            <p className="p-6 text-center text-sm text-muted-foreground">{term ? "No pictures match your search." : "The media library is empty. Upload a picture to start."}</p>
+            <p className="p-6 text-center text-sm text-muted-foreground">{term ? tx("No pictures match your search.") : tx("The media library is empty. Upload a picture to start.")}</p>
           ) : (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
               {shown.map((item) => {
@@ -121,12 +122,12 @@ export function MediaPicker({ open, onOpenChange, onPick, multiple = false, titl
             </div>
           )}
           {hasMore && !term ? (
-            <div className="mt-2 flex justify-center"><Button type="button" variant="outline" size="sm" onClick={loadMore}>Load more</Button></div>
+            <div className="mt-2 flex justify-center"><Button type="button" variant="outline" size="sm" onClick={loadMore}>{tx("Load more")}</Button></div>
           ) : null}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="button" disabled={!chosen.length} onClick={confirm}>{multiple && chosen.length > 1 ? `Use ${chosen.length} pictures` : "Use picture"}</Button>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{tx("Cancel")}</Button>
+          <Button type="button" disabled={!chosen.length} onClick={confirm}>{multiple && chosen.length > 1 ? tx("Use {count} pictures", { count: chosen.length }) : tx("Use picture")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

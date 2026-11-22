@@ -1,4 +1,5 @@
 import { toDate, toNumber } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * Plain readers for the two collections this area works on, with the field
@@ -14,6 +15,8 @@ export type Row = { id: string; data: Record<string, unknown> };
 export const NOW = { $op: "now" } as const;
 export const DELETE = { $op: "delete" } as const;
 export const inc = (by: number) => ({ $op: "inc", by }) as const;
+/** Appends entries to a list field without touching the ones already there. */
+export const union = (...values: unknown[]) => ({ $op: "union", values }) as const;
 export type Patch = Record<string, unknown>;
 
 const text = (value: unknown) => (typeof value === "string" ? value : value == null ? "" : String(value));
@@ -62,7 +65,7 @@ export function readAddress(value: unknown): AddressView {
 }
 
 export function addressLine(address: AddressView) {
-  return [address.building, address.block && `Block ${address.block}`, address.line1, address.city, address.state, address.country].filter(Boolean).join(", ");
+  return [address.building, address.block && tx("Block {block}", { block: address.block }), address.line1, address.city, address.state, address.country].filter(Boolean).join(", ");
 }
 
 export type DeliveryInfoView = {
@@ -132,6 +135,18 @@ export type RequestView = {
   delivery: DeliveryInfoView;
   enquiry: EnquiryView;
   enquiryDelivery: DeliveryInfoView;
+  /** True once the received pieces were added to stock from this panel (`stock_received_at` is set). */
+  stockReceived: boolean;
+  /** `stock_received_quantity`: how many pieces that step added. */
+  stockReceivedQuantity: number;
+  /**
+   * `request_info.stock_returned_quantity` / `stock_on_hand_returned_quantity`: what approving a return to
+   * designer in this panel took out of `stock` and `stock_on_hand`. Null on returns approved in the old admin.
+   */
+  stockReturned: number | null;
+  stockOnHandReturned: number | null;
+  /** `movement_info[]`: dated notes on the record (stock received, stock adjusted). */
+  movements: { at: Date | null; text: string }[];
 };
 
 export function readRequest(row: Row): RequestView {
@@ -170,6 +185,11 @@ export function readRequest(row: Row): RequestView {
       images: Array.isArray(enquiry.images) ? enquiry.images.filter((item): item is string => typeof item === "string" && item !== "") : [],
     },
     enquiryDelivery: readDeliveryInfo(data.enquiry_delivery_info),
+    stockReceived: data.stock_received_at != null,
+    stockReceivedQuantity: int(data.stock_received_quantity),
+    stockReturned: info.stock_returned_quantity == null ? null : int(info.stock_returned_quantity),
+    stockOnHandReturned: info.stock_on_hand_returned_quantity == null ? null : int(info.stock_on_hand_returned_quantity),
+    movements: (Array.isArray(data.movement_info) ? data.movement_info : []).map((entry) => ({ at: toDate(map(entry).movement_date), text: text(map(entry).movement_info) })),
   };
 }
 

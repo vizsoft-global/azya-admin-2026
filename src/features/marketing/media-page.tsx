@@ -17,6 +17,7 @@ import { MEDIA_MAX_MB, uploadMedia, type MediaItem } from "@/lib/media";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { canDeleteMedia, mediaLabel, searchMedia } from "./media-rules";
 import { errorText } from "./parts";
+import { tx } from "@/lib/i18n/tx";
 
 /** The picture library: every picture used by banners, products and notifications. Designers see only their own. */
 export function MediaPage() {
@@ -49,83 +50,83 @@ export function MediaPage() {
     }
     setUploading(null);
     if (fileInput.current) fileInput.current.value = "";
-    if (done) toast.success(done === 1 ? "Picture added to the library." : `${done} pictures added to the library.`);
-    if (failures.length) toast.error(`${failures.length === 1 ? "One picture was" : `${failures.length} pictures were`} not uploaded. ${failures.slice(0, 3).join("; ")}`);
+    if (done) toast.success(done === 1 ? tx("Picture added to the library.") : tx("{count} pictures added to the library.", { count: done }));
+    if (failures.length) toast.error(failures.length === 1 ? tx("One picture was not uploaded. {details}", { details: failures[0] }) : tx("{count} pictures were not uploaded. {details}", { count: failures.length, details: failures.slice(0, 3).join("; ") }));
   }
 
   async function copyLink(item: MediaItem) {
     try {
       await navigator.clipboard.writeText(item.url);
-      toast.success("Link copied.");
+      toast.success(tx("Link copied."));
     } catch {
-      toast.error("The link could not be copied. Open the picture and copy its address from the browser.");
+      toast.error(tx("The link could not be copied. Open the picture and copy its address from the browser."));
     }
   }
 
   async function remove(item: MediaItem) {
     const name = mediaLabel(item);
     const ok = await confirm({
-      title: `Delete “${name}” from the library?`,
-      description: "It can no longer be chosen for new banners or products. Places that already use it keep showing it. This cannot be undone.",
-      confirmLabel: "Delete picture",
+      title: tx("Delete “{name}” from the library?", { name }),
+      description: tx("It can no longer be chosen for new banners or products. Places that already use it keep showing it. This cannot be undone."),
+      confirmLabel: tx("Delete picture"),
       destructive: true,
     });
     if (!ok) return;
     try {
       await removeDoc("images", item.id);
-      toast.success(`“${name}” deleted from the library.`);
+      toast.success(tx("“{name}” deleted from the library.", { name }));
       setViewing(null);
     } catch (err) {
-      toast.error(`“${name}” was not deleted: ${errorText(err)}.`);
+      toast.error(tx("“{name}” was not deleted: {error}.", { name, error: errorText(err) }));
     }
   }
 
   return (
     <>
       <PageHeader
-        center={<HeaderSearch value={term} onChange={setTerm} placeholder="Search by name or ID" ariaLabel="Search pictures" />}
+        center={<HeaderSearch value={term} onChange={setTerm} placeholder={tx("Search by name or ID")} ariaLabel={tx("Search pictures")} />}
         actions={
           mayUpload ? (
             <>
               <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => void upload(event.target.files)} />
               <Button disabled={uploading !== null} onClick={() => fileInput.current?.click()}>
                 {uploading ? <Spinner size="sm" className="text-current" /> : <Upload />}
-                {uploading ? `Uploading ${uploading.done} of ${uploading.total}` : "Upload pictures"}
+                {uploading ? tx("Uploading {done} of {total}", { done: uploading.done, total: uploading.total }) : tx("Upload pictures")}
               </Button>
             </>
           ) : null
         }
       />
       {error ? (
-        <EmptyState icon={ImageIcon} title="The pictures could not be loaded" description={`${error} Reload the page to try again.`} />
+        <EmptyState icon={ImageIcon} title={tx("The pictures could not be loaded")} description={tx("{error} Reload the page to try again.", { error })} />
       ) : loading && !items.length ? (
-        <PageLoading label="Loading pictures…" />
+        <PageLoading label={tx("Loading pictures…")} />
       ) : !shown.length ? (
         <EmptyState
           icon={ImageIcon}
-          title={term ? "No pictures match your search" : "The library is empty"}
-          description={term ? "Try a different name or ID." : mayUpload ? `Upload pictures to use them in banners, products and notifications. Up to ${MEDIA_MAX_MB} MB each.` : "Pictures uploaded by the team appear here."}
-          action={term ? <Button variant="outline" onClick={() => setTerm("")}>Clear search</Button> : undefined}
+          title={term ? tx("No pictures match your search") : tx("The library is empty")}
+          description={term ? tx("Try a different name or ID.") : mayUpload ? tx("Upload pictures to use them in banners, products and notifications. Up to {max} MB each.", { max: MEDIA_MAX_MB }) : tx("Pictures uploaded by the team appear here.")}
+          action={term ? <Button variant="outline" onClick={() => setTerm("")}>{tx("Clear search")}</Button> : undefined}
         />
       ) : (
         <div className="rounded-[14px] bg-card p-3">
           <p className="mb-2 px-1 text-[12px] text-subtle">
-            {shown.length.toLocaleString("en-US")}{hasMore && !term ? "+" : ""} {shown.length === 1 ? "picture" : "pictures"}, newest first
+            {shown.length === 1 ? tx("1 picture, newest first") : tx("{count} pictures, newest first", { count: `${shown.length.toLocaleString("en-US")}${hasMore && !term ? "+" : ""}` })}
           </p>
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
             {shown.map((item) => (
               <li key={item.id} className="min-w-0">
-                <button type="button" onClick={() => setViewing(item)} className="block aspect-square w-full overflow-hidden rounded-lg border border-border bg-muted outline-none hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Open ${mediaLabel(item)}`}>
+                <button type="button" onClick={() => setViewing(item)} className="block aspect-square w-full overflow-hidden rounded-lg border border-border bg-muted outline-none hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring" aria-label={tx("Open {name}", { name: mediaLabel(item) })}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.url} alt={item.name} loading="lazy" className="size-full object-cover" />
                 </button>
                 <div className="mt-1 flex items-center gap-1">
                   <p className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground" title={mediaLabel(item)}>{mediaLabel(item)}</p>
-                  <Button variant="ghost" size="icon-xs" aria-label={`Copy the link of ${mediaLabel(item)}`} onClick={() => void copyLink(item)}>
+                  <Button variant="ghost" size="icon-xs" aria-label={tx("Copy the link of {name}", { name: mediaLabel(item) })} onClick={() => void copyLink(item)}>
                     <Copy />
                   </Button>
                   {canDeleteMedia(item, who) ? (
-                    <Button variant="ghost" size="icon-xs" className="text-destructive" aria-label={`Delete ${mediaLabel(item)}`} onClick={() => void remove(item)}>
+                    <Button variant="ghost" size="icon-xs" className="text-destructive" aria-label={tx("Delete {name}", { name: mediaLabel(item) })} onClick={() => void remove(item)}>
                       <Trash2 />
                     </Button>
                   ) : null}
@@ -135,10 +136,10 @@ export function MediaPage() {
           </ul>
           {hasMore && !term ? (
             <div className="mt-3 flex justify-center">
-              <Button variant="outline" size="sm" onClick={loadMore}>Load more</Button>
+              <Button variant="outline" size="sm" onClick={loadMore}>{tx("Load more")}</Button>
             </div>
           ) : null}
-          {hasMore && term ? <p className="mt-3 px-1 text-[12px] text-subtle">Only the pictures loaded so far were searched. Clear the search and load more to look further back.</p> : null}
+          {hasMore && term ? <p className="mt-3 px-1 text-[12px] text-subtle">{tx("Only the pictures loaded so far were searched. Clear the search and load more to look further back.")}</p> : null}
         </div>
       )}
 
@@ -155,11 +156,11 @@ export function MediaPage() {
               <DialogFooter>
                 {canDeleteMedia(viewing, who) ? (
                   <Button variant="destructive" className="sm:me-auto" onClick={() => void remove(viewing)}>
-                    <Trash2 /> Delete
+                    <Trash2 /> {tx("Delete")}
                   </Button>
                 ) : null}
                 <Button variant="outline" onClick={() => void copyLink(viewing)}>
-                  <Copy /> Copy link
+                  <Copy /> {tx("Copy link")}
                 </Button>
               </DialogFooter>
             </>

@@ -1,5 +1,6 @@
 import type { CrudField, FormValues } from "@/components/shared/crud-types";
 import { roundMoney, toDate, toNumber } from "./format";
+import { tx } from "./i18n/tx";
 import { getPath, setPath } from "./object-path";
 
 type Bilingual = { en: string; ar: string };
@@ -109,12 +110,13 @@ export function validateForm(fields: CrudField[], values: FormValues, schema?: S
     if (!isVisible(field, values)) continue;
     const value = values[field.name];
     if (field.required && isEmpty(field, value)) {
-      errors[field.name] = field.type === "bilingual" ? `${field.label} is required in English` : `${field.label} is required`;
+      const label = tx(field.label);
+      errors[field.name] = field.type === "bilingual" ? tx("{label} is required in English", { label }) : tx("{label} is required", { label });
       continue;
     }
     if (field.validate && !isEmpty(field, value)) {
       const result = (field.validate as unknown as Schema).safeParse(value);
-      if (!result.success) errors[field.name] = result.error?.issues[0]?.message ?? `${field.label} is not valid`;
+      if (!result.success) errors[field.name] = result.error?.issues[0]?.message ?? tx("{label} is not valid", { label: tx(field.label) });
     }
   }
   if (schema) {

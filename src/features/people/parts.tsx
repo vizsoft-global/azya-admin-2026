@@ -21,6 +21,7 @@ import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
 import { CONTRACT_TYPES, contractState, contractUpdate, hasContract, payoutLines, readContract, validateContract, type Contract, type PartnerKind, type Payout } from "./partner";
 import { errorText, USERS_COLLECTION } from "./util";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * Screens with other people's personal data are for staff. A designer signs in
@@ -30,7 +31,7 @@ import { errorText, USERS_COLLECTION } from "./util";
 export function useStaffOnly(): ReactNode | null {
   const scope = useRoleScope();
   if (!scope.isDesigner) return null;
-  return <EmptyState icon={ShieldAlert} title="This screen is for Azyaa staff" description="Your designer account can see its own products, orders and profile." />;
+  return <EmptyState icon={ShieldAlert} title={tx("This screen is for Azyaa staff")} description={tx("Your designer account can see its own products, orders and profile.")} />;
 }
 
 /** Titled card, the same frame EntityDetail uses. */
@@ -113,13 +114,13 @@ export function UploadSlot({ label, file, onView }: { label: string; file: Uploa
   return (
     <div>
       <p className="mb-1 text-[12px] text-muted-foreground">{label}</p>
-      {!file ? <p className="text-[12px] text-subtle">Not uploaded</p> : null}
+      {!file ? <p className="text-[12px] text-subtle">{tx("Not uploaded")}</p> : null}
       {file ? (
         file.isImage ? (
           <FileTile file={file} onView={onView} />
         ) : (
           <a href={file.url} target="_blank" rel="noopener noreferrer" className="break-all text-[13px] underline underline-offset-2">
-            Open {file.name || "file"}
+            {tx("Open {name}", { name: file.name || tx("file") })}
           </a>
         )
       ) : null}
@@ -147,7 +148,7 @@ export function FileGallery({ files, emptyText }: { files: UploadedFile[]; empty
           {others.map((file, index) => (
             <li key={`${file.url}-${index}`}>
               <a href={file.url} target="_blank" rel="noopener noreferrer" className="break-all text-[13px] underline underline-offset-2">
-                Open {file.name || "file"}
+                {tx("Open {name}", { name: file.name || tx("file") })}
               </a>
             </li>
           ))}
@@ -165,7 +166,7 @@ export function IdentityFiles({ documentLabel, document, selfie }: { documentLab
     <>
       <div className="flex flex-wrap gap-6">
         <UploadSlot label={documentLabel} file={document} onView={setViewing} />
-        <UploadSlot label="Selfie" file={selfie} onView={setViewing} />
+        <UploadSlot label={tx("Selfie")} file={selfie} onView={setViewing} />
       </div>
       {viewing ? <ImageViewer file={viewing} onClose={() => setViewing(null)} /> : null}
     </>
@@ -228,19 +229,19 @@ export function RejectDialog({
       onConfirm={() => onSubmit(reason, message)}
     >
       <div className="grid gap-3">
-        {loadingReasons ? <p className="text-[12px] text-subtle">Loading the reasons…</p> : null}
+        {loadingReasons ? <p className="text-[12px] text-subtle">{tx("Loading the reasons…")}</p> : null}
         {!loadingReasons && reasons.length > 0 ? (
-          <SelectField label="Reason" required value={picked} onChange={setPicked} options={reasons.map((item) => ({ value: item, label: item }))} placeholder="Choose a reason" />
+          <SelectField label={tx("Reason")} required value={picked} onChange={setPicked} options={reasons.map((item) => ({ value: item, label: item }))} placeholder={tx("Choose a reason")} />
         ) : null}
         {!loadingReasons ? (
           <TextareaField
-            label={mustType ? "Reason in your own words" : "More detail (optional)"}
+            label={mustType ? tx("Reason in your own words") : tx("More detail (optional)")}
             required={mustType}
             value={message}
             onChange={setMessage}
             rows={3}
             maxLength={500}
-            placeholder={mustType ? "Type the reason for rejecting this application" : "Anything to add to the reason"}
+            placeholder={mustType ? tx("Type the reason for rejecting this application") : tx("Anything to add to the reason")}
           />
         ) : null}
       </div>
@@ -278,10 +279,10 @@ export function ContractDialog({
     setSaving(true);
     try {
       await updateDoc(doc(getFirebase().db, USERS_COLLECTION, userId), contractUpdate(kind, form));
-      toast.success(`Contract saved for ${name}.`);
+      toast.success(tx("Contract saved for {name}.", { name }));
       onOpenChange(false);
     } catch (err) {
-      toast.error(`The contract for ${name} was not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("The contract for {name} was not saved: {reason}. Nothing was changed.", { name, reason: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -291,24 +292,24 @@ export function ContractDialog({
     <FormModal
       open={open}
       onOpenChange={onOpenChange}
-      title={editing ? "Edit contract" : "Add contract"}
-      description={`The contract between Azyaa and ${name}.`}
+      title={editing ? tx("Edit contract") : tx("Add contract")}
+      description={tx("The contract between Azyaa and {name}.", { name })}
       onSubmit={save}
       submitting={saving}
-      submitLabel="Save contract"
+      submitLabel={tx("Save contract")}
       size="sm"
     >
       <SelectField
-        label="Contract type"
+        label={tx("Contract type")}
         required
         value={form.type}
         onChange={(type) => setForm((cur) => ({ ...cur, type }))}
-        options={CONTRACT_TYPES.map((item) => ({ value: item, label: item }))}
-        placeholder="Choose a type"
+        options={CONTRACT_TYPES.map((item) => ({ value: item, label: tx(item) }))}
+        placeholder={tx("Choose a type")}
         error={errors.type}
       />
-      <DateField label="Start date" required value={form.start} onChange={(start) => setForm((cur) => ({ ...cur, start }))} error={errors.start} />
-      <DateField label="End date" required value={form.end} min={form.start ?? undefined} onChange={(end) => setForm((cur) => ({ ...cur, end }))} error={errors.end} />
+      <DateField label={tx("Start date")} required value={form.start} onChange={(start) => setForm((cur) => ({ ...cur, start }))} error={errors.start} />
+      <DateField label={tx("End date")} required value={form.end} min={form.start ?? undefined} onChange={(end) => setForm((cur) => ({ ...cur, end }))} error={errors.end} />
     </FormModal>
   );
 }
@@ -321,22 +322,22 @@ export function ContractCard({ kind, userId, name, data, canEdit }: { kind: Part
   return (
     <>
       <EntityDetail
-        title="Contract"
-        description={hasContract(contract) ? undefined : "No contract has been recorded yet."}
+        title={tx("Contract")}
+        description={hasContract(contract) ? undefined : tx("No contract has been recorded yet.")}
         actions={
           canEdit ? (
             <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-              {hasContract(contract) ? "Edit contract" : "Add contract"}
+              {hasContract(contract) ? tx("Edit contract") : tx("Add contract")}
             </Button>
           ) : null
         }
         items={
           hasContract(contract)
             ? [
-                { label: "Type", value: contract.type },
-                { label: "Starts", value: formatDate(contract.start) },
-                { label: "Ends", value: formatDate(contract.end) },
-                { label: "State", value: state ? <StatusBadge value={state} tone={state === "active" ? "success" : state === "upcoming" ? "info" : "neutral"} /> : "" },
+                { label: tx("Type"), value: contract.type ? tx(contract.type) : "" },
+                { label: tx("Starts"), value: formatDate(contract.start) },
+                { label: tx("Ends"), value: formatDate(contract.end) },
+                { label: tx("State"), value: state ? <StatusBadge value={state} label={state === "active" ? tx("Active") : state === "upcoming" ? tx("Upcoming") : tx("Ended")} tone={state === "active" ? "success" : state === "upcoming" ? "info" : "neutral"} /> : "" },
               ]
             : []
         }
@@ -355,28 +356,28 @@ export function PayoutCard({ payout, userId, canPay }: { payout: Payout; userId:
   const lines = payoutLines(payout);
   return (
     <EntityDetail
-      title="Payouts"
-      description={lines.recorded ? "Totals recorded on this profile." : "No payment has been recorded on this profile yet."}
+      title={tx("Payouts")}
+      description={lines.recorded ? tx("Totals recorded on this profile.") : tx("No payment has been recorded on this profile yet.")}
       actions={
         canPay ? (
           <>
             <Link href="/payouts" className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-              See payments
+              {tx("See payments")}
             </Link>
             <Link href={`/create-payout?partner=${encodeURIComponent(userId)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-              Create payout
+              {tx("Create payout")}
             </Link>
           </>
         ) : null
       }
       items={[
-        { label: "Paid out in total", value: lines.paid },
-        { label: "Completed payouts", value: lines.completed },
-        { label: "Last payout", value: lines.last },
-        { label: "Waiting to be paid", value: lines.pending },
-        { label: "Sales history number", value: payout.saleHistoryId, mono: true, ltr: true },
+        { label: tx("Paid out in total"), value: lines.paid },
+        { label: tx("Completed payouts"), value: lines.completed },
+        { label: tx("Last payout"), value: lines.last },
+        { label: tx("Waiting to be paid"), value: lines.pending },
+        { label: tx("Sales history number"), value: payout.saleHistoryId, mono: true, ltr: true },
       ]}
-      emptyText="Not recorded"
+      emptyText={tx("Not recorded")}
     />
   );
 }

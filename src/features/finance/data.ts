@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { getFirebase } from "@/lib/firebase";
 import { formatMoney } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { idMapRef, takeIds } from "@/lib/id-map";
 import type { RoleScope } from "@/lib/role-scope";
 import {
@@ -93,7 +94,7 @@ function useLoaded<T>(key: string, load: () => Promise<T>) {
         if (live) setState({ key, value, at, loading: false, error: "" });
       },
       (err: unknown) => {
-        if (live) setState((cur) => ({ ...cur, key, loading: false, error: err instanceof Error ? err.message : "The data could not be loaded." }));
+        if (live) setState((cur) => ({ ...cur, key, loading: false, error: err instanceof Error ? err.message : tx("The data could not be loaded.") }));
       },
     );
     return () => {
@@ -285,29 +286,29 @@ export type RecordPayoutResult = { id: string; transactionId: number; balanceAft
  */
 export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayoutResult> {
   const { db } = getFirebase();
-  if (!input.recorder.userDocId) throw new Error("Your own user record was not found, so the payment cannot be attributed. Nothing was recorded.");
+  if (!input.recorder.userDocId) throw new Error(tx("Your own user record was not found, so the payment cannot be attributed. Nothing was recorded."));
   const problem = amountProblem(input.amount);
-  if (problem) throw new Error(`${problem} Nothing was recorded.`);
+  if (problem) throw new Error(tx("{problem} Nothing was recorded.", { problem }));
   const amount = round3(input.amount);
-  if (!(amount > 0)) throw new Error("The amount must be more than zero. Nothing was recorded.");
+  if (!(amount > 0)) throw new Error(tx("The amount must be more than zero. Nothing was recorded."));
   const userRef = doc(db, "users", input.partnerDocId);
   const counterRef = await idMapRef();
 
   const completed = await fetchOrders({ kind: "completed", cap: BALANCE_ORDER_CAP });
   if (completed.capped) {
-    throw new Error(`There are more than ${BALANCE_ORDER_CAP} completed orders, so the balance cannot be checked in the browser. Nothing was recorded.`);
+    throw new Error(tx("There are more than {cap} completed orders, so the balance cannot be checked in the browser. Nothing was recorded.", { cap: BALANCE_ORDER_CAP }));
   }
   const salesSnap = await getDocs(query(collection(db, "sales_history"), where("user_ref", "==", userRef), limit(1)));
   const salesRef = salesSnap.docs[0]?.ref ?? null;
   const recordRef = doc(collection(db, "transactions"));
   const recorderRef = doc(db, "users", input.recorder.userDocId);
 
-  return runTransaction(db, async (tx) => {
-    const userSnap = await tx.get(userRef);
-    if (!userSnap.exists()) throw new Error("This person's record no longer exists. Nothing was recorded.");
+  return runTransaction(db, async (trx) => {
+    const userSnap = await trx.get(userRef);
+    if (!userSnap.exists()) throw new Error(tx("This person's record no longer exists. Nothing was recorded."));
     const data = userSnap.data();
     const partner = toPartner(userSnap.id, data);
-    if (!partner) throw new Error("This person is not a creator or a designer. Nothing was recorded.");
+    if (!partner) throw new Error(tx("This person is not a creator or a designer. Nothing was recorded."));
 
     const userUpdate: Record<string, unknown> = {};
     let previousBalance: number | undefined;
@@ -316,7 +317,7 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
     if (partner.role === "creator") {
       const summary = summariseCreator(completed.orders, partner.docId, partner.promotions);
       if (amount > summary.payable) {
-        throw new Error(`The payable balance is now ${formatMoney(summary.payable)}, less than the amount. Nothing was recorded.`);
+        throw new Error(tx("The payable balance is now {amount}, less than the amount. Nothing was recorded.", { amount: formatMoney(summary.payable) }));
       }
       const rawPromotions = (data.creator_main_info as Record<string, unknown> | undefined)?.creator_promotions;
       userUpdate["creator_main_info.creator_promotions"] = promotionsAfterPayout(rawPromotions, summary.byPromotion, amount).promotions;
@@ -331,16 +332,16 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
       const sales = summariseDesigner(completed.orders, { docId: partner.docId, uid: partner.uid });
       const ceiling = designerRecordLimit(sales.completedSales, recordedPaid(earlier, partner.docId));
       if (amount > ceiling) {
-        throw new Error(`The amount is more than this designer's delivered sales not yet recorded as paid (${formatMoney(ceiling)}). Nothing was recorded.`);
+        throw new Error(tx("The amount is more than this designer's delivered sales not yet recorded as paid ({amount}). Nothing was recorded.", { amount: formatMoney(ceiling) }));
       }
     }
 
-    const ids = await takeIds(tx, counterRef, ["transaction_id"] as const);
+    const ids = await takeIds(trx, counterRef, ["transaction_id"] as const);
     const now = serverTimestamp();
     const main = (partner.role === "creator" ? data.creator_main_info : data.designer_main_info) as Record<string, unknown> | undefined;
     const storedInfo = partner.role === "creator" ? main?.creator_payout_info : main?.designer_payout_info;
     Object.assign(userUpdate, payoutInfoUpdate(partner.role, storedInfo, { now, amount, paidAt: input.paidAt }));
-    tx.set(
+    trx.set(
       recordRef,
       payoutRecord({
         now,
@@ -358,8 +359,8 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
       }),
     );
     // Always written, for designers too: it is what makes two simultaneous recordings for one person collide.
-    tx.update(userRef, userUpdate);
-    if (salesRef) tx.update(salesRef, salesHistoryPayoutUpdate({ now, amount, paidAt: input.paidAt }));
+    trx.update(userRef, userUpdate);
+    if (salesRef) trx.update(salesRef, salesHistoryPayoutUpdate({ now, amount, paidAt: input.paidAt }));
     return { id: recordRef.id, transactionId: ids.transaction_id, balanceAfter: currentBalance ?? null, name: partner.name };
   }).then((result) => {
     clearFinanceCache();
@@ -374,12 +375,12 @@ export async function recordPayout(input: RecordPayoutInput): Promise<RecordPayo
 export async function setPayoutStatus(recordId: string, action: PayoutAction): Promise<string> {
   const { db } = getFirebase();
   const ref = doc(db, "transactions", recordId);
-  return runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error("This payout record no longer exists. Nothing was changed.");
+  return runTransaction(db, async (trx) => {
+    const snap = await trx.get(ref);
+    if (!snap.exists()) throw new Error(tx("This payout record no longer exists. Nothing was changed."));
     const next = nextPayoutStatus(String(snap.data().status ?? ""), action);
-    if (!next) throw new Error("Only a record that is yet to be paid can be changed. Nothing was changed.");
-    tx.update(ref, { status: next, updated_at: serverTimestamp() });
+    if (!next) throw new Error(tx("Only a record that is yet to be paid can be changed. Nothing was changed."));
+    trx.update(ref, { status: next, updated_at: serverTimestamp() });
     return next;
   });
 }

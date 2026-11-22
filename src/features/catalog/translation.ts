@@ -8,6 +8,7 @@
  * writes the manual map only; the automatic one is never written.
  */
 
+import { txKey } from "@/lib/i18n/tx";
 import { rec, str, type Data } from "./product-model";
 import { manualText, TAXONOMY } from "./taxonomy";
 
@@ -47,14 +48,66 @@ function pick(kind: "category" | "tag" | "attribute" | "term") {
   return { collection, idField, infoField, autoField, customField, ...(legacyCustomField ? { legacyCustomField } : {}) };
 }
 
+/**
+ * What the Translations page says about each type, as whole phrases so each can be
+ * translated as one. Marked with `txKey`; shown with `tx(...)` when rendered.
+ */
+export const TRANSLATION_TEXT: Record<TranslationType, { tab: string; search: string; noun: string; nounPlural: string; noneMatch: string; noneYet: string; notFound: string }> = {
+  product: {
+    tab: txKey("Products"),
+    search: txKey("Search products"),
+    noun: txKey("product"),
+    nounPlural: txKey("products"),
+    noneMatch: txKey("No products match your search"),
+    noneYet: txKey("No products yet"),
+    notFound: txKey("That product was not found."),
+  },
+  category: {
+    tab: txKey("Categories"),
+    search: txKey("Search categories"),
+    noun: txKey("category"),
+    nounPlural: txKey("categories"),
+    noneMatch: txKey("No categories match your search"),
+    noneYet: txKey("No categories yet"),
+    notFound: txKey("That category was not found."),
+  },
+  tag: {
+    tab: txKey("Tags"),
+    search: txKey("Search tags"),
+    noun: txKey("tag"),
+    nounPlural: txKey("tags"),
+    noneMatch: txKey("No tags match your search"),
+    noneYet: txKey("No tags yet"),
+    notFound: txKey("That tag was not found."),
+  },
+  attribute: {
+    tab: txKey("Attributes"),
+    search: txKey("Search attributes"),
+    noun: txKey("attribute"),
+    nounPlural: txKey("attributes"),
+    noneMatch: txKey("No attributes match your search"),
+    noneYet: txKey("No attributes yet"),
+    notFound: txKey("That attribute was not found."),
+  },
+  term: {
+    tab: txKey("Terms"),
+    search: txKey("Search terms"),
+    noun: txKey("term"),
+    nounPlural: txKey("terms"),
+    noneMatch: txKey("No terms match your search"),
+    noneYet: txKey("No terms yet"),
+    notFound: txKey("That term was not found."),
+  },
+};
+
 export function isTranslationType(value: string | null | undefined): value is TranslationType {
   return Boolean(value) && Object.prototype.hasOwnProperty.call(TRANSLATION_TYPES, value as string);
 }
 
 export const TRANSLATED_FIELDS = [
-  { key: "name", label: "Name", multiline: false },
-  { key: "short_description", label: "Short description", multiline: true },
-  { key: "description", label: "Description", multiline: true },
+  { key: "name", label: txKey("Name"), multiline: false },
+  { key: "short_description", label: txKey("Short description"), multiline: true },
+  { key: "description", label: txKey("Description"), multiline: true },
 ] as const;
 
 export type TranslatedKey = (typeof TRANSLATED_FIELDS)[number]["key"];

@@ -5,6 +5,7 @@ import { PackagePlus, Truck } from "lucide-react";
 import { EmptyState } from "@/components/shared/empty-state";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * Two routes of the old admin have no screen of their own here, because the
@@ -16,12 +17,12 @@ export function AddInventoryNoticePage() {
   return (
     <EmptyState
       icon={PackagePlus}
-      title="Stock records are created with the product"
-      description="Every ready-made product gets its stock record when it is added, so there is nothing to add here. To bring more stock in, raise a restock request."
+      title={tx("Stock records are created with the product")}
+      description={tx("Every ready-made product gets its stock record when it is added, so there is nothing to add here. To bring more stock in, raise a restock request.")}
       action={
         <span className="flex flex-wrap justify-center gap-2">
-          <Link href="/inventory-pm" className={cn(buttonVariants({ variant: "outline" }))}>Stock list</Link>
-          <Link href="/restock-request" className={cn(buttonVariants())}>Restock requests</Link>
+          <Link href="/inventory-pm" className={cn(buttonVariants({ variant: "outline" }))}>{tx("Stock list")}</Link>
+          <Link href="/restock-request" className={cn(buttonVariants())}>{tx("Restock requests")}</Link>
         </span>
       }
     />
@@ -33,12 +34,12 @@ export function ShippingLabelNoticePage() {
   return (
     <EmptyState
       icon={Truck}
-      title="Pickups are booked from the restock itself"
-      description="When a designer marks an accepted restock ready, they create the pickup request there: the warehouse sends a driver and issues the one-time code. No separate shipping label is made here."
+      title={tx("Pickups are booked from the restock itself")}
+      description={tx("When a designer marks an accepted restock ready, they create the pickup request there: the warehouse sends a driver and issues the one-time code. No separate shipping label is made here.")}
       action={
         <span className="flex flex-wrap justify-center gap-2">
-          <Link href="/restock-pickup" className={cn(buttonVariants())}>Ready to pick up</Link>
-          <Link href="/inventory-timeline" className={cn(buttonVariants({ variant: "outline" }))}>Pickup tracking</Link>
+          <Link href="/restock-pickup" className={cn(buttonVariants())}>{tx("Ready to pick up")}</Link>
+          <Link href="/inventory-timeline" className={cn(buttonVariants({ variant: "outline" }))}>{tx("Pickup tracking")}</Link>
         </span>
       }
     />

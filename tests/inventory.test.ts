@@ -11,11 +11,43 @@ import {
   receiveEnquiryBlocked,
   receiveEnquiryWrites,
 } from "@/features/inventory/enquiry";
-import { DELETE, inc, NOW, readAddress, readInventory, readProduct, readRequest, refId, type Row } from "@/features/inventory/model";
+import { DELETE, inc, NOW, readAddress, readInventory, readProduct, readRequest, refId, union, type Row } from "@/features/inventory/model";
+import {
+  acceptedNotRecorded,
+  deliveryBlocked,
+  deliveryClientId,
+  cancelledAtWarehouse,
+  deliveryStockMove,
+  existingDelivery,
+  deliveryQuantity,
+  deliveryRequestPatch,
+  deliveryStockProblem,
+  designerDeliveryDoc,
+  enquiryShipmentBlocked,
+  planDesignerDelivery,
+  returnApprovalBlocked,
+  unrecordedDeliveryKind,
+  unrecordedDeliveryNote,
+  unrecordedTrackingId,
+  warehouseSellable,
+} from "@/features/inventory/returns";
+import {
+  adjustedStock,
+  adjustProblem,
+  adjustStale,
+  adjustWrites,
+  awaitsStock,
+  isAdjustment,
+  mayAlreadyBeCounted,
+  receiveBlocked,
+  receiveChoiceProblem,
+  receiveQuantity,
+  receiveWrites,
+  stockCounted,
+} from "@/features/inventory/stock-moves";
 import { addressProblem, alreadyBookedProblem, freshPickupProblem, pickupBatchProblem, pickupCreatedMessage, pickupDeliveryDoc, pickupItems, pickupRequestPatch, planPickup, readPickupResult } from "@/features/inventory/pickup";
 import {
   acceptPatch,
-  approveBlockedReason,
   approvePatch,
   archivePatch,
   cancelBlocked,
@@ -35,6 +67,7 @@ import {
   readyPatch,
   requestActions,
   returnHoldsStock,
+  returnTookStock,
   tabsFor,
 } from "@/features/inventory/requests";
 import {
@@ -53,7 +86,9 @@ import {
   warehouseLookup,
 } from "@/features/inventory/stock";
 import { hasTracking, liveStatusPatch, readLiveTracking, readLogistics, timelineView, trackingIdOf } from "@/features/inventory/tracking";
+import { arrayUnion } from "firebase/firestore";
 import { scopeOf } from "@/lib/role-scope";
+import { deliveryRequestToJson } from "@/lib/store-valley/address";
 
 const superAdmin = scopeOf({ role_unique_key: "super_admin", id: "admin-doc" }, "admin-uid");
 const staff = scopeOf({ role_unique_key: "inventory_manager" }, "staff-uid");
@@ -166,7 +201,9 @@ describe("request tabs and who may do what", () => {
     expect([...requestActions(processing, designer)]).toEqual(["ready"]);
     expect([...requestActions(ready, designer)]).toEqual(["pickup"]);
     expect([...requestActions(processing, superAdmin)]).toEqual(["cancel"]);
-    expect([...requestActions(done, superAdmin)]).toEqual(["raiseEnquiry"]);
+    expect([...requestActions(done, superAdmin)]).toEqual(["receive"]);
+    const counted = request({ stock_received_at: new Date(0) }, { request_status: "Accepted", fulfill_status: "Received" });
+    expect([...requestActions(counted, superAdmin)]).toEqual(["raiseEnquiry"]);
     expect(requestActions(done, designer).size).toBe(0);
     expect(requestActions(ready, staff).size).toBe(0);
   });
@@ -174,14 +211,19 @@ describe("request tabs and who may do what", () => {
   it("offers enquiry cancel to the super admin and 'received' to the designer", () => {
     const open = request({ enquiry_info: { enquiry_id: "INVEQ1", status: "active", fulfill_status: "Enquiry open", affected_quanity: 2 } }, { request_status: "Accepted", fulfill_status: "Completed" });
     const shipping = request({ enquiry_info: { enquiry_id: "INVEQ1", status: "active", fulfill_status: "DeliveryPartnerAssigned", affected_quanity: 2 } }, { request_status: "Accepted", fulfill_status: "Received" });
-    expect([...requestActions(open, superAdmin)]).toEqual(["cancelEnquiry"]);
+    expect([...requestActions(open, superAdmin)].sort()).toEqual(["cancelEnquiry", "receive"]);
+    const damaged = request({ enquiry_info: { enquiry_id: "INVEQ1", status: "active", fulfill_status: "Enquiry open", issue_type: "Damaged", affected_quanity: 2 } }, { request_status: "Accepted", fulfill_status: "Completed" });
+    expect(requestActions(damaged, superAdmin).has("bookReturn")).toBe(true);
+    expect(requestActions(damaged, staff).has("bookReturn")).toBe(false);
     expect([...requestActions(shipping, designer)]).toEqual(["receiveEnquiry"]);
     expect(fulfillLabel(shipping)).toBe("Enquiry shipping");
   });
 
-  it("holds back approval of a return to designer, which would book a delivery", () => {
-    expect(approveBlockedReason(request({}, { request_type: "Return to Designer" }))).toMatch(/not available/);
-    expect(approveBlockedReason(request())).toBeNull();
+  it("offers approval of a return to designer to the super admin only", () => {
+    const pendingReturn = request({}, { request_type: "Return to Designer" });
+    expect(requestActions(pendingReturn, superAdmin).has("approve")).toBe(true);
+    expect(requestActions(pendingReturn, staff).has("approve")).toBe(false);
+    expect(requestActions(pendingReturn, designer).has("approve")).toBe(false);
   });
 
   it("labels fulfilment like the old board", () => {
@@ -668,8 +710,24 @@ describe("review fixes", () => {
 
   describe("enquiry moves are checked on the fresh request", () => {
     const completed = (enquiry: Record<string, unknown> | null = null, info: Record<string, unknown> = {}) =>
-      request(enquiry ? { enquiry_info: enquiry } : {}, { request_status: "Accepted", fulfill_status: "Completed", ...info });
+      request({ stock_received_at: new Date(0), ...(enquiry ? { enquiry_info: enquiry } : {}) }, { request_status: "Accepted", fulfill_status: "Completed", ...info });
     const open = { enquiry_id: "INVEQ3", status: "active", fulfill_status: "Enquiry open", affected_quanity: 2 };
+
+    it("waits until the restock is in stock, so adding and deducting cannot cross", () => {
+      const notCounted = request({}, { request_status: "Accepted", fulfill_status: "Completed" });
+      expect(stockCounted(notCounted)).toBe(false);
+      expect(raiseEnquiryBlocked(notCounted)).toMatch(/Add this restock to stock first/);
+      expect(requestActions(notCounted, superAdmin).has("raiseEnquiry")).toBe(false);
+      // Added here, marked already counted here (quantity 0), or received in the old admin: all count.
+      expect(raiseEnquiryBlocked(request({ stock_received_at: new Date(0), stock_received_quantity: 10 }, { request_status: "Accepted", fulfill_status: "Received" }))).toBeNull();
+      expect(raiseEnquiryBlocked(request({ stock_received_at: new Date(0), stock_received_quantity: 0 }, { request_status: "Accepted", fulfill_status: "Received" }))).toBeNull();
+      expect(raiseEnquiryBlocked(request({}, { request_status: "Accepted", fulfill_status: "Received" }))).toBeNull();
+      // 10 requested, 8 arrive: 10 added by "Add to stock", then the enquiry takes 2 out again = 8, whatever the stock was.
+      const added = receiveWrites({ choice: "add", requested: 10, at: new Date(0), markerIsThisRequest: false }).inventory;
+      const enquiry = raiseEnquiryWrites({ enquiryId: 1, issueType: "Short Quantity Received", affectedQty: 2, images: [], requestRef: null }).inventory;
+      expect([added.stock, enquiry.stock]).toEqual([inc(10), inc(-2)]);
+      expect([added.stock_on_hand, enquiry.stock_on_hand]).toEqual([inc(10), inc(-2)]);
+    });
 
     it("raises once, on a completed restock only", () => {
       expect(raiseEnquiryBlocked(completed())).toBeNull();
@@ -722,5 +780,374 @@ describe("review fixes", () => {
       expect(requestActions(request({}, { request_status: "Accepted", fulfill_status: "Processing" }), manager).size).toBe(0);
       expect([...requestActions(request(), superAdmin)].sort()).toEqual(["approve", "archive", "decline", "edit"]);
     });
+  });
+});
+
+describe("stock the app sells from", () => {
+  const stored = (over: Record<string, unknown> = {}, info: Record<string, unknown> = {}) => request(over, { request_status: "Accepted", fulfill_status: "Completed", ...info });
+
+  describe("add to stock, once", () => {
+    it("waits on a completed restock that was not added yet", () => {
+      expect(awaitsStock(stored())).toBe(true);
+      expect(awaitsStock(stored({ stock_received_at: new Date() }))).toBe(false);
+      expect(awaitsStock(stored({}, { fulfill_status: "Received" }))).toBe(false); // old admin's Received button already added it
+      expect(awaitsStock(stored({}, { fulfill_status: "DeliveryPartnerAssigned" }))).toBe(false);
+      expect(awaitsStock(stored({}, { request_type: "Return to Designer" }))).toBe(false);
+    });
+
+    it("is offered to the super admin only, and never twice", () => {
+      expect(requestActions(stored(), superAdmin).has("receive")).toBe(true);
+      expect(requestActions(stored(), staff).has("receive")).toBe(false);
+      expect(requestActions(stored(), designer).has("receive")).toBe(false);
+      expect(requestActions(stored({ stock_received_at: new Date() }), superAdmin).has("receive")).toBe(false);
+      expect(requestActions(stored({}, { fulfill_status: "Received" }), superAdmin).has("receive")).toBe(false);
+    });
+
+    it("refuses a second time, even if the warehouse report set the request back to Completed", () => {
+      expect(receiveBlocked(stored())).toBeNull();
+      expect(receiveBlocked(stored({ stock_received_at: new Date(), stock_received_quantity: 10 }))).toMatch(/already added/);
+      expect(receiveBlocked(stored({}, { fulfill_status: "Received" }))).toMatch(/already added/);
+      expect(receiveBlocked(stored({}, { fulfill_status: "DeliveryPartnerAssigned" }))).toMatch(/not stored/);
+      expect(receiveBlocked(stored({}, { request_status: "Cancelled" }))).toMatch(/not stored/);
+      expect(receiveBlocked(stored({}, { request_type: "Return to Designer" }))).toMatch(/Only a restock/);
+    });
+
+    it("needs an explicit choice and adds the full requested quantity or nothing", () => {
+      expect(receiveChoiceProblem(null)).toMatch(/Choose whether/);
+      expect(receiveChoiceProblem("add")).toBeNull();
+      expect(receiveChoiceProblem("counted")).toBeNull();
+      expect(receiveQuantity("add", 10)).toBe(10);
+      expect(receiveQuantity("counted", 10)).toBe(0);
+      expect(receiveQuantity("add", -3)).toBe(0);
+    });
+
+    it("flags restocks last changed before 22 Nov 2026 as possibly counted already", () => {
+      expect(mayAlreadyBeCounted(stored({ update_at: new Date("2026-11-21T23:59:59Z") }))).toBe(true);
+      expect(mayAlreadyBeCounted(stored({ update_at: new Date("2026-11-22T00:00:00Z") }))).toBe(false);
+      expect(mayAlreadyBeCounted(stored({ update_at: null }))).toBe(true);
+    });
+
+    it("raises stock and stock on hand by the full quantity, stamps the request and clears its open-restock marker", () => {
+      const at = new Date("2026-11-22T12:00:00Z");
+      expect(receiveWrites({ choice: "add", requested: 8, at, markerIsThisRequest: true })).toEqual({
+        quantity: 8,
+        request: {
+          update_at: NOW,
+          "request_info.fulfill_status": "Received",
+          stock_received_quantity: 8,
+          stock_received_at: NOW,
+          movement_info: union({ movement_date: at, movement_info: "Received into stock: +8" }),
+        },
+        inventory: { updated_at: NOW, stock: inc(8), stock_on_hand: inc(8), restock_request_raised_ref: DELETE },
+      });
+    });
+
+    it("leaves the marker alone when it points at a newer request", () => {
+      expect(receiveWrites({ choice: "add", requested: 8, at: new Date(0), markerIsThisRequest: false }).inventory).toEqual({ updated_at: NOW, stock: inc(8), stock_on_hand: inc(8) });
+    });
+
+    it("marks already-counted pieces without adding stock, and still clears the marker", () => {
+      const writes = receiveWrites({ choice: "counted", requested: 8, at: new Date(0), markerIsThisRequest: true });
+      expect(writes.quantity).toBe(0);
+      expect(writes.inventory).toEqual({ updated_at: NOW, restock_request_raised_ref: DELETE });
+      expect(writes.request).toMatchObject({ stock_received_quantity: 0, stock_received_at: NOW, "request_info.fulfill_status": "Received" });
+      expect(writes.request.movement_info).toEqual(union({ movement_date: new Date(0), movement_info: "Received: already counted in stock, nothing added" }));
+    });
+
+    it("reads the stamp and the dated notes back", () => {
+      const view = stored({ stock_received_at: { seconds: 1 }, stock_received_quantity: 8, movement_info: [{ movement_date: new Date(0), movement_info: "Received into stock: +8" }] });
+      expect(view).toMatchObject({ stockReceived: true, stockReceivedQuantity: 8 });
+      expect(view.movements).toEqual([{ at: new Date(0), text: "Received into stock: +8" }]);
+      expect(request()).toMatchObject({ stockReceived: false, stockReceivedQuantity: 0, movements: [] });
+    });
+  });
+
+  describe("adjust stock by hand", () => {
+    it("works out the new figure", () => {
+      expect(adjustedStock("set", 12, 4)).toBe(12);
+      expect(adjustedStock("change", 5, 4)).toBe(9);
+      expect(adjustedStock("change", -3, 4)).toBe(1);
+    });
+
+    it("needs a whole number, a result of 0 or more, a real change and a reason", () => {
+      const ok = { mode: "change" as const, value: 5, reason: "Stock count", stock: 4 };
+      expect(adjustProblem(ok)).toBeNull();
+      expect(adjustProblem({ ...ok, value: null })).toMatch(/whole number/);
+      expect(adjustProblem({ ...ok, value: 1.5 })).toMatch(/whole number/);
+      expect(adjustProblem({ ...ok, value: 0 })).toMatch(/add or remove/);
+      expect(adjustProblem({ ...ok, value: -5 })).toMatch(/below 0/);
+      expect(adjustProblem({ ...ok, value: -4 })).toBeNull();
+      expect(adjustProblem({ ...ok, mode: "set", value: -1 })).toMatch(/below 0/);
+      expect(adjustProblem({ ...ok, mode: "set", value: 4 })).toMatch(/already 4/);
+      expect(adjustProblem({ ...ok, mode: "set", value: 0 })).toBeNull();
+      expect(adjustProblem({ ...ok, reason: "  " })).toMatch(/reason/);
+    });
+
+    const record = { productId: "AZYPRD5", productRef: ref("products/p5"), designerUid: "des-1" };
+    const base = { reason: " Stock count ", by: "Sara", at: new Date("2026-11-22T12:00:00Z"), movementLogId: 120, record, inventoryRef: ref("inventory/inv5"), productName: "abaya raw" };
+
+    it("refuses 'set' when the figure moved since the dialog showed it; add/remove stays valid", () => {
+      expect(adjustStale({ mode: "set", shown: 10, stock: 10 })).toBeNull();
+      expect(adjustStale({ mode: "set", shown: 10, stock: 7 })).toBe("Stock is 7 now, not 10 as it was when you opened this. Check the new figure and try again.");
+      expect(adjustStale({ mode: "change", shown: 10, stock: 7 })).toBeNull();
+    });
+
+    it("moves stock and stock on hand together and leaves the warehouse figure alone", () => {
+      const writes = adjustWrites({ ...base, mode: "set", value: 10, stock: 4, stockOnHand: 6 });
+      expect(writes).toMatchObject({ before: 4, after: 10, delta: 6 });
+      expect(writes.inventory).toEqual({ updated_at: NOW, stock: 10, stock_on_hand: 12 });
+      expect(writes.inventory).not.toHaveProperty("available_for_order");
+    });
+
+    it("never takes stock on hand below zero", () => {
+      expect(adjustWrites({ ...base, mode: "change", value: -3, stock: 5, stockOnHand: 1 }).inventory).toEqual({ updated_at: NOW, stock: 2, stock_on_hand: 0 });
+    });
+
+    it("keeps a movement record in the old log's shape, with the reason", () => {
+      const up = adjustWrites({ ...base, mode: "change", value: 6, stock: 4, stockOnHand: 6 }).movement;
+      expect(up).toEqual({
+        created_at: NOW,
+        update_at: NOW,
+        status: "inbound",
+        movement_log_id: "MVMT120",
+        product_id: "AZYPRD5",
+        product_ref: record.productRef,
+        product_quantity: 6,
+        inventory_ref: base.inventoryRef,
+        designer_uid: "des-1",
+        product_name: "abaya raw",
+        movement_info: [{ movement_date: base.at, movement_info: "Stock adjusted from 4 to 10 (+6). Reason: Stock count. By Sara" }],
+      });
+      expect(up).not.toHaveProperty("request_info");
+      const down = adjustWrites({ ...base, by: "", mode: "set", value: 1, stock: 4, stockOnHand: 6 }).movement;
+      expect(down).toMatchObject({ status: "outbound", product_quantity: 3, movement_info: [{ movement_date: base.at, movement_info: "Stock adjusted from 4 to 1 (-3). Reason: Stock count" }] });
+    });
+
+    it("is told apart from requests, so it shows in no request tab", () => {
+      const adjustment = readRequest({ id: "m1", data: { movement_log_id: "MVMT120", status: "inbound", product_quantity: 6, movement_info: [{ movement_date: new Date(0), movement_info: "Stock adjusted from 4 to 10 (+6). Reason: x" }] } });
+      expect(isAdjustment(adjustment)).toBe(true);
+      expect(isAdjustment(request())).toBe(false);
+      expect((["Pending", "Accepted", "Declined", "Archived"] as const).some((tab) => inTab(adjustment, tab))).toBe(false);
+      expect(requestActions(adjustment, superAdmin).size).toBe(0);
+    });
+  });
+});
+
+describe("delivery to the designer", () => {
+  const designerAddress = { ...pickupAddress };
+  const to = { uid: "des-1", designerId: "DSN-KWT-0042", address: readAddress(designerAddress) };
+  const line = { quantity: 4, productId: "AZYPRD5", sku: "SKU-5", name: "Linen abaya" };
+  const pendingReturn = (over: Record<string, unknown> = {}, info: Record<string, unknown> = {}) => request({ product_quantity: 4, ...over }, { request_type: "Return to Designer", ...info });
+  const openEnquiry = (enquiry: Record<string, unknown> = {}, over: Record<string, unknown> = {}) =>
+    request({ enquiry_info: { enquiry_id: "INVEQ3", status: "active", fulfill_status: "Enquiry open", issue_type: "Damaged", affected_quanity: 2, ...enquiry }, ...over }, { request_status: "Accepted", fulfill_status: "Completed" });
+
+  it("approves only a pending return with everything it needs", () => {
+    expect(returnApprovalBlocked(pendingReturn())).toBeNull();
+    expect(returnApprovalBlocked(request())).toMatch(/not a return/);
+    expect(returnApprovalBlocked(pendingReturn({}, { request_status: "Accepted" }))).toMatch(/no longer pending/);
+    expect(returnApprovalBlocked(pendingReturn({ request_delivery_info: { delivery_ref: ref("delivery/d1") } }))).toMatch(/already booked/);
+    expect(returnApprovalBlocked(pendingReturn({ designer_uid: "" }))).toMatch(/designer is missing/);
+    expect(returnApprovalBlocked(pendingReturn({ product_ref: null }))).toMatch(/product is missing/);
+    expect(returnApprovalBlocked(pendingReturn({ inventory_ref: null }))).toMatch(/stock record/);
+  });
+
+  it("books an enquiry shipment only for damaged pieces on an open enquiry, once", () => {
+    expect(enquiryShipmentBlocked(openEnquiry())).toBeNull();
+    expect(enquiryShipmentBlocked(openEnquiry({ issue_type: "Short Quantity Received" }))).toMatch(/Only damaged pieces/);
+    expect(enquiryShipmentBlocked(openEnquiry({ fulfill_status: "DeliveryPartnerAssigned" }))).toMatch(/already booked/);
+    expect(enquiryShipmentBlocked(openEnquiry({}, { enquiry_delivery_info: { delivery_ref: ref("delivery/d2") } }))).toMatch(/already booked/);
+    expect(enquiryShipmentBlocked(openEnquiry({ status: "Cancelled", fulfill_status: "Cancelled" }))).toMatch(/no longer open/);
+    expect(enquiryShipmentBlocked(openEnquiry({ affected_quanity: 0 }))).toMatch(/no affected quantity/);
+    expect(enquiryShipmentBlocked(request())).toMatch(/no enquiry/);
+    expect(deliveryBlocked(openEnquiry(), "enquiry")).toBeNull();
+    expect(deliveryBlocked(openEnquiry(), "return")).toMatch(/not a return/);
+  });
+
+  it("uses the request id and quantity for a return, the enquiry id and affected quantity for an enquiry", () => {
+    expect(deliveryClientId(pendingReturn(), "return")).toBe("INVNSQ7");
+    expect(deliveryQuantity(pendingReturn(), "return")).toBe(4);
+    expect(deliveryQuantity(pendingReturn({ product_quantity: 0 }), "return")).toBe(1);
+    expect(deliveryClientId(openEnquiry(), "enquiry")).toBe("INVEQ3");
+    expect(deliveryQuantity(openEnquiry(), "enquiry")).toBe(2);
+  });
+
+  it("limits a return to what the warehouse has available for order", () => {
+    const stock = { stockUnavailable: 1, stockReserved: 3, storedQuantity: 20 };
+    expect(warehouseSellable(stock)).toBe(16);
+    expect(deliveryStockProblem("return", 16, stock)).toBeNull();
+    expect(deliveryStockProblem("return", 17, stock)).toBe("Only 16 warehouse units are available to return.");
+    expect(deliveryStockProblem("return", 1, { stockUnavailable: 0, stockReserved: 0, storedQuantity: undefined })).toBe("Only 0 warehouse units are available to return.");
+    // An enquiry's pieces are already counted as unavailable: the warehouse only has to hold them.
+    expect(deliveryStockProblem("enquiry", 2, { stockUnavailable: 20, stockReserved: 0, storedQuantity: 2 })).toBeNull();
+    expect(deliveryStockProblem("enquiry", 3, { stockUnavailable: 0, stockReserved: 0, storedQuantity: 2 })).toMatch(/only 2 pieces stored/);
+  });
+
+  it("sends the same warehouse delivery the Flutter admin sends", () => {
+    const plan = planDesignerDelivery({ clientOrderId: "INVNSQ7", line, designer: to });
+    if ("problem" in plan) throw new Error(plan.problem);
+    expect(plan.call.method).toBe("POST");
+    expect(plan.call.path).toBe("/orders");
+    expect(plan.call.notifyCustomer).toEqual({ userId: "des-1", phone: "55512345", email: "noor@example.com" });
+    expect(plan.call.body).toEqual({
+      client_order_id: "INVNSQ7",
+      designer_id: "DSN-KWT-0042",
+      pickup_location_id: "WH-KWT-MAIN",
+      delivery_address: expect.objectContaining({ street: "Street 4", city: "Salmiya", building: "12", block: "3", governorate: "Hawalli", contact_name: "Noor Studio", contact_phone: "+96555512345", latitude: 29.33, longitude: 48.07 }),
+      items: [{ sku: "SKU-5", quantity: 4, product_id: "AZYPRD5", product_name: "Linen abaya", condition_notes: null, packaging_notes: null }],
+      stops: null,
+      requires_collection: false,
+      collection_amount: null,
+      special_instructions: "return to designer",
+      order_kind: "ready_made",
+      inventory_source: "warehouse",
+      packaging_profile: "AZY-PKG-STD-01",
+      requires_otp_proof: true,
+      requires_photo_proof: true,
+      metadata: null,
+    });
+    expect(plan.call.body).not.toHaveProperty("delivery_otp");
+  });
+
+  it("serialises a delivery request like the SDK, with the OTP left to the proxy", () => {
+    const body = deliveryRequestToJson({ clientOrderId: "X1", designerId: "D1", pickupLocationId: "WH-KWT-MAIN", deliveryAddress: { street: "s", city: "c", contactName: "n", contactPhone: "+96555512345" }, items: [{ quantity: 1, productId: "P" }], packagingProfile: "AZY-PKG-STD-01" });
+    expect(Object.keys(body)).toEqual(["client_order_id", "designer_id", "pickup_location_id", "delivery_address", "items", "stops", "requires_collection", "collection_amount", "special_instructions", "order_kind", "inventory_source", "packaging_profile", "requires_otp_proof", "requires_photo_proof", "metadata"]);
+    expect(body).toMatchObject({ special_instructions: null, order_kind: "ready_made", inventory_source: "warehouse", requires_otp_proof: true });
+  });
+
+  it("refuses when the designer's address or designer id is incomplete, and never uses the fixture designer", () => {
+    const noCity = planDesignerDelivery({ clientOrderId: "INVNSQ7", line, designer: { ...to, address: readAddress({ ...designerAddress, city: "" }) } });
+    expect("problem" in noCity && noCity.problem).toMatch(/designer's address is missing its city/);
+    const noId = planDesignerDelivery({ clientOrderId: "INVNSQ7", line, designer: { ...to, designerId: "" } });
+    expect("problem" in noId && noId.problem).toMatch(/designer ID/);
+    expect("problem" in planDesignerDelivery({ clientOrderId: " ", line, designer: to })).toBe(true);
+    expect(JSON.stringify(planDesignerDelivery({ clientOrderId: "INVNSQ7", line, designer: to }))).not.toContain("DSN-KWT-0001");
+    const noEmail = planDesignerDelivery({ clientOrderId: "INVNSQ7", line, designer: { ...to, address: readAddress({ ...designerAddress, shipping_email: "" }) } });
+    expect("call" in noEmail && noEmail.call.notifyCustomer).toEqual({ userId: "des-1", phone: "55512345" });
+  });
+
+  it("records the delivery, the approved request and the stock hold as the Flutter admin does", () => {
+    const requestRef = ref("inventorymovementlog/log1");
+    const deliveryRef = ref("delivery/d9");
+    const assignedBy = ref("users/admin-doc");
+    expect(designerDeliveryDoc({ deliveryId: 77, trackingId: "ORD-9", requestRef, assignedBy })).toEqual({
+      created_at: NOW,
+      updated_at: NOW,
+      status: "REQUESTED",
+      type: "inventory",
+      inventory_movement_ref: requestRef,
+      assigned_by: assignedBy,
+      delivery_id: "77",
+      delivery_tracking_id: "ORD-9",
+    });
+    const warehouse = readAddress(warehouseAddress);
+    expect(deliveryRequestPatch({ kind: "return", deliveryRef, deliveryId: 77, trackingId: "ORD-9", warehouse, designer: to.address })).toEqual({
+      update_at: NOW,
+      status: "outbound",
+      "request_info.request_status": "Accepted",
+      "request_info.fulfill_status": "DeliveryPartnerAssigned",
+      "request_delivery_info.delivery_ref": deliveryRef,
+      "request_delivery_info.delivery_id": "77",
+      "request_delivery_info.delivery_tracking_id": "ORD-9",
+      "request_delivery_info.updated_at": NOW,
+      "request_delivery_info.pickup_address.shipping_email": "wh@example.com",
+      "request_delivery_info.pickup_address.shipping_phone": "+96522000000",
+      "request_delivery_info.pickup_address.shipping_name": "Azyaa warehouse",
+      "request_delivery_info.pickup_address.address_line_1": "Road 60",
+      "request_delivery_info.pickup_address.city": "Shuwaikh",
+      "request_delivery_info.pickup_address.country": "Kuwait",
+      "request_delivery_info.delivery_address.shipping_email": "noor@example.com",
+      "request_delivery_info.delivery_address.shipping_phone": "55512345",
+      "request_delivery_info.delivery_address.shipping_name": "Noor Studio",
+      "request_delivery_info.delivery_address.address_line_1": "Street 4",
+      "request_delivery_info.delivery_address.city": "Salmiya",
+      "request_delivery_info.delivery_address.country": "Kuwait",
+      "request_delivery_info.notes": "return to designer",
+      "request_delivery_info.packageCount": 1,
+    });
+    // Approval: unavailable 1 + 4 = 5, available for order 20 − 3 − 5 = 12, and the 4 pieces leave the stock the app sells from.
+    const before = { stockUnavailable: 1, stockReserved: 3, storedQuantity: 20, stock: 10, stockOnHand: 12 };
+    expect(deliveryStockMove("return", 4, before)).toEqual({
+      taken: { stock: 4, stockOnHand: 4 },
+      inventory: { updated_at: NOW, stock_unavailable: 5, available_for_order: 12, stock: 6, stock_on_hand: 8 },
+    });
+    expect(deliveryStockMove("return", 4, { stockUnavailable: 0, stockReserved: 30, storedQuantity: 20, stock: 10, stockOnHand: 10 })?.inventory).toMatchObject({ stock_unavailable: 4, available_for_order: 0 });
+    // Never below zero: only what was there is taken, and that is what gets stamped.
+    expect(deliveryStockMove("return", 4, { stockUnavailable: 0, stockReserved: 0, storedQuantity: 20, stock: 3, stockOnHand: 1 })).toMatchObject({
+      taken: { stock: 3, stockOnHand: 1 },
+      inventory: { stock: 0, stock_on_hand: 0 },
+    });
+    const stamped = deliveryRequestPatch({ kind: "return", deliveryRef, deliveryId: 77, trackingId: "ORD-9", warehouse, designer: to.address, taken: { stock: 4, stockOnHand: 4 } });
+    expect(stamped).toMatchObject({ "request_info.stock_returned_quantity": 4, "request_info.stock_on_hand_returned_quantity": 4 });
+
+    // Cancel gives back exactly what the approval took, and only when the stamp exists.
+    const info = { request_type: "Return to Designer", request_status: "Accepted", fulfill_status: "DeliveryPartnerAssigned" };
+    const bookedHere = request({ product_quantity: 4, request_delivery_info: { delivery_ref: deliveryRef } }, { ...info, stock_returned_quantity: 4, stock_on_hand_returned_quantity: 4 });
+    const after = { stockUnavailable: 5, stockReserved: 3, storedQuantity: 20, stock: 6, stockOnHand: 8 };
+    expect(returnTookStock(bookedHere)).toBe(true);
+    expect(cancelWrites(bookedHere, after).inventory).toEqual({ updated_at: NOW, restock_request_raised_ref: DELETE, stock_unavailable: 1, available_for_order: 16, stock: 10, stock_on_hand: 12 });
+    const clamped = request({ product_quantity: 4, request_delivery_info: { delivery_ref: deliveryRef } }, { ...info, stock_returned_quantity: 3, stock_on_hand_returned_quantity: 1 });
+    expect(cancelWrites(clamped, { ...after, stock: 0, stockOnHand: 0 }).inventory).toMatchObject({ stock: 3, stock_on_hand: 1 });
+    // Approved in the old admin: no stamp, nothing was taken from stock, so nothing is credited.
+    const bookedInOldAdmin = request({ product_quantity: 4, request_delivery_info: { delivery_ref: deliveryRef } }, info);
+    expect(returnTookStock(bookedInOldAdmin)).toBe(false);
+    const oldCancel = cancelWrites(bookedInOldAdmin, after).inventory;
+    expect(oldCancel).toMatchObject({ stock_unavailable: 1, available_for_order: 16 });
+    expect(oldCancel).not.toHaveProperty("stock");
+    expect(oldCancel).not.toHaveProperty("stock_on_hand");
+  });
+
+  it("records an enquiry shipment on the enquiry, without a second hold or a change of request state", () => {
+    const patch = deliveryRequestPatch({ kind: "enquiry", deliveryRef: ref("delivery/d2"), deliveryId: 78, trackingId: "ORD-10", warehouse: readAddress(warehouseAddress), designer: to.address });
+    expect(patch).toMatchObject({
+      "enquiry_info.fulfill_status": "DeliveryPartnerAssigned",
+      "enquiry_delivery_info.delivery_id": "78",
+      "enquiry_delivery_info.delivery_tracking_id": "ORD-10",
+      "enquiry_delivery_info.delivery_address.shipping_name": "Noor Studio",
+    });
+    expect(patch).not.toHaveProperty("status");
+    expect(patch).not.toHaveProperty(["request_info.request_status"]);
+    expect(patch).not.toHaveProperty(["request_delivery_info.delivery_ref"]);
+    expect(deliveryStockMove("enquiry", 2, { stockUnavailable: 2, stockReserved: 0, storedQuantity: 9, stock: 5, stockOnHand: 5 })).toBeNull();
+    // "Enquiry received" and "cancel enquiry" both accept the recorded state.
+    const shipped = openEnquiry({ fulfill_status: "DeliveryPartnerAssigned" }, { enquiry_delivery_info: { delivery_ref: ref("delivery/d2"), delivery_tracking_id: "ORD-10" } });
+    expect(receiveEnquiryBlocked(shipped)).toBeNull();
+    expect(cancelEnquiryBlocked(shipped)).toBeNull();
+    expect(cancelRestoresStock(shipped)).toBe(true);
+    expect([...requestActions(shipped, designer)]).toEqual(["receiveEnquiry"]);
+    expect(requestActions(shipped, superAdmin).has("bookReturn")).toBe(false);
+  });
+
+  it("says plainly when the warehouse accepted but the record failed", () => {
+    expect(acceptedNotRecorded("ORD-9", "Missing permissions.")).toBe("The warehouse accepted the delivery (tracking ID ORD-9) but it was not recorded here: Missing permissions. Try again from the request: it finds this delivery and records it, without booking a second one.");
+    expect(acceptedNotRecorded("", "x")).toContain("tracking ID not given");
+  });
+
+  it("adopts an open warehouse order instead of posting again", () => {
+    expect(existingDelivery({ status: 404, body: { message: "Not found" } })).toEqual({ state: "none" });
+    expect(existingDelivery({ status: 200, body: {} })).toEqual({ state: "none" });
+    expect(existingDelivery({})).toEqual({ state: "none" });
+    expect(existingDelivery({ status: 200, body: { order_id: "ORD-9", client_order_id: "INVNSQ7", status: "pending" } })).toEqual({ state: "open", trackingId: "ORD-9" });
+    expect(existingDelivery({ status: 200, body: { client_order_id: "INVNSQ7", status: "out_for_delivery" } })).toEqual({ state: "open", trackingId: "INVNSQ7" });
+    expect(existingDelivery({ status: 200, body: { order_id: "ORD-9", status: "Cancelled" } })).toEqual({ state: "cancelled" });
+    expect(cancelledAtWarehouse("INVNSQ7")).toMatch(/cancelled delivery under INVNSQ7/);
+  });
+
+  it("keeps an accepted-but-unrecorded booking visible on the request, with its tracking id", () => {
+    expect(unrecordedDeliveryKind(pendingReturn())).toBe("return");
+    expect(unrecordedDeliveryKind(openEnquiry())).toBe("enquiry");
+    expect(unrecordedDeliveryKind(request())).toBeNull();
+    expect(unrecordedDeliveryKind(pendingReturn({ request_delivery_info: { delivery_ref: ref("delivery/d1") } }))).toBeNull();
+    expect(unrecordedTrackingId([])).toBeNull();
+    expect(unrecordedTrackingId([{ data: { swftTrackID: "ORD-9", client_order_id: "INVNSQ7", status: "pending" } }])).toBe("ORD-9");
+    expect(unrecordedTrackingId([{ data: { swftTrackID: "ORD-8", status: "cancelled" } }, { data: { id: "ORD-9", state: "pending" } }])).toBe("ORD-9");
+    expect(unrecordedTrackingId([{ data: { swftTrackID: "ORD-8", status: "cancelled" } }])).toBeNull();
+    expect(unrecordedDeliveryNote("return", "ORD-9")).toMatch(/tracking ID ORD-9.*Approve.*does not book a second/);
+    expect(unrecordedDeliveryNote("enquiry", "ORD-9")).toMatch(/Book return shipment/);
+  });
+
+  it("turns the list marker into an array union", () => {
+    const entry = { movement_date: new Date(0), movement_info: "Received into stock: +8" };
+    const out = resolveOps({ movement_info: union(entry) }) as Record<string, unknown>;
+    expect(arrayUnion(entry).isEqual(out.movement_info as never)).toBe(true);
   });
 });

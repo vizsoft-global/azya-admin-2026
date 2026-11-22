@@ -1,3 +1,4 @@
+import { tx } from "@/lib/i18n/tx";
 import type { MediaItem } from "@/lib/media";
 
 /** Pictures whose name or short id contains the search term. */
@@ -16,5 +17,5 @@ export function canDeleteMedia(item: MediaItem, who: { mayEdit: boolean; isDesig
 }
 
 export function mediaLabel(item: MediaItem) {
-  return item.name || item.imageId || "Picture";
+  return item.name || item.imageId || tx("Picture");
 }

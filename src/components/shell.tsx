@@ -6,9 +6,12 @@ import { useAuth } from "./auth-provider";
 import { ShellFrame, type ShellCrumb, type ShellPageHit } from "./layout/shell-frame";
 import { adminRoutes, routeByPath } from "@/lib/routes";
 import { allSections, leafFor, mainNav, secondaryNav, sectionLabelFor, settingsNav, type NavSection } from "@/lib/nav";
+import { translate, tx } from "@/lib/i18n/tx";
 
 const BUILD_ID = process.env.NEXT_PUBLIC_BUILD_ID ?? "";
 const VERSION = !BUILD_ID || BUILD_ID.startsWith("local-") ? "dev" : BUILD_ID.slice(0, 7);
+/** `sectionLabelFor` joins a section and its link with this. */
+const MENU_SEPARATOR = " › ";
 
 /** The signed-in panel: the shell frame fed from the route table, the sidebar config and the user's permissions. */
 export function Shell({ children }: { children: ReactNode }) {
@@ -53,13 +56,18 @@ export function Shell({ children }: { children: ReactNode }) {
     ];
   }, [leaf, active, route, canOpen]);
 
+  // The search matches a page by its English and its Arabic name, whichever language the panel is in.
+  // Titles and menu labels are passed on in English; the frame translates them where it shows them.
   const searchPages = useCallback(
     (term: string): ShellPageHit[] => {
       const needle = term.trim().toLowerCase();
+      const arabic = (text: string) => text.split(MENU_SEPARATOR).map((part) => translate("ar", part)).join(" ");
       return adminRoutes
         .filter((item) => item.path !== "error404" && canOpen(item.path))
         .map((item) => ({ route: item, menu: sectionLabelFor(item.path) }))
-        .filter(({ route: item, menu }) => `${item.title} ${item.path} ${item.group} ${menu}`.toLowerCase().includes(needle))
+        .filter(({ route: item, menu }) =>
+          `${item.title} ${item.path} ${item.group} ${menu} ${arabic(item.title)} ${arabic(item.group)} ${arabic(menu)}`.toLowerCase().includes(needle),
+        )
         .slice(0, 20)
         .map(({ route: item, menu }) => ({ path: item.path, title: item.title, menu: menu || item.group }));
     },
@@ -70,11 +78,11 @@ export function Shell({ children }: { children: ReactNode }) {
     <ShellFrame
       nav={nav}
       active={active}
-      title={route?.title ?? "Not found"}
+      title={route?.title ?? tx("Not found")}
       tabs={tabs}
       crumbs={crumbs}
       profile={{
-        name: String(profile?.display_name ?? profile?.user_name ?? profile?.email ?? "Admin"),
+        name: String(profile?.display_name ?? profile?.user_name ?? profile?.email ?? tx("Admin")),
         role: String(profile?.role_unique_key ?? profile?.user_role ?? ""),
         photo: typeof profile?.photo_url === "string" ? profile.photo_url : "",
       }}

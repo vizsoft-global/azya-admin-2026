@@ -1,6 +1,8 @@
+import { tx, txKey } from "@/lib/i18n/tx";
 import { isFulfillComplete } from "@/lib/store-valley/intake-tracking";
 import { isRestock } from "@/lib/store-valley/request-type";
 import { DELETE, inc, NOW, type Patch, type RequestView } from "./model";
+import { stockCounted } from "./stock-moves";
 
 /**
  * An enquiry is raised on a completed restock when the warehouse received
@@ -9,13 +11,13 @@ import { DELETE, inc, NOW, type Patch, type RequestView } from "./model";
  * The stock arithmetic is the Flutter admin's, unchanged.
  */
 
-export const ENQUIRY_ISSUES = ["Short Quantity Received", "Damaged"] as const;
+export const ENQUIRY_ISSUES = [txKey("Short Quantity Received"), txKey("Damaged")] as const;
 export const MAX_ENQUIRY_IMAGES = 5;
 
 export function enquiryProblem(input: { issueType: string; affectedQty: number | null; requestedQty: number }): string | null {
-  if (!input.issueType) return "Choose the issue type.";
-  if (input.affectedQty == null || !Number.isInteger(input.affectedQty) || input.affectedQty < 1) return "Enter how many pieces are affected (1 or more).";
-  if (input.requestedQty > 0 && input.affectedQty > input.requestedQty) return `Affected quantity cannot be more than the ${input.requestedQty} requested.`;
+  if (!input.issueType) return tx("Choose the issue type.");
+  if (input.affectedQty == null || !Number.isInteger(input.affectedQty) || input.affectedQty < 1) return tx("Enter how many pieces are affected (1 or more).");
+  if (input.requestedQty > 0 && input.affectedQty > input.requestedQty) return tx("Affected quantity cannot be more than the {count} requested.", { count: input.requestedQty });
   return null;
 }
 
@@ -27,9 +29,14 @@ export function enquiryProblem(input: { issueType: string; affectedQty: number |
 
 /** Why an enquiry cannot be raised on this request now, or null. */
 export function raiseEnquiryBlocked(view: RequestView): string | null {
-  if (view.enquiry.status !== "" || view.enquiry.id !== "") return `Enquiry ${view.enquiry.id || "for this restock"} was already raised. Nothing was changed.`;
-  if (!isRestock(view.requestType)) return "An enquiry can only be raised on a restock. Nothing was changed.";
-  if (view.requestStatus !== "Accepted" || !isFulfillComplete(view.fulfillStatus)) return "An enquiry can only be raised once the restock is completed. Nothing was changed.";
+  if (view.enquiry.status !== "" || view.enquiry.id !== "") {
+    return view.enquiry.id ? tx("Enquiry {id} was already raised. Nothing was changed.", { id: view.enquiry.id }) : tx("An enquiry was already raised for this restock. Nothing was changed.");
+  }
+  if (!isRestock(view.requestType)) return tx("An enquiry can only be raised on a restock. Nothing was changed.");
+  if (view.requestStatus !== "Accepted" || !isFulfillComplete(view.fulfillStatus)) return tx("An enquiry can only be raised once the restock is completed. Nothing was changed.");
+  if (!stockCounted(view)) {
+    return tx("Add this restock to stock first (or mark it as already counted). The enquiry then takes the damaged or missing pieces out again. Nothing was changed.");
+  }
   return null;
 }
 
@@ -37,18 +44,18 @@ const OPEN_STAGES = ["Enquiry open", "DeliveryPartnerAssigned"];
 
 /** Why this enquiry cannot be cancelled now, or null. */
 export function cancelEnquiryBlocked(view: RequestView): string | null {
-  if (view.enquiry.status === "") return "This request has no enquiry to cancel. Nothing was changed.";
-  if (view.enquiry.status === "Cancelled" || view.enquiry.fulfillStatus === "Cancelled") return "This enquiry was already cancelled. Nothing was changed.";
-  if (view.enquiry.fulfillStatus === "Received") return "This enquiry was already closed as received, so it cannot be cancelled. Nothing was changed.";
-  if (!OPEN_STAGES.includes(view.enquiry.fulfillStatus)) return "This enquiry is no longer open, so it cannot be cancelled. Nothing was changed.";
+  if (view.enquiry.status === "") return tx("This request has no enquiry to cancel. Nothing was changed.");
+  if (view.enquiry.status === "Cancelled" || view.enquiry.fulfillStatus === "Cancelled") return tx("This enquiry was already cancelled. Nothing was changed.");
+  if (view.enquiry.fulfillStatus === "Received") return tx("This enquiry was already closed as received, so it cannot be cancelled. Nothing was changed.");
+  if (!OPEN_STAGES.includes(view.enquiry.fulfillStatus)) return tx("This enquiry is no longer open, so it cannot be cancelled. Nothing was changed.");
   return null;
 }
 
 /** Why the returned pieces cannot be marked received now, or null. */
 export function receiveEnquiryBlocked(view: RequestView): string | null {
-  if (view.enquiry.fulfillStatus === "Received") return "This enquiry was already closed as received. Nothing was changed.";
-  if (view.enquiry.status === "Cancelled" || view.enquiry.fulfillStatus === "Cancelled") return "This enquiry was cancelled, so there is nothing to receive. Nothing was changed.";
-  if (view.enquiry.fulfillStatus !== "DeliveryPartnerAssigned") return "The return shipment for this enquiry has not been booked yet. Nothing was changed.";
+  if (view.enquiry.fulfillStatus === "Received") return tx("This enquiry was already closed as received. Nothing was changed.");
+  if (view.enquiry.status === "Cancelled" || view.enquiry.fulfillStatus === "Cancelled") return tx("This enquiry was cancelled, so there is nothing to receive. Nothing was changed.");
+  if (view.enquiry.fulfillStatus !== "DeliveryPartnerAssigned") return tx("The return shipment for this enquiry has not been booked yet. Nothing was changed.");
   return null;
 }
 
@@ -106,7 +113,7 @@ export function receiveEnquiryWrites(view: RequestView): EnquiryWrites {
 }
 
 export function enquiryStageLabel(view: RequestView) {
-  if (view.enquiry.fulfillStatus === "DeliveryPartnerAssigned") return "Return shipping";
-  if (view.enquiry.fulfillStatus === "Received") return "Closed";
+  if (view.enquiry.fulfillStatus === "DeliveryPartnerAssigned") return txKey("Return shipping");
+  if (view.enquiry.fulfillStatus === "Received") return txKey("Closed");
   return view.enquiry.fulfillStatus || view.enquiry.status;
 }

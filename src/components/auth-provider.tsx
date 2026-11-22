@@ -27,6 +27,7 @@ import {
 } from "react";
 import { getFirebase } from "@/lib/firebase";
 import type { Lang } from "@/lib/i18n";
+import { tx } from "@/lib/i18n/tx";
 import { scopeOf, type RoleScope } from "@/lib/role-scope";
 
 type Profile = Record<string, unknown> & { id: string };
@@ -226,23 +227,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const loaded = await loadProfile(auth.currentUser!.uid);
         if (!loaded) {
           await signOut(auth);
-          return "No users document for this account.";
+          return tx("No users document for this account.");
         }
         if (String(loaded.status ?? "") !== "Published") {
           await signOut(auth);
-          return "Account is not Published.";
+          return tx("Account is not Published.");
         }
         const roleKey = String(loaded.role_unique_key ?? "");
         if (!roleKey) {
           await signOut(auth);
-          return "No role is assigned to this account.";
+          return tx("No role is assigned to this account.");
         }
         const roleSnap = await getDocs(
           query(collection(db, "roles"), where("role_unique_key", "==", roleKey), limit(1)),
         );
         if (roleSnap.empty) {
           await signOut(auth);
-          return "Role was not found.";
+          return tx("Role was not found.");
         }
         return null;
       },

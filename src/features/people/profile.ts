@@ -1,4 +1,5 @@
 import { rawText, record, text } from "./util";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * "My profile" rules. The page edits the signed-in person's own `users` record
@@ -28,11 +29,11 @@ export function readProfileForm(data: Record<string, unknown> | null | undefined
 export function validateProfile(form: ProfileForm): Partial<Record<keyof ProfileForm, string>> {
   const errors: Partial<Record<keyof ProfileForm, string>> = {};
   const name = form.name.trim();
-  if (!name) errors.name = "Enter your name.";
-  else if (name.length > 50) errors.name = "Keep the name under 50 characters.";
+  if (!name) errors.name = tx("Enter your name.");
+  else if (name.length > 50) errors.name = tx("Keep the name under 50 characters.");
   const phone = form.phone.trim();
-  if (phone && !/^\+?[0-9][0-9\s-]{5,19}$/.test(phone)) errors.phone = "Enter a phone number with digits only, for example +965 5000 0000.";
-  if (form.photo && !/^https:\/\//i.test(form.photo)) errors.photo = "The photo did not upload. Choose it again.";
+  if (phone && !/^\+?[0-9][0-9\s-]{5,19}$/.test(phone)) errors.phone = tx("Enter a phone number with digits only, for example +965 5000 0000.");
+  if (form.photo && !/^https:\/\//i.test(form.photo)) errors.photo = tx("The photo did not upload. Choose it again.");
   return errors;
 }
 
@@ -57,10 +58,10 @@ export type PasswordForm = { current: string; next: string; confirm: string };
 
 export function validatePasswordChange(form: PasswordForm): Partial<Record<keyof PasswordForm, string>> {
   const errors: Partial<Record<keyof PasswordForm, string>> = {};
-  if (!form.current) errors.current = "Enter your current password.";
-  if (form.next.length < MIN_PASSWORD_LENGTH) errors.next = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
-  else if (form.next === form.current) errors.next = "Choose a password different from the current one.";
-  if (form.confirm !== form.next) errors.confirm = "The two new passwords do not match.";
+  if (!form.current) errors.current = tx("Enter your current password.");
+  if (form.next.length < MIN_PASSWORD_LENGTH) errors.next = tx("Use at least {count} characters.", { count: MIN_PASSWORD_LENGTH });
+  else if (form.next === form.current) errors.next = tx("Choose a password different from the current one.");
+  if (form.confirm !== form.next) errors.confirm = tx("The two new passwords do not match.");
   return errors;
 }
 
@@ -70,16 +71,16 @@ export function passwordErrorMessage(code: string): string {
     case "auth/wrong-password":
     case "auth/invalid-credential":
     case "auth/invalid-login-credentials":
-      return "The current password is not right. Your password was not changed.";
+      return tx("The current password is not right. Your password was not changed.");
     case "auth/weak-password":
-      return "That password is too easy to guess. Choose a longer one.";
+      return tx("That password is too easy to guess. Choose a longer one.");
     case "auth/too-many-requests":
-      return "Too many attempts. Wait a few minutes and try again.";
+      return tx("Too many attempts. Wait a few minutes and try again.");
     case "auth/requires-recent-login":
-      return "Sign out, sign in again and then change the password.";
+      return tx("Sign out, sign in again and then change the password.");
     case "auth/network-request-failed":
-      return "No connection. Your password was not changed.";
+      return tx("No connection. Your password was not changed.");
     default:
-      return "The password was not changed. Try again.";
+      return tx("The password was not changed. Try again.");
   }
 }

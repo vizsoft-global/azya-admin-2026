@@ -11,6 +11,8 @@ import { useUnsavedChanges } from "@/lib/unsaved";
 import { removeDoc, saveDoc, useCollection, type Row } from "@/lib/firestore-ui";
 import { valueText } from "@/lib/describe-value";
 import { humanize } from "@/lib/format";
+import { rich } from "@/lib/i18n/rich";
+import { tx } from "@/lib/i18n/tx";
 import type { AdminRoute } from "@/lib/routes";
 import { useAuth } from "./auth-provider";
 import { useConfirm } from "./shared/confirm-dialog";
@@ -65,13 +67,13 @@ export function RecordPanel({
       .then((snap) => {
         if (cancelled) return;
         if (!snap.exists()) {
-          toast.error(`${wanted} was not found in ${route.collection}.`);
+          toast.error(tx("{id} was not found in {collection}.", { id: wanted, collection: route.collection ?? "" }));
           return;
         }
         setFetched({ id: snap.id, data: snap.data() });
         setSelected(snap.id);
       })
-      .catch((err) => !cancelled && toast.error(err instanceof Error ? err.message : "The record could not be loaded."));
+      .catch((err) => !cancelled && toast.error(err instanceof Error ? err.message : tx("The record could not be loaded.")));
     return () => {
       cancelled = true;
     };
@@ -93,7 +95,7 @@ export function RecordPanel({
                 setCreating(true);
               }}
             >
-              <Plus /> New document
+              <Plus /> {tx("New document")}
             </Button>
           }
         />
@@ -103,8 +105,8 @@ export function RecordPanel({
         rows={rows}
         columns={columns}
         loading={loading}
-        error={error ? `These records could not be loaded: ${error}` : null}
-        emptyMessage="No records yet."
+        error={error ? tx("These records could not be loaded: {error}", { error }) : null}
+        emptyMessage={tx("No records yet.")}
         searchText={(row) => `${row.id} ${Object.values(row.data).map(valueText).join(" ")}`}
         hasMore={hasMore}
         onLoadMore={loadMore}
@@ -122,12 +124,12 @@ export function RecordPanel({
             <section className="rounded-[14px] bg-card p-4">
               <div className="mb-3 flex items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold text-heading">Record details</h3>
+                  <h3 className="text-sm font-semibold text-heading">{tx("Record details")}</h3>
                   <p className="truncate font-mono text-[11px] text-subtle" dir="ltr" title={current.id}>
                     {current.id}
                   </p>
                 </div>
-                <Button variant="ghost" size="icon-sm" aria-label="Close record details" onClick={() => setSelected(null)}>
+                <Button variant="ghost" size="icon-sm" aria-label={tx("Close record details")} onClick={() => setSelected(null)}>
                   <X />
                 </Button>
               </div>
@@ -189,24 +191,24 @@ function AdvancedEditor({
     try {
       parsed = jsonToDoc(draft, getFirebase().db);
     } catch (err) {
-      toast.error(`This is not valid JSON, so nothing was saved: ${err instanceof Error ? err.message : "parse error"}.`);
+      toast.error(tx("This is not valid JSON, so nothing was saved: {reason}.", { reason: err instanceof Error ? err.message : tx("parse error") }));
       return;
     }
     const ok = await confirm({
-      title: row ? "Save the raw document?" : "Create this document?",
+      title: row ? tx("Save the raw document?") : tx("Create this document?"),
       description: row
-        ? `This overwrites the fields of ${row.id} in ${collectionName} exactly as typed, without any of the checks a normal form runs. The apps read this record straight away.`
-        : `This adds a new document to ${collectionName} exactly as typed, without any of the checks a normal form runs.`,
-      confirmLabel: row ? "Save document" : "Create document",
+        ? tx("This overwrites the fields of {id} in {collection} exactly as typed, without any of the checks a normal form runs. The apps read this record straight away.", { id: row.id, collection: collectionName })
+        : tx("This adds a new document to {collection} exactly as typed, without any of the checks a normal form runs.", { collection: collectionName }),
+      confirmLabel: row ? tx("Save document") : tx("Create document"),
     });
     if (!ok) return;
     setBusy(true);
     try {
       const id = await saveDoc(collectionName, row?.id ?? null, parsed);
-      toast.success(row ? `Saved ${id}.` : `Created ${id}.`);
+      toast.success(row ? tx("Saved {id}.", { id }) : tx("Created {id}.", { id }));
       onSaved(id);
     } catch (err) {
-      toast.error(`The document was not saved: ${err instanceof Error ? err.message : "something went wrong"}.`);
+      toast.error(tx("The document was not saved: {reason}.", { reason: err instanceof Error ? err.message : tx("something went wrong") }));
     } finally {
       setBusy(false);
     }
@@ -215,19 +217,19 @@ function AdvancedEditor({
   async function remove() {
     if (!row) return;
     const ok = await confirm({
-      title: "Delete this document?",
-      description: `${row.id} will be removed from ${collectionName} for good. Anything that points at it will break. This cannot be undone.`,
-      confirmLabel: "Delete document",
+      title: tx("Delete this document?"),
+      description: tx("{id} will be removed from {collection} for good. Anything that points at it will break. This cannot be undone.", { id: row.id, collection: collectionName }),
+      confirmLabel: tx("Delete document"),
       destructive: true,
     });
     if (!ok) return;
     setBusy(true);
     try {
       await removeDoc(collectionName, row.id);
-      toast.success(`Deleted ${row.id}.`);
+      toast.success(tx("Deleted {id}.", { id: row.id }));
       onDeleted();
     } catch (err) {
-      toast.error(`The document was not deleted: ${err instanceof Error ? err.message : "something went wrong"}.`);
+      toast.error(tx("The document was not deleted: {reason}.", { reason: err instanceof Error ? err.message : tx("something went wrong") }));
     } finally {
       setBusy(false);
     }
@@ -242,41 +244,43 @@ function AdvancedEditor({
         className="flex w-full items-center gap-2 rounded-[14px] px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-heading">Advanced</span>
-          <span className="block text-[12px] text-muted-foreground">{row ? "Edit the raw document (super admin only)" : "New raw document (super admin only)"}</span>
+          <span className="block text-sm font-semibold text-heading">{tx("Advanced")}</span>
+          <span className="block text-[12px] text-muted-foreground">{row ? tx("Edit the raw document (super admin only)") : tx("New raw document (super admin only)")}</span>
         </span>
         <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open ? (
         <div className="space-y-2 px-4 pb-4">
           <p className="rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">
-            This writes the document exactly as typed. References are <code className="font-mono">{'{ "$ref": "collection/id" }'}</code> and dates are{" "}
-            <code className="font-mono">{'{ "$time": "ISO date" }'}</code>.
+            {rich(tx("This writes the document exactly as typed. References are {ref} and dates are {time}."), {
+              ref: <code className="font-mono" dir="ltr">{'{ "$ref": "collection/id" }'}</code>,
+              time: <code className="font-mono" dir="ltr">{'{ "$time": "ISO date" }'}</code>,
+            })}
           </p>
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             spellCheck={false}
             dir="ltr"
-            aria-label="Raw document JSON"
+            aria-label={tx("Raw document JSON")}
             className="h-80 max-h-[60vh] field-sizing-fixed font-mono text-[12px] md:text-[12px]"
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button disabled={busy || (row !== null && !dirty)} onClick={() => void save()}>
-              {row ? "Save document" : "Create document"}
+              {row ? tx("Save document") : tx("Create document")}
             </Button>
             {row ? (
               <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
-                Delete document
+                {tx("Delete document")}
               </Button>
             ) : (
               <Button variant="outline" disabled={busy} onClick={onCancel}>
-                Cancel
+                {tx("Cancel")}
               </Button>
             )}
             {row && dirty ? (
               <Button variant="ghost" className="ms-auto" disabled={busy} onClick={() => setDraft(original)}>
-                Reset
+                {tx("Reset")}
               </Button>
             ) : null}
           </div>

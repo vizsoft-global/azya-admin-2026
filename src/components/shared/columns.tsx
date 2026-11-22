@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { valueText } from "@/lib/describe-value";
 import { formatDate, formatMoney, toDate, toNumber } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { getPath } from "@/lib/object-path";
 import type { Row } from "@/lib/firestore-ui";
 import type { Column } from "./data-table";
@@ -10,6 +11,8 @@ import { StatusBadge } from "./status-badge";
  * Column builders for tables over Firestore rows (`{ id, data }`). `key` is a
  * field path in `row.data`; dots address nested maps ("product_info.name").
  * Every builder returns a sortable column that is included in CSV exports.
+ * Pass `header` in English: the table translates it where it is shown and
+ * keeps the English for the CSV export.
  */
 
 type Options = { className?: string; width?: string };
@@ -56,7 +59,7 @@ export function idColumn(header = "ID", key?: string, length = 10): Column<Row> 
 }
 
 /** Status pill, coloured by the status text. */
-export function statusColumn(key = "status", header = "Status"): Column<Row> {
+export function statusColumn(key = "status", header: string = txKey("Status")): Column<Row> {
   const read = (row: Row) => valueText(getPath(row.data, key));
   return {
     key,
@@ -76,7 +79,11 @@ export function dateColumn(key: string, header: string, options: Options & { wit
     header,
     className: options.className ?? "whitespace-nowrap",
     width: options.width,
-    cell: (row) => formatDate(read(row), options.withTime) || dash,
+    // Kept left-to-right so "2026-11-22 14:05" is not re-ordered inside Arabic.
+    cell: (row) => {
+      const text = formatDate(read(row), options.withTime);
+      return text ? <span dir="ltr">{text}</span> : dash;
+    },
     sortable: true,
     sortValue: (row) => toDate(read(row))?.getTime() ?? null,
     exportValue: (row) => formatDate(read(row), options.withTime),
@@ -91,7 +98,11 @@ export function moneyColumn(key: string, header: string, options: Options & { cu
     header,
     className: options.className ?? "text-end whitespace-nowrap tabular-nums",
     width: options.width,
-    cell: (row) => formatMoney(read(row), options.currency) || dash,
+    // Kept left-to-right so "12.500 KWD" is not shown as "KWD 12.500" inside Arabic.
+    cell: (row) => {
+      const text = formatMoney(read(row), options.currency);
+      return text ? <span dir="ltr">{text}</span> : dash;
+    },
     sortable: true,
     sortValue: read,
     exportValue: read,
@@ -113,10 +124,10 @@ export function numberColumn(key: string, header: string, options: Options = {})
   };
 }
 
-/** Yes / No from a boolean field. */
+/** Yes / No from a boolean field. Shown in the panel language; sorted and exported in English. */
 export function booleanColumn(key: string, header: string): Column<Row> {
   const read = (row: Row) => (getPath(row.data, key) ? "Yes" : "No");
-  return { key, header, cell: read, sortable: true, sortValue: read, exportValue: read };
+  return { key, header, cell: (row) => (getPath(row.data, key) ? tx("Yes") : tx("No")), sortable: true, sortValue: read, exportValue: read };
 }
 
 /** Square thumbnail from an image URL field. Not sortable; exports the URL. */

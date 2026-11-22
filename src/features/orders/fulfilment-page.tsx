@@ -10,10 +10,11 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, toDate } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { orderLinesInScope } from "@/lib/role-scope";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { retryStockReservation, runRetry } from "./data";
-import { LINE_STATE_LABEL, QUEUE_BUCKETS, describeReserve, describeRetry, lineName, lineState, orderBuckets, orderSearchText, readAddress, readJob, retryPlan, statusText, text, type Dict, type QueueBucket } from "./model";
+import { LINE_STATE_LABEL, QUEUE_BUCKETS, describeReserve, describeRetry, lineDataName, lineName, lineState, orderBuckets, orderSearchText, readAddress, readJob, retryPlan, statusLabel, text, type Dict, type QueueBucket } from "./model";
 import { useScopedOrders } from "./orders-page";
 import { CountTabs } from "./parts";
 
@@ -56,7 +57,7 @@ export function FulfilmentPage() {
 
   const reasons = useMemo(() => {
     const map = new Map<string, string>();
-    for (const job of jobs.rows) map.set(text(job.data.order_id), statusText(job.data.last_error) || "No reason given");
+    for (const job of jobs.rows) map.set(text(job.data.order_id), statusLabel(job.data.last_error) || tx("No reason given"));
     return map;
   }, [jobs.rows]);
 
@@ -71,8 +72,8 @@ export function FulfilmentPage() {
     const number = text(row.data.order_id);
     const sure = await confirm(
       stock
-        ? { title: `Try to reserve stock for ${number} again?`, description: "If the warehouse now has enough units they are reserved and the delivery is requested.", confirmLabel: "Retry reservation" }
-        : { title: `Ask Store Valley again for ${number}?`, description: "Failed requests are queued again and items with no request get one. A warehouse delivery whose stock is no longer reserved is left alone.", confirmLabel: "Retry requests" },
+        ? { title: tx("Try to reserve stock for {order} again?", { order: number }), description: tx("If the warehouse now has enough units they are reserved and the delivery is requested."), confirmLabel: tx("Retry reservation"), cancelLabel: tx("Cancel") }
+        : { title: tx("Ask Store Valley again for {order}?", { order: number }), description: tx("Failed requests are queued again and items with no request get one. A warehouse delivery whose stock is no longer reserved is left alone."), confirmLabel: tx("Retry requests"), cancelLabel: tx("Cancel") },
     );
     if (!sure) return;
     try {
@@ -85,59 +86,60 @@ export function FulfilmentPage() {
         toast.success(`${number}: ${describeRetry(plan)}`);
       }
     } catch (err) {
-      toast.error(`${number} was not retried: ${err instanceof Error ? err.message : "unknown error"}`);
+      toast.error(tx("{order} was not retried: {reason}", { order: number, reason: err instanceof Error ? err.message : tx("unknown error") }));
     }
   }
 
   const columns: Column<Row>[] = [
-    { key: "order_id", header: "Order", cell: (row) => <span className="font-medium" dir="ltr" lang="en">{text(row.data.order_id) || row.id.slice(0, 8)}</span>, sortable: true, sortValue: (row) => text(row.data.order_id) },
-    { key: "created_at", header: "Placed", className: "whitespace-nowrap", cell: (row) => formatDate(row.data.created_at, true) || "—", sortable: true, sortValue: (row) => toDate(row.data.created_at)?.getTime() ?? null, exportValue: (row) => formatDate(row.data.created_at, true) },
-    ...(staff ? [{ key: "customer", header: "Customer", cell: (row: Row) => readAddress(row.data.shipping_address).name || "—", sortable: true, sortValue: (row: Row) => readAddress(row.data.shipping_address).name }] : []),
+    { key: "order_id", header: tx("Order"), cell: (row) => <span className="font-medium" dir="ltr" lang="en">{text(row.data.order_id) || row.id.slice(0, 8)}</span>, sortable: true, sortValue: (row) => text(row.data.order_id) },
+    { key: "created_at", header: tx("Placed"), className: "whitespace-nowrap", cell: (row) => formatDate(row.data.created_at, true) || "—", sortable: true, sortValue: (row) => toDate(row.data.created_at)?.getTime() ?? null, exportValue: (row) => formatDate(row.data.created_at, true) },
+    ...(staff ? [{ key: "customer", header: tx("Customer"), cell: (row: Row) => readAddress(row.data.shipping_address).name || "—", sortable: true, sortValue: (row: Row) => readAddress(row.data.shipping_address).name }] : []),
     {
       key: "items",
-      header: "Items in this state",
+      header: tx("Items in this state"),
       cell: (row) => (
-        <span className="block max-w-80 truncate" title={linesIn(scope, row.data, bucket).map((item) => lineName(item.line)).join(", ")}>
-          {linesIn(scope, row.data, bucket).map((item) => lineName(item.line)).join(", ")}
+        <span className="block max-w-80 truncate" title={linesIn(scope, row.data, bucket).map((item) => lineName(item.line)).join(tx(", "))}>
+          {linesIn(scope, row.data, bucket).map((item) => lineName(item.line)).join(tx(", "))}
         </span>
       ),
-      exportValue: (row) => linesIn(scope, row.data, bucket).map((item) => lineName(item.line)).join(", "),
+      exportValue: (row) => linesIn(scope, row.data, bucket).map((item) => lineDataName(item.line)).join(", "),
     },
     {
       key: "detail",
-      header: bucket === "failed" ? "What failed" : "Status",
+      header: bucket === "failed" ? tx("What failed") : tx("Status"),
       cell: (row) => {
         const items = linesIn(scope, row.data, bucket);
-        const labels = [...new Set(items.map((item) => item.detail || LINE_STATE_LABEL[item.state]))].join(", ");
+        const labels = [...new Set(items.map((item) => tx(item.detail || LINE_STATE_LABEL[item.state])))].join(tx(", "));
         const reason = bucket === "failed" ? reasons.get(text(row.data.order_id)) : "";
         return <span className={bucket === "failed" ? "text-destructive" : "text-muted-foreground"}>{reason ? `${labels}: ${reason}` : labels}</span>;
       },
       exportValue: (row) => [...new Set(linesIn(scope, row.data, bucket).map((item) => item.detail || LINE_STATE_LABEL[item.state]))].join(", "),
     },
-    ...(scope.isSuperAdmin && bucket === "failed" ? [{ key: "retry", header: "", className: "text-end", cell: (row: Row) => (canRetry(row) ? <Button variant="outline" size="sm" onClick={() => void retry(row)}>Retry</Button> : null) }] : []),
+    ...(scope.isSuperAdmin && bucket === "failed" ? [{ key: "retry", header: "", className: "text-end", cell: (row: Row) => (canRetry(row) ? <Button variant="outline" size="sm" onClick={() => void retry(row)}>{tx("Retry")}</Button> : null) }] : []),
   ];
 
   return (
     <div className="space-y-3">
-      <PageHeader description={staff ? "Paid orders by what their items are waiting for. An order with items in different states appears under each." : "Your items in paid orders, by what happens next."} />
+      <PageHeader description={staff ? tx("Paid orders by what their items are waiting for. An order with items in different states appears under each.") : tx("Your items in paid orders, by what happens next.")} />
       <CountTabs tabs={tabs} value={bucket} onChange={setPicked} counts={counts} />
-      {hint ? <p className="text-[12px] text-muted-foreground">{hint}</p> : null}
+      {hint ? <p className="text-[12px] text-muted-foreground">{tx(hint)}</p> : null}
       <DataTable
         key={bucket}
         rows={byBucket[bucket]}
         columns={columns}
         loading={loading}
-        error={error ? `Orders could not be loaded: ${error}` : null}
-        emptyMessage="Nothing is waiting here."
+        error={error ? tx("Orders could not be loaded: {error}", { error }) : null}
+        emptyMessage={tx("Nothing is waiting here.")}
         searchText={(row) => orderSearchText(row.data)}
-        searchPlaceholder="Search order or product"
+        searchPlaceholder={tx("Search order or product")}
         onRowClick={(row) => router.push(`/order-details?id=${encodeURIComponent(row.id)}`)}
         rowChevron
         pageSize={50}
         hasMore={hasMore}
         onLoadMore={loadMore}
         exportName={`fulfilment-${bucket}`}
-        noun="order"
+        noun={tx("order")}
+        nounPlural={tx("orders")}
       />
     </div>
   );

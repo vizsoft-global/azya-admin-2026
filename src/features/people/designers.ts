@@ -1,6 +1,7 @@
 import type { WhereClause } from "@/lib/firestore-ui";
 import { readApplication, safeUrl, type DesignerApplication } from "@/lib/designer-enrollment";
 import { matchesAny, numberOr, rawText, record, text, textList } from "./util";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 /**
  * Designers after the application step (the pending list is its own screen,
@@ -9,7 +10,8 @@ import { matchesAny, numberOr, rawText, record, text, textList } from "./util";
  * `designer_main_info.designer_status` is `active`; the copy of the form under
  * `designer_main_info.designer_info` is what the apps show.
  */
-export const DESIGNER_TABS = ["Active", "Rejected", "Archived"] as const;
+/** The tab names are also the labels: translate with `tx(tab)` where they are shown. */
+export const DESIGNER_TABS = [txKey("Active"), txKey("Rejected"), txKey("Archived")] as const;
 export type DesignerTab = (typeof DESIGNER_TABS)[number];
 
 export function designerRequestStatusForTab(tab: DesignerTab): string {
@@ -92,7 +94,7 @@ export function readDesigner(data: Record<string, unknown>): Designer {
 }
 
 export function designerLabel(designer: Pick<Designer, "name" | "email" | "accountEmail">): string {
-  return designer.name || designer.email || designer.accountEmail || "this designer";
+  return designer.name || designer.email || designer.accountEmail || tx("this designer");
 }
 
 export function designerMatchesSearch(designer: Designer, search: string): boolean {

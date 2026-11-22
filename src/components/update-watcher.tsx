@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clearIndexedDbPersistence, terminate } from "firebase/firestore";
 import { getFirebase } from "@/lib/firebase";
+import { tx } from "@/lib/i18n/tx";
 import { hasUnsavedChanges } from "@/lib/unsaved";
 
 const CURRENT = process.env.NEXT_PUBLIC_BUILD_ID ?? "";
@@ -106,15 +107,15 @@ export function UpdateWatcher() {
       <div role="status" className="flex items-center gap-3 rounded-full bg-foreground py-2 ps-4 pe-2 text-[13px] text-background shadow-lg">
         <span>
           {blocked
-            ? "A new version is ready. Save your changes and it will update."
-            : `New version available. Updating in ${seconds}s…`}
+            ? tx("A new version is ready. Save your changes and it will update.")
+            : tx("New version available. Updating in {seconds}s…", { seconds })}
         </span>
         <button
           type="button"
           onClick={() => void apply(latest)}
           className="rounded-full bg-background px-3 py-1 font-medium text-foreground hover:bg-muted"
         >
-          {blocked ? "Update anyway" : "Update now"}
+          {blocked ? tx("Update anyway") : tx("Update now")}
         </button>
       </div>
     </div>

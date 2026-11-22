@@ -4,6 +4,7 @@ import { useContext, type ReactNode } from "react";
 import { Search } from "lucide-react";
 import { HeaderSlot, InShellContext } from "@/components/header-slots";
 import { Input } from "@/components/ui/input";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 
 /**
@@ -66,7 +67,7 @@ export function PageHeader({
 export function HeaderSearch({
   value,
   onChange,
-  placeholder = "Search",
+  placeholder = tx("Search"),
   ariaLabel,
 }: {
   value: string;

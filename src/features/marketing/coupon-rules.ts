@@ -1,3 +1,4 @@
+import { tx } from "@/lib/i18n/tx";
 import { roundMoney, toDate, toNumber } from "@/lib/format";
 
 /*
@@ -105,42 +106,42 @@ export function normaliseCode(code: string) {
 export function validateCoupon(form: CouponForm, options: { mode: "create" | "edit"; today: Date }): CouponErrors {
   const errors: CouponErrors = {};
   const code = normaliseCode(form.code);
-  if (!code) errors.code = "Enter the code customers will type.";
-  else if (/\s/.test(code)) errors.code = "A code cannot contain spaces.";
-  else if (code.length > COUPON_CODE_MAX) errors.code = `Keep the code to ${COUPON_CODE_MAX} characters or fewer.`;
+  if (!code) errors.code = tx("Enter the code customers will type.");
+  else if (/\s/.test(code)) errors.code = tx("A code cannot contain spaces.");
+  else if (code.length > COUPON_CODE_MAX) errors.code = tx("Keep the code to {max} characters or fewer.", { max: COUPON_CODE_MAX });
 
-  if (form.value == null || form.value <= 0) errors.value = "Enter a discount greater than zero.";
-  else if (form.type === "Percentage" && form.value > 100) errors.value = "A percentage cannot be more than 100.";
+  if (form.value == null || form.value <= 0) errors.value = tx("Enter a discount greater than zero.");
+  else if (form.type === "Percentage" && form.value > 100) errors.value = tx("A percentage cannot be more than 100.");
 
   if (form.type === "Percentage" && (form.maxDiscount == null || form.maxDiscount <= 0)) {
-    errors.maxDiscount = "Enter the most this coupon may take off, in KWD.";
+    errors.maxDiscount = tx("Enter the most this coupon may take off, in KWD.");
   }
 
-  if (form.minOrder == null || form.minOrder < 0) errors.minOrder = "Enter the smallest order this coupon works on (0 for none).";
+  if (form.minOrder == null || form.minOrder < 0) errors.minOrder = tx("Enter the smallest order this coupon works on (0 for none).");
   else if (form.audience !== "Creator") {
     // Creator coupons skip the minimum-order check in the app, so the comparison only matters for the others.
     if (form.type === "Amount" && form.value != null && form.minOrder <= form.value) {
-      errors.minOrder = "The minimum order must be more than the discount amount.";
+      errors.minOrder = tx("The minimum order must be more than the discount amount.");
     }
     if (form.type === "Percentage" && form.maxDiscount != null && form.minOrder <= form.maxDiscount) {
-      errors.minOrder = "The minimum order must be more than the largest discount.";
+      errors.minOrder = tx("The minimum order must be more than the largest discount.");
     }
   }
 
-  if (!form.description.trim()) errors.description = "Describe the coupon; customers see this text.";
+  if (!form.description.trim()) errors.description = tx("Describe the coupon; customers see this text.");
 
   const today = startOfDay(options.today);
-  if (!form.from) errors.from = "Choose the first day the coupon works.";
-  if (!form.to) errors.to = "Choose the last day the coupon works.";
-  if (form.from && form.to && startOfDay(form.to) < startOfDay(form.from)) errors.to = "The last day cannot be before the first day.";
+  if (!form.from) errors.from = tx("Choose the first day the coupon works.");
+  if (!form.to) errors.to = tx("Choose the last day the coupon works.");
+  if (form.from && form.to && startOfDay(form.to) < startOfDay(form.from)) errors.to = tx("The last day cannot be before the first day.");
   if (options.mode === "create") {
-    if (form.from && startOfDay(form.from) < today) errors.from = "The first day cannot be in the past.";
-    if (form.to && !errors.to && startOfDay(form.to) < today) errors.to = "The last day cannot be in the past.";
+    if (form.from && startOfDay(form.from) < today) errors.from = tx("The first day cannot be in the past.");
+    if (form.to && !errors.to && startOfDay(form.to) < today) errors.to = tx("The last day cannot be in the past.");
   }
 
   const smallest = options.mode === "create" ? 1 : 0;
   if (form.limit == null || !Number.isInteger(form.limit) || form.limit < smallest) {
-    errors.limit = options.mode === "create" ? "Enter how many times the coupon can be used (at least 1)." : "Enter how many uses are left (0 or more).";
+    errors.limit = options.mode === "create" ? tx("Enter how many times the coupon can be used (at least 1).") : tx("Enter how many uses are left (0 or more).");
   }
   return errors;
 }
@@ -227,7 +228,7 @@ export function couponState(data: Record<string, unknown>, today: Date): CouponS
   return "active";
 }
 
-/** "30% (up to 10.000 KWD)" or "5.000 KWD". */
+/** "30% (up to 10.000 KWD)" or "5.000 KWD". Always English: this is what the CSV export carries. */
 export function couponDiscountText(data: Record<string, unknown>) {
   const value = toNumber(data.coupon_price);
   if (value == null) return "";
@@ -236,6 +237,14 @@ export function couponDiscountText(data: Record<string, unknown>) {
     return cap == null ? `${value}%` : `${value}% (up to ${cap.toFixed(3)} KWD)`;
   }
   return `${value.toFixed(3)} KWD`;
+}
+
+/** The discount as shown in the table, in the panel's language. */
+export function couponDiscountLabel(data: Record<string, unknown>) {
+  const value = toNumber(data.coupon_price);
+  const cap = toNumber(data.coupon_maximum_discount);
+  if (value == null || data.coupon_discount_type !== "Percentage" || cap == null) return couponDiscountText(data);
+  return tx("{value}% (up to {cap} KWD)", { value, cap: cap.toFixed(3) });
 }
 
 /** How many people have used the coupon. */

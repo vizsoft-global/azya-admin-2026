@@ -1,5 +1,6 @@
 import type { Row } from "@/lib/firestore-ui";
 import { numberOr, rawText, record, text, textList } from "./util";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * Roles, permissions and staff, as the Flutter admin stores them.
@@ -35,7 +36,7 @@ export function readRole(row: Row): Role {
 }
 
 export function roleLabel(role: Pick<Role, "name" | "key">): string {
-  return role.name || role.key || "Unnamed role";
+  return role.name || role.key || tx("Unnamed role");
 }
 
 export function sortRoles(roles: Role[]): Role[] {
@@ -56,13 +57,13 @@ export type RoleForm = { name: string; key: string };
 export function validateRole(form: RoleForm, existingKeys: string[], options: { keyLocked?: boolean } = {}): Partial<Record<keyof RoleForm, string>> {
   const errors: Partial<Record<keyof RoleForm, string>> = {};
   const name = form.name.trim();
-  if (!name) errors.name = "Enter a name for the role.";
-  else if (name.length > 40) errors.name = "Keep the name under 40 characters.";
+  if (!name) errors.name = tx("Enter a name for the role.");
+  else if (name.length > 40) errors.name = tx("Keep the name under 40 characters.");
   if (options.keyLocked) return errors;
   const key = form.key.trim();
-  if (!key) errors.key = "Enter a key.";
-  else if (!/^[a-z][a-z0-9_]{1,39}$/.test(key)) errors.key = "Use lower case letters, digits and underscores, starting with a letter.";
-  else if (existingKeys.includes(key)) errors.key = "Another role already uses this key.";
+  if (!key) errors.key = tx("Enter a key.");
+  else if (!/^[a-z][a-z0-9_]{1,39}$/.test(key)) errors.key = tx("Use lower case letters, digits and underscores, starting with a letter.");
+  else if (existingKeys.includes(key)) errors.key = tx("Another role already uses this key.");
   return errors;
 }
 
@@ -88,15 +89,17 @@ export function renameRoleUpdate(name: string, now: unknown): Record<string, unk
 
 /** Why the signed-in person cannot rename this role, or "" when they can. Only a super admin (by role key) may touch the super admin role. */
 export function renameRoleBlockedReason(role: Pick<Role, "key">, actorIsSuperAdmin: boolean): string {
-  return role.key === SUPER_ADMIN_KEY && !actorIsSuperAdmin ? "Only a super admin can change the super admin role." : "";
+  return role.key === SUPER_ADMIN_KEY && !actorIsSuperAdmin ? tx("Only a super admin can change the super admin role.") : "";
 }
 
 /** Why this role cannot be deleted, or "" when it can. */
 export function deleteRoleBlockedReason(role: Pick<Role, "key">, input: { staffCount: number; ownRoleKey: string }): string {
-  if (PROTECTED_ROLE_KEYS.includes(role.key)) return "The admin panel relies on this role by name, so it cannot be deleted.";
-  if (role.key && role.key === input.ownRoleKey) return "This is the role you hold. Ask another admin to delete it.";
+  if (PROTECTED_ROLE_KEYS.includes(role.key)) return tx("The admin panel relies on this role by name, so it cannot be deleted.");
+  if (role.key && role.key === input.ownRoleKey) return tx("This is the role you hold. Ask another admin to delete it.");
   if (input.staffCount > 0) {
-    return `${input.staffCount} ${input.staffCount === 1 ? "person still holds" : "people still hold"} this role. Move them to another role first.`;
+    return input.staffCount === 1
+      ? tx("1 person still holds this role. Move them to another role first.")
+      : tx("{count} people still hold this role. Move them to another role first.", { count: input.staffCount });
   }
   return "";
 }
@@ -161,10 +164,10 @@ export function toggleBlockedReason(input: {
   ownRoleKey: string;
   isSuperAdmin: boolean;
 }): string {
-  if (input.role.key === SUPER_ADMIN_KEY && !input.isSuperAdmin) return "Only a super admin can change the super admin role.";
-  if (input.permissionKey === SUPER_ADMIN_KEY && !input.isSuperAdmin) return "Only a super admin can give or remove the super admin permission.";
+  if (input.role.key === SUPER_ADMIN_KEY && !input.isSuperAdmin) return tx("Only a super admin can change the super admin role.");
+  if (input.permissionKey === SUPER_ADMIN_KEY && !input.isSuperAdmin) return tx("Only a super admin can give or remove the super admin permission.");
   if (!input.turnOn && input.role.key !== "" && input.role.key === input.ownRoleKey && SELF_ACCESS_KEYS.includes(input.permissionKey)) {
-    return "You hold this role, and switching this off would lock you out of the roles screens. Ask another admin to do it.";
+    return tx("You hold this role, and switching this off would lock you out of the roles screens. Ask another admin to do it.");
   }
   return "";
 }
@@ -233,10 +236,10 @@ export function staffChangeBlockedReason(input: {
 }): string {
   const { member } = input;
   if ((input.actorDocId && member.id === input.actorDocId) || (input.actorUid && member.uid === input.actorUid)) {
-    return "You cannot change your own role. Ask another admin.";
+    return tx("You cannot change your own role. Ask another admin.");
   }
-  if (member.roleKey === SUPER_ADMIN_KEY && !input.actorIsSuperAdmin) return "Only a super admin can change a super admin.";
-  if (member.roleKey === DESIGNER_ROLE_KEY) return "The designer role comes from the designer approval and is not changed here.";
+  if (member.roleKey === SUPER_ADMIN_KEY && !input.actorIsSuperAdmin) return tx("Only a super admin can change a super admin.");
+  if (member.roleKey === DESIGNER_ROLE_KEY) return tx("The designer role comes from the designer approval and is not changed here.");
   return "";
 }
 
@@ -247,9 +250,9 @@ export function assignAlsoPublishes(member: Pick<StaffMember, "status" | "userRo
 
 export function assignRoleUpdate(member: Pick<StaffMember, "status" | "userRole">, roleKey: string, actorIsSuperAdmin: boolean): Record<string, unknown> {
   const key = roleKey.trim();
-  if (!key) throw new Error("Choose a role.");
-  if (key === SUPER_ADMIN_KEY && !actorIsSuperAdmin) throw new Error("Only a super admin can make someone a super admin.");
-  if (key === DESIGNER_ROLE_KEY) throw new Error("The designer role is given by approving a designer application.");
+  if (!key) throw new Error(tx("Choose a role."));
+  if (key === SUPER_ADMIN_KEY && !actorIsSuperAdmin) throw new Error(tx("Only a super admin can make someone a super admin."));
+  if (key === DESIGNER_ROLE_KEY) throw new Error(tx("The designer role is given by approving a designer application."));
   return assignAlsoPublishes(member) ? { role_unique_key: key, status: "Published" } : { role_unique_key: key };
 }
 

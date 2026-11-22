@@ -18,7 +18,9 @@ import { buildPayload, mergeDeep, readField } from "@/lib/crud-form";
 import { valueText } from "@/lib/describe-value";
 import { getFirebase } from "@/lib/firebase";
 import { removeDoc, saveDoc, useCollection, type Row } from "@/lib/firestore-ui";
-import { formatDate, formatMoney, pluralise } from "@/lib/format";
+import { formatDate, formatMoney } from "@/lib/format";
+import { nounText, pluralNounText } from "@/lib/i18n/nouns";
+import { tx } from "@/lib/i18n/tx";
 import { getPath } from "@/lib/object-path";
 import { useConfirm } from "./confirm-dialog";
 import type { CrudField, CrudPageProps, FormValues, RowAction } from "./crud-types";
@@ -54,13 +56,13 @@ function fieldText(field: CrudField, data: DocumentData): string {
     case "date":
       return formatDate(value, field.withTime);
     case "switch":
-      return value ? "Yes" : "No";
+      return value ? tx("Yes") : tx("No");
     case "bilingual": {
       const copy = value as { en: string; ar: string };
       return [copy.en, copy.ar].filter(Boolean).join(" / ");
     }
     case "select":
-      return field.options.find((option) => option.value === value)?.label ?? String(value ?? "");
+      return tx(field.options.find((option) => option.value === value)?.label ?? String(value ?? ""));
     default:
       return valueText(value);
   }
@@ -71,13 +73,17 @@ function fieldText(field: CrudField, data: DocumentData): string {
  * a create/edit form with validation, and a confirmed delete. Writes go through
  * `saveDoc` / `removeDoc`, so `created_at` and `updated_at` are kept up to date.
  * Staff never see or type raw JSON here.
+ *
+ * Everything in the config is written in English (`singular`, field labels, hints, option labels,
+ * column headers, facet labels, row action labels). The page shows the Arabic of each text that
+ * has one when the panel is in Arabic, so a config can stay a module-level constant.
  */
 export function CrudPage({
   collection,
   filters,
   pageSize = 100,
   singular,
-  plural = pluralise(singular),
+  plural,
   title,
   description,
   columns,
@@ -106,6 +112,9 @@ export function CrudPage({
 }: CrudPageProps) {
   const { allowed } = useAuth();
   const confirm = useConfirm();
+  // The record's name as it reads inside a sentence, in the panel language.
+  const noun = nounText(singular);
+  const nouns = pluralNounText(singular, plural);
   // With a preview source the Firestore hook is given no collection, so it reads nothing.
   const live = useCollection(source ? undefined : collection, pageSize, filters);
   const data = source ?? live;
@@ -145,15 +154,17 @@ export function CrudPage({
     const payload = row ? built : mergeDeep({ ...(filters ?? {}), ...(defaults ?? {}) }, built);
     const final = beforeSave ? await beforeSave(payload, { id: row?.id ?? null, row, values }) : payload;
     await (source ? source.save(row?.id ?? null, final) : saveDoc(collection, row?.id ?? null, final));
-    toast.success(row ? `${capitalise(singular)} saved.` : `${capitalise(singular)} created.`);
+    toast.success(row ? tx("{noun} saved.", { noun: capitalise(noun) }) : tx("{noun} created.", { noun: capitalise(noun) }));
   }
 
   async function remove(row: Row) {
     const name = rowTitle(row);
     const ok = await confirm({
-      title: `Delete this ${singular}?`,
-      description: `“${name}” will be removed for good. ${deleteWarning ? `${deleteWarning} ` : ""}This cannot be undone.`,
-      confirmLabel: "Delete",
+      title: tx("Delete this {noun}?", { noun }),
+      description: deleteWarning
+        ? tx("“{name}” will be removed for good. {warning} This cannot be undone.", { name, warning: tx(deleteWarning) })
+        : tx("“{name}” will be removed for good. This cannot be undone.", { name }),
+      confirmLabel: tx("Delete"),
       destructive: true,
     });
     if (!ok) return;
@@ -161,9 +172,9 @@ export function CrudPage({
       if (onDelete) await onDelete(row);
       else await (source ? source.remove(row.id) : removeDoc(collection, row.id));
       if (viewingId === row.id) setViewingId(null);
-      toast.success(`${capitalise(singular)} deleted.`);
+      toast.success(tx("{noun} deleted.", { noun: capitalise(noun) }));
     } catch (err) {
-      toast.error(`“${name}” was not deleted: ${err instanceof Error ? err.message : "something went wrong"}.`);
+      toast.error(tx("“{name}” was not deleted: {reason}.", { name, reason: err instanceof Error ? err.message : tx("something went wrong") }));
     }
   }
 
@@ -177,7 +188,7 @@ export function CrudPage({
       const message = typeof action.successMessage === "function" ? action.successMessage(row) : action.successMessage;
       if (message) toast.success(message);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : `${action.label} did not work.`);
+      toast.error(err instanceof Error ? err.message : tx("{action} did not work.", { action: tx(action.label) }));
     }
   }
 
@@ -196,31 +207,31 @@ export function CrudPage({
       return (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${rowTitle(row)}`}>
+            <Button variant="ghost" size="icon-sm" aria-label={tx("Actions for {name}", { name: rowTitle(row) })}>
               <EllipsisVertical />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-auto min-w-40">
             {detail ? (
               <DropdownMenuItem onSelect={() => setViewingId(row.id)}>
-                <Eye /> View
+                <Eye /> {tx("View")}
               </DropdownMenuItem>
             ) : null}
             {canEdit ? (
               <DropdownMenuItem onSelect={() => setForm({ row })}>
-                <Pencil /> Edit
+                <Pencil /> {tx("Edit")}
               </DropdownMenuItem>
             ) : null}
             {extra.map((action) => (
               <DropdownMenuItem key={action.label} variant={action.destructive ? "destructive" : "default"} onSelect={() => void run(action, row)}>
-                {action.icon ? <action.icon /> : null} {action.label}
+                {action.icon ? <action.icon /> : null} {tx(action.label)}
               </DropdownMenuItem>
             ))}
             {canDelete ? (
               <>
                 {detail || canEdit || extra.length ? <DropdownMenuSeparator /> : null}
                 <DropdownMenuItem variant="destructive" onSelect={() => void remove(row)}>
-                  <Trash2 /> Delete
+                  <Trash2 /> {tx("Delete")}
                 </DropdownMenuItem>
               </>
             ) : null}
@@ -238,21 +249,21 @@ export function CrudPage({
 
   const fallbackItems = (row: Row): DetailItem[] =>
     fields.length
-      ? fields.map((field) => ({ label: field.label, value: fieldText(field, row.data), wide: field.type === "textarea" || field.type === "bilingual" }))
-      : columns.filter((col) => col.header).map((col) => ({ label: col.header, value: col.cell(row) }));
+      ? fields.map((field) => ({ label: tx(field.label), value: fieldText(field, row.data), wide: field.type === "textarea" || field.type === "bilingual" }))
+      : columns.filter((col) => col.header).map((col) => ({ label: tx(col.header), value: col.cell(row) }));
 
   return (
     <div className="space-y-3">
       <PageHeader
-        title={title}
-        description={description}
+        title={title ? tx(title) : undefined}
+        description={typeof description === "string" ? tx(description) : description}
         actions={
           headerActions || canCreate ? (
             <>
               {headerActions}
               {canCreate ? (
                 <Button size="lg" onClick={() => setForm({ row: null })}>
-                  <Plus /> Add {singular}
+                  <Plus /> {tx("Add {noun}", { noun })}
                 </Button>
               ) : null}
             </>
@@ -265,10 +276,10 @@ export function CrudPage({
         rows={rows}
         columns={anyRowMenu ? [...columns, menuColumn] : columns}
         loading={data.loading}
-        error={data.error ? `The ${plural} could not be loaded: ${data.error}` : null}
-        emptyMessage={emptyMessage ?? `No ${plural} yet.`}
+        error={data.error ? tx("The {nouns} could not be loaded: {error}", { nouns, error: data.error }) : null}
+        emptyMessage={emptyMessage ? tx(emptyMessage) : tx("No {nouns} yet.", { nouns })}
         searchText={searchText}
-        searchPlaceholder={`Search ${plural}`}
+        searchPlaceholder={tx("Search {nouns}", { nouns })}
         defaultSort={defaultSort}
         pageSize={rowsPerPage}
         hasMore={data.hasMore}
@@ -284,10 +295,10 @@ export function CrudPage({
               {facets.map((facet) => (
                 <FilterSelect
                   key={facet.key}
-                  ariaLabel={`Filter by ${facet.label}`}
+                  ariaLabel={tx("Filter by {label}", { label: tx(facet.label) })}
                   value={facetValues[facet.key] ?? ALL}
                   onChange={(value) => setFacetValues((current) => ({ ...current, [facet.key]: value }))}
-                  options={[{ value: ALL, label: `All ${facet.label}` }, ...facet.options]}
+                  options={[{ value: ALL, label: tx("All {label}", { label: tx(facet.label) }) }, ...facet.options.map((option) => ({ ...option, label: tx(option.label) }))]}
                 />
               ))}
             </>
@@ -299,7 +310,7 @@ export function CrudPage({
         key={form?.row?.id ?? "new"}
         open={form !== null}
         onOpenChange={(open) => !open && setForm(null)}
-        title={form?.row ? `Edit ${singular}` : `Add ${singular}`}
+        title={form?.row ? tx("Edit {noun}", { noun }) : tx("Add {noun}", { noun })}
         description={form?.row ? rowTitle(form.row) : undefined}
         fields={fields}
         schema={schema}
@@ -327,7 +338,7 @@ export function CrudPage({
                 <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/50 p-4">
                   {deletable(viewing) ? (
                     <Button variant="destructive" className="me-auto" onClick={() => void remove(viewing)}>
-                      <Trash2 /> Delete
+                      <Trash2 /> {tx("Delete")}
                     </Button>
                   ) : null}
                   {editable(viewing) ? (
@@ -337,7 +348,7 @@ export function CrudPage({
                         setForm({ row: viewing });
                       }}
                     >
-                      <Pencil /> Edit
+                      <Pencil /> {tx("Edit")}
                     </Button>
                   ) : null}
                 </div>

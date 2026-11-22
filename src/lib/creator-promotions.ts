@@ -19,6 +19,7 @@
  */
 
 import { SUPPORT_MAIL, SUPPORT_PHONE, safeUrl } from "./designer-enrollment";
+import { tx, txIn, txKey } from "./i18n/tx";
 import { isValidLinkId } from "./share-links";
 
 export { MAIL_COLLECTION, USERS_COLLECTION, safeUrl } from "./designer-enrollment";
@@ -111,9 +112,9 @@ export function parseDay(value: string): Date | null {
 export function approvalDatesProblem(start: string, end: string): string {
   const startDate = parseDay(start);
   const endDate = parseDay(end);
-  if (!startDate) return "Choose a start date.";
-  if (!endDate) return "Choose an end date.";
-  if (endDate.getTime() <= startDate.getTime()) return "The end date must be after the start date.";
+  if (!startDate) return tx("Choose a start date.");
+  if (!endDate) return tx("Choose an end date.");
+  if (endDate.getTime() <= startDate.getTime()) return tx("The end date must be after the start date.");
   return "";
 }
 
@@ -284,12 +285,12 @@ export function flattenPromotions(rows: { id: string; data: Record<string, unkno
 
 export type PromotionTab = "pending" | "active" | "rejected" | "other";
 
-/** `other` collects any status the apps do not use, so nothing is hidden. */
+/** `other` collects any status the apps do not use, so nothing is hidden. Labels are English; show them with `tx(label)`. */
 export const PROMOTION_TABS: { tab: PromotionTab; label: string }[] = [
-  { tab: "pending", label: "Pending" },
-  { tab: "active", label: "Active" },
-  { tab: "rejected", label: "Rejected" },
-  { tab: "other", label: "Other" },
+  { tab: "pending", label: txKey("Pending") },
+  { tab: "active", label: txKey("Active") },
+  { tab: "rejected", label: txKey("Rejected") },
+  { tab: "other", label: txKey("Other") },
 ];
 
 /** The apps compare statuses to the letter, so `Active` is not `active`. */
@@ -303,24 +304,30 @@ export function promotionCounts(entries: CreatorPromotion[]): Record<PromotionTa
   return counts;
 }
 
+/** English label of a stored status. Show it with `tx()` or through StatusBadge, which translates it. */
 export function statusLabel(status: string): string {
   const tab = tabFor(status);
   if (tab !== "other") return PROMOTION_TABS.find((item) => item.tab === tab)!.label;
-  return status || "No status";
+  return status || txKey("No status");
 }
 
 export type PromotionTypeFilter = "all" | "custom" | "preapproved";
 
+/** The context "Custom" is translated in: elsewhere in the panel the word means a made-to-order dress. */
+export const PROMOTION_TYPE_CONTEXT = "promotion type";
+
+/** Labels are English; show them with `txIn(PROMOTION_TYPE_CONTEXT, label)`. */
 export const PROMOTION_TYPES: { type: PromotionTypeFilter; label: string }[] = [
-  { type: "all", label: "All types" },
+  { type: "all", label: txKey("All types") },
   { type: "custom", label: "Custom" },
-  { type: "preapproved", label: "Preapproved" },
+  { type: "preapproved", label: txKey("Preapproved") },
 ];
 
+/** The promotion type in the panel language; a type the apps do not use is shown as stored. */
 export function typeLabel(type: string): string {
-  if (type === "custom") return "Custom";
-  if (type === "preapproved") return "Preapproved";
-  return type || "Not set";
+  if (type === "custom") return txIn(PROMOTION_TYPE_CONTEXT, "Custom");
+  if (type === "preapproved") return tx("Preapproved");
+  return type || tx("Not set");
 }
 
 export function matchesType(entry: CreatorPromotion, filter: PromotionTypeFilter): boolean {
@@ -342,7 +349,7 @@ export function matchesSearch(entry: PromotionEntry, query: string): boolean {
 }
 
 export function promotionLabel(entry: CreatorPromotion): string {
-  return entry.promotionId || entry.caption || "this promotion";
+  return entry.promotionId || entry.caption || tx("this promotion");
 }
 
 /* ---------- Approve and reject ---------- */
@@ -354,13 +361,14 @@ export function canReview(status: string): boolean {
 
 /** Why a share link cannot be made from these IDs, or empty when it can. */
 export function promotionLinkProblem(uid: string, promotionId: string): string {
-  const allowed = "only letters, digits, dashes and underscores can go in a link, 128 at most";
   if (!isValidLinkId(promotionId)) {
     return promotionId
-      ? `the promotion ID "${promotionId}" cannot go in a share link (${allowed})`
-      : "the promotion has no ID, so no share link can be made for it";
+      ? tx("the promotion ID \"{id}\" cannot go in a share link (only letters, digits, dashes and underscores can go in a link, 128 at most)", { id: promotionId })
+      : tx("the promotion has no ID, so no share link can be made for it");
   }
-  if (!isValidLinkId(uid)) return `the creator's user ID "${uid}" cannot go in a share link (${allowed})`;
+  if (!isValidLinkId(uid)) {
+    return tx("the creator's user ID \"{id}\" cannot go in a share link (only letters, digits, dashes and underscores can go in a link, 128 at most)", { id: uid });
+  }
   return "";
 }
 
@@ -379,15 +387,15 @@ export type ReviewPlan = {
  * or cannot be told apart from another one.
  */
 export function planReview(data: Record<string, unknown> | undefined, promotionId: string): ReviewPlan | { problem: string } {
-  if (!promotionId) return { problem: "the promotion has no ID, so it cannot be found on the creator's record" };
+  if (!promotionId) return { problem: tx("the promotion has no ID, so it cannot be found on the creator's record") };
   const promotions = readPromotionList(data);
   const matches = promotions.flatMap((item, index) => (rawText(record(item).promotion_id) === promotionId ? [index] : []));
-  if (matches.length === 0) return { problem: "the promotion is no longer on the creator's record" };
+  if (matches.length === 0) return { problem: tx("the promotion is no longer on the creator's record") };
   if (matches.length > 1) {
-    return { problem: `the creator has ${matches.length} promotions with the ID ${promotionId}, so it is not clear which one to change` };
+    return { problem: tx("the creator has {count} promotions with the ID {id}, so it is not clear which one to change", { count: matches.length, id: promotionId }) };
   }
   const item = record(promotions[matches[0]]);
-  if (!canReview(text(item.promotion_status))) return { problem: "the promotion has already been approved or rejected" };
+  if (!canReview(text(item.promotion_status))) return { problem: tx("the promotion has already been approved or rejected") };
   return { list: promotions, index: matches[0], item };
 }
 

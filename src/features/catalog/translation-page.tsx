@@ -16,6 +16,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getFirebase } from "@/lib/firebase";
 import { useDocRow, useQueryRows, type QueryOptions, type Row } from "@/lib/firestore-ui";
+import { tx } from "@/lib/i18n/tx";
 import { useUnsavedChanges } from "@/lib/unsaved";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { productInScope } from "./product-list";
@@ -29,6 +30,7 @@ import {
   mergeTranslation,
   touchTranslation,
   TRANSLATED_FIELDS,
+  TRANSLATION_TEXT,
   TRANSLATION_TYPES,
   translationFormFrom,
   type TranslatedKey,
@@ -49,6 +51,7 @@ export function TranslationPage() {
   const type: TranslationType = isTranslationType(typeParam) ? typeParam : "product";
   const openId = params.get("id");
   const cfg = TRANSLATION_TYPES[type];
+  const text = TRANSLATION_TEXT[type];
   const [term, setTerm] = useState("");
 
   const query: QueryOptions =
@@ -76,11 +79,11 @@ export function TranslationPage() {
   const mark = (on: boolean) =>
     on ? (
       <span className="inline-flex items-center gap-1 text-success">
-        <Check className="size-3.5" aria-hidden /> Written
+        <Check className="size-3.5" aria-hidden /> {tx("Written")}
       </span>
     ) : (
       <span className="inline-flex items-center gap-1 text-muted-foreground">
-        <Minus className="size-3.5" aria-hidden /> Automatic
+        <Minus className="size-3.5" aria-hidden /> {tx("Automatic")}
       </span>
     );
 
@@ -99,14 +102,14 @@ export function TranslationPage() {
     },
     {
       key: "name",
-      header: "Name as typed",
-      cell: (row) => <span className="block max-w-72 truncate font-medium text-foreground">{originalText(row.data, type).name || "No name"}</span>,
+      header: tx("Name as typed"),
+      cell: (row) => <span className="block max-w-72 truncate font-medium text-foreground">{originalText(row.data, type).name || tx("No name")}</span>,
       sortable: true,
       sortValue: (row) => originalText(row.data, type).name,
     },
     {
       key: "arabic",
-      header: "Arabic shown",
+      header: tx("Arabic shown"),
       cell: (row) => {
         const text = translationFormFrom(row.data, type).name.ar.trim() || automaticText(row.data, type).name.ar.trim();
         return text ? (
@@ -118,9 +121,9 @@ export function TranslationPage() {
         );
       },
     },
-    { key: "manual-en", header: "English", cell: (row) => mark(manualState(row.data, type).en), sortable: true, sortValue: (row) => (manualState(row.data, type).en ? 1 : 0) },
-    { key: "manual-ar", header: "Arabic", cell: (row) => mark(manualState(row.data, type).ar), sortable: true, sortValue: (row) => (manualState(row.data, type).ar ? 1 : 0) },
-    { key: "status", header: "Status", cell: (row) => <StatusBadge value={str(row.data.status)} />, sortable: true, sortValue: (row) => str(row.data.status) },
+    { key: "manual-en", header: tx("English"), cell: (row) => mark(manualState(row.data, type).en), sortable: true, sortValue: (row) => (manualState(row.data, type).en ? 1 : 0) },
+    { key: "manual-ar", header: tx("Arabic"), cell: (row) => mark(manualState(row.data, type).ar), sortable: true, sortValue: (row) => (manualState(row.data, type).ar ? 1 : 0) },
+    { key: "status", header: tx("Status"), cell: (row) => <StatusBadge value={str(row.data.status)} />, sortable: true, sortValue: (row) => str(row.data.status) },
   ];
 
   const openedAllowed = opened.row && (type !== "product" || productInScope(scope, opened.row.data));
@@ -128,14 +131,14 @@ export function TranslationPage() {
   return (
     <div className="space-y-3">
       <PageHeader
-        description="Customers see the written translation when there is one, otherwise the automatic one. Only written translations are edited here."
-        center={<HeaderSearch value={term} onChange={setTerm} placeholder={`Search ${cfg.plural.toLowerCase()}`} />}
+        description={tx("Customers see the written translation when there is one, otherwise the automatic one. Only written translations are edited here.")}
+        center={<HeaderSearch value={term} onChange={setTerm} placeholder={tx(text.search)} />}
       />
       <Tabs value={type} onValueChange={(value) => isTranslationType(value) && go(value)}>
         <TabsList className="max-w-full overflow-x-auto">
           {TYPE_ORDER.map((item) => (
             <TabsTrigger key={item} value={item}>
-              {TRANSLATION_TYPES[item].plural}
+              {tx(TRANSLATION_TEXT[item].tab)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -151,16 +154,16 @@ export function TranslationPage() {
         pageSize={50}
         hasMore={list.hasMore}
         onLoadMore={list.loadMore}
-        noun={cfg.label.toLowerCase()}
-        nounPlural={cfg.plural.toLowerCase()}
-        emptyState={<EmptyState compact title={term ? `No ${cfg.plural.toLowerCase()} match your search` : `No ${cfg.plural.toLowerCase()} yet`} />}
+        noun={tx(text.noun)}
+        nounPlural={tx(text.nounPlural)}
+        emptyState={<EmptyState compact title={term ? tx(text.noneMatch) : tx(text.noneYet)} />}
       />
 
       {openId && opened.row && openedAllowed ? (
         <TranslationEditor key={`${type}-${openId}-${lang}`} type={type} row={opened.row} onClose={() => go(type)} />
       ) : openId && !opened.loading ? (
         <p className="rounded-[14px] bg-tint-warning p-3 text-[13px] text-foreground" role="alert">
-          {opened.error || (opened.row ? "This product belongs to another designer." : `That ${cfg.label.toLowerCase()} was not found.`)}
+          {opened.error || (opened.row ? tx("This product belongs to another designer.") : tx(text.notFound))}
         </p>
       ) : null}
     </div>
@@ -182,7 +185,7 @@ function TranslationEditor({ type, row, onClose }: { type: TranslationType; row:
 
   async function close() {
     if (saving) return;
-    if (patch && !(await confirm({ title: "Discard your changes?", description: "The translations you typed have not been saved.", confirmLabel: "Discard", destructive: true }))) return;
+    if (patch && !(await confirm({ title: tx("Discard your changes?"), description: tx("The translations you typed have not been saved."), confirmLabel: tx("Discard"), destructive: true }))) return;
     onClose();
   }
 
@@ -191,10 +194,10 @@ function TranslationEditor({ type, row, onClose }: { type: TranslationType; row:
     setSaving(true);
     try {
       await updateDoc(doc(getFirebase().db, cfg.collection, row.id), patch);
-      toast.success("Translations saved.");
+      toast.success(tx("Translations saved."));
       onClose();
     } catch (err) {
-      toast.error(`The translations were not saved; nothing was changed. ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(tx("The translations were not saved; nothing was changed. {error}", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setSaving(false);
     }
@@ -207,37 +210,37 @@ function TranslationEditor({ type, row, onClose }: { type: TranslationType; row:
       open
       wide
       onOpenChange={(next) => !next && void close()}
-      title={`Translate ${original.name || cfg.label.toLowerCase()}`}
-      description={`${cfg.label} ${str(row.data[cfg.idField]) || row.id}. Leave a box empty to keep showing the automatic translation.`}
+      title={tx("Translate {name}", { name: original.name || tx(TRANSLATION_TEXT[type].noun) })}
+      description={tx("ID {id}. Leave a box empty to keep showing the automatic translation.", { id: str(row.data[cfg.idField]) || row.id })}
       onSubmit={save}
       submitting={saving}
       submitDisabled={!patch}
-      submitLabel="Save translations"
+      submitLabel={tx("Save translations")}
     >
       {TRANSLATED_FIELDS.map(({ key, label, multiline }) => {
         const Control = multiline ? TextareaField : TextField;
         return (
           <fieldset key={key} className="grid gap-3 rounded-lg border border-border p-3">
-            <legend className="px-1 text-[13px] font-semibold text-heading">{label}</legend>
+            <legend className="px-1 text-[13px] font-semibold text-heading">{tx(label)}</legend>
             <div className="grid gap-1 rounded-md bg-muted p-2.5 text-[12px]">
               <p>
-                <span className="text-muted-foreground">As typed: </span>
+                <span className="text-muted-foreground">{tx("As typed:")} </span>
                 <span className="whitespace-pre-wrap text-foreground">{original[key] || "—"}</span>
               </p>
               <p>
-                <span className="text-muted-foreground">Automatic English: </span>
+                <span className="text-muted-foreground">{tx("Automatic English:")} </span>
                 <span className="whitespace-pre-wrap text-foreground">{automatic[key].en || "—"}</span>
               </p>
               <p>
-                <span className="text-muted-foreground">Automatic Arabic: </span>
+                <span className="text-muted-foreground">{tx("Automatic Arabic:")} </span>
                 <span className="whitespace-pre-wrap text-foreground" dir="rtl" lang="ar">
                   {automatic[key].ar || "—"}
                 </span>
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Control label="Written English" value={form[key].en} onChange={set(key, "en")} dir="ltr" disabled={saving} />
-              <Control label="Written Arabic" value={form[key].ar} onChange={set(key, "ar")} dir="rtl" disabled={saving} />
+              <Control label={tx("Written English")} value={form[key].en} onChange={set(key, "en")} dir="ltr" disabled={saving} />
+              <Control label={tx("Written Arabic")} value={form[key].ar} onChange={set(key, "ar")} dir="rtl" disabled={saving} />
             </div>
           </fieldset>
         );

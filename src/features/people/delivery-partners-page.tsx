@@ -34,12 +34,13 @@ import {
 } from "./delivery";
 import { StatusTabs, useStaffOnly } from "./parts";
 import { errorText, timeOf } from "./util";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 type Tab = "active" | "archived";
 
 const STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "archived", label: "Archived" },
+  { value: "active", label: txKey("Active") },
+  { value: "archived", label: txKey("Archived") },
 ];
 
 /**
@@ -61,40 +62,40 @@ export function DeliveryPartnersPage() {
   if (staffOnly) return staffOnly;
 
   async function setStatus(partner: Partner, status: "active" | "archived") {
-    const who = partner.name || partner.email || "this partner";
+    const who = partner.name || partner.email || tx("this partner");
     if (status === "archived") {
       const ok = await confirm({
-        title: `Archive ${who}?`,
+        title: tx("Archive {who}?", { who }),
         description: partner.onDelivery
-          ? "They are marked as on a delivery right now. Archiving takes them off the list of partners that can be given deliveries. You can restore them later."
-          : "They are taken off the list of partners that can be given deliveries. You can restore them later.",
-        confirmLabel: "Archive",
+          ? tx("They are marked as on a delivery right now. Archiving takes them off the list of partners that can be given deliveries. You can restore them later.")
+          : tx("They are taken off the list of partners that can be given deliveries. You can restore them later."),
+        confirmLabel: tx("Archive"),
         destructive: true,
       });
       if (!ok) return;
     }
     try {
       await updateDoc(doc(getFirebase().db, DELIVERY_COLLECTION, partner.id), statusUpdate(status));
-      toast.success(status === "archived" ? `${who} was archived.` : `${who} is active again.`);
+      toast.success(status === "archived" ? tx("{who} was archived.", { who }) : tx("{who} is active again.", { who }));
     } catch (err) {
-      toast.error(`${who} was not changed: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("{who} was not changed: {reason}. Nothing was changed.", { who, reason: errorText(err) }));
     }
   }
 
   const columns: Column<Partner>[] = [
-    { key: "number", header: "ID", className: "w-16 tabular-nums", cell: (partner) => partner.number || "—", sortable: true, sortValue: (partner) => Number(partner.number) || 0, exportValue: (partner) => partner.number },
-    { key: "name", header: "Name", cell: (partner) => <span className="font-medium text-foreground">{partner.name || "—"}</span>, sortable: true, sortValue: (partner) => partner.name, exportValue: (partner) => partner.name },
-    { key: "email", header: "Email", cell: (partner) => <span dir="ltr" lang="en">{partner.email || "—"}</span>, sortable: true, sortValue: (partner) => partner.email, exportValue: (partner) => partner.email },
-    { key: "status", header: "Status", cell: (partner) => <StatusBadge value={isActivePartner(partner) ? "active" : "archived"} />, exportValue: (partner) => partner.status },
+    { key: "number", header: tx("ID"), className: "w-16 tabular-nums", cell: (partner) => partner.number || "—", sortable: true, sortValue: (partner) => Number(partner.number) || 0, exportValue: (partner) => partner.number },
+    { key: "name", header: tx("Name"), cell: (partner) => <span className="font-medium text-foreground">{partner.name || "—"}</span>, sortable: true, sortValue: (partner) => partner.name, exportValue: (partner) => partner.name },
+    { key: "email", header: tx("Email"), cell: (partner) => <span dir="ltr" lang="en">{partner.email || "—"}</span>, sortable: true, sortValue: (partner) => partner.email, exportValue: (partner) => partner.email },
+    { key: "status", header: tx("Status"), cell: (partner) => <StatusBadge value={isActivePartner(partner) ? "active" : "archived"} />, exportValue: (partner) => partner.status },
     {
       key: "availability",
-      header: "Availability",
-      cell: (partner) => (partner.onDelivery ? <StatusBadge value="in progress" label="On a delivery" /> : <StatusBadge value="active" label="Free" tone="neutral" />),
+      header: tx("Availability"),
+      cell: (partner) => (partner.onDelivery ? <StatusBadge value="in progress" label={tx("On a delivery")} /> : <StatusBadge value="active" label={tx("Free")} tone="neutral" />),
       sortable: true,
       sortValue: (partner) => (partner.onDelivery ? 1 : 0),
       exportValue: (partner) => (partner.onDelivery ? "On a delivery" : "Free"),
     },
-    { key: "added", header: "Added", className: "whitespace-nowrap", cell: (partner) => formatDate(partner.createdAt) || "—", sortable: true, sortValue: (partner) => timeOf(partner.createdAt), exportValue: (partner) => formatDate(partner.createdAt) },
+    { key: "added", header: tx("Added"), className: "whitespace-nowrap", cell: (partner) => formatDate(partner.createdAt) || "—", sortable: true, sortValue: (partner) => timeOf(partner.createdAt), exportValue: (partner) => formatDate(partner.createdAt) },
     {
       key: "actions",
       header: "",
@@ -102,15 +103,15 @@ export function DeliveryPartnersPage() {
       cell: (partner) => (
         <span className="flex flex-wrap justify-end gap-1.5">
           <Button variant="outline" size="sm" onClick={() => setEditing(partner)}>
-            Edit
+            {tx("Edit")}
           </Button>
           {isActivePartner(partner) ? (
             <Button variant="ghost" size="sm" className="text-destructive" onClick={() => void setStatus(partner, "archived")}>
-              Archive
+              {tx("Archive")}
             </Button>
           ) : (
             <Button variant="ghost" size="sm" onClick={() => void setStatus(partner, "active")}>
-              Restore
+              {tx("Restore")}
             </Button>
           )}
         </span>
@@ -124,33 +125,33 @@ export function DeliveryPartnersPage() {
         actions={
           <Button onClick={() => setAdding(true)}>
             <Plus aria-hidden />
-            Add delivery partner
+            {tx("Add delivery partner")}
           </Button>
         }
       />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="All partners" value={`${counts.total}${hasMore ? "+" : ""}`} loading={loading && partners.length === 0} />
-        <StatCard label="Active" value={counts.active} loading={loading && partners.length === 0} onClick={() => setTab("active")} />
-        <StatCard label="Archived" value={counts.archived} loading={loading && partners.length === 0} onClick={() => setTab("archived")} />
-        <StatCard label="On a delivery" value={counts.onDelivery} loading={loading && partners.length === 0} />
+        <StatCard label={tx("All partners")} value={`${counts.total}${hasMore ? "+" : ""}`} loading={loading && partners.length === 0} />
+        <StatCard label={tx("Active")} value={counts.active} loading={loading && partners.length === 0} onClick={() => setTab("active")} />
+        <StatCard label={tx("Archived")} value={counts.archived} loading={loading && partners.length === 0} onClick={() => setTab("archived")} />
+        <StatCard label={tx("On a delivery")} value={counts.onDelivery} loading={loading && partners.length === 0} />
       </div>
       <StatusTabs<Tab>
-        label="Delivery partners by status"
+        label={tx("Delivery partners by status")}
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: "active", label: "Active", count: String(counts.active) },
-          { value: "archived", label: "Archived", count: String(counts.archived) },
+          { value: "active", label: tx("Active"), count: String(counts.active) },
+          { value: "archived", label: tx("Archived"), count: String(counts.archived) },
         ]}
       />
       <DataTable
         rows={shown}
         columns={columns}
         loading={loading}
-        error={error ? `Delivery partners could not be loaded: ${error}` : null}
-        emptyMessage={tab === "active" ? "No active delivery partners. Add one to get started." : "No archived delivery partners."}
+        error={error ? tx("Delivery partners could not be loaded: {error}", { error }) : null}
+        emptyMessage={tab === "active" ? tx("No active delivery partners. Add one to get started.") : tx("No archived delivery partners.")}
         searchText={(partner) => `${partner.number} ${partner.name} ${partner.email}`}
-        searchPlaceholder="Search by name, email or ID"
+        searchPlaceholder={tx("Search by name, email or ID")}
         pageSize={25}
         hasMore={hasMore}
         onLoadMore={loadMore}
@@ -179,21 +180,21 @@ function PartnerDialog({ partners, editing, onClose }: { partners: Partner[]; ed
       if (editing) {
         const update = partnerUpdate(editing, form);
         if (Object.keys(update).length > 0) await updateDoc(doc(db, DELIVERY_COLLECTION, editing.id), update);
-        toast.success(`${form.name.trim()} was saved.`);
+        toast.success(tx("{name} was saved.", { name: form.name.trim() }));
       } else {
         const counters = await idMapRef();
         const target = doc(collection(db, DELIVERY_COLLECTION));
         // One transaction, so two people adding at once can never be given the same partner ID.
-        const number = await runTransaction(db, async (tx) => {
-          const ids = await takeIds(tx, counters, [PARTNER_COUNTER]);
-          tx.set(target, newPartnerRecord(form, ids[PARTNER_COUNTER], serverTimestamp()));
+        const number = await runTransaction(db, async (txn) => {
+          const ids = await takeIds(txn, counters, [PARTNER_COUNTER]);
+          txn.set(target, newPartnerRecord(form, ids[PARTNER_COUNTER], serverTimestamp()));
           return ids[PARTNER_COUNTER];
         });
-        toast.success(`${form.name.trim()} was added as delivery partner ${number}.`);
+        toast.success(tx("{name} was added as delivery partner {number}.", { name: form.name.trim(), number }));
       }
       onClose();
     } catch (err) {
-      toast.error(`The delivery partner was not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("The delivery partner was not saved: {reason}. Nothing was changed.", { reason: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -203,16 +204,16 @@ function PartnerDialog({ partners, editing, onClose }: { partners: Partner[]; ed
     <FormModal
       open
       onOpenChange={(open) => !open && onClose()}
-      title={editing ? "Edit delivery partner" : "Add delivery partner"}
-      description={editing ? undefined : "The partner's sign-in is not set up from here: this only adds them to the list."}
+      title={editing ? tx("Edit delivery partner") : tx("Add delivery partner")}
+      description={editing ? undefined : tx("The partner's sign-in is not set up from here: this only adds them to the list.")}
       onSubmit={save}
       submitting={saving}
-      submitLabel={editing ? "Save changes" : "Add partner"}
+      submitLabel={editing ? tx("Save changes") : tx("Add partner")}
       size="sm"
     >
-      <TextField label="Name" required value={form.name} onChange={(name) => set({ name })} maxLength={60} error={errors.name} />
-      <TextField label="Email" required type="email" dir="ltr" value={form.email} onChange={(email) => set({ email })} maxLength={120} error={errors.email} />
-      <SelectField label="Status" required value={form.status} onChange={(status) => set({ status })} options={STATUS_OPTIONS} error={errors.status} hint="Archived partners are not offered when a delivery is assigned." />
+      <TextField label={tx("Name")} required value={form.name} onChange={(name) => set({ name })} maxLength={60} error={errors.name} />
+      <TextField label={tx("Email")} required type="email" dir="ltr" value={form.email} onChange={(email) => set({ email })} maxLength={120} error={errors.email} />
+      <SelectField label={tx("Status")} required value={form.status} onChange={(status) => set({ status })} options={STATUS_OPTIONS.map((item) => ({ value: item.value, label: tx(item.label) }))} error={errors.status} hint={tx("Archived partners are not offered when a delivery is assigned.")} />
     </FormModal>
   );
 }

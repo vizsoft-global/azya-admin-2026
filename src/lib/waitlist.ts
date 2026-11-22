@@ -7,6 +7,8 @@
  * `Decline` and removes any access code record.
  */
 
+import { tx, txKey } from "./i18n/tx";
+
 export const WAITLIST_COLLECTION = "user_waitlist";
 export const REFERRAL_COLLECTION = "user_referral_activities";
 
@@ -18,15 +20,17 @@ export const WAITLIST_FEATURE_FIELD = "settings_secret_feature.settings_waitlist
 
 export type WaitlistStatus = "Pending" | "Active" | "Completed" | "Decline";
 
+/** Labels are English; show them with `tx(label)` (the shared StatusBadge translates a status label itself). */
 export const WAITLIST_TABS: { status: WaitlistStatus; label: string }[] = [
-  { status: "Pending", label: "New" },
-  { status: "Active", label: "Accepted" },
-  { status: "Completed", label: "Completed" },
-  { status: "Decline", label: "Declined" },
+  { status: "Pending", label: txKey("New") },
+  { status: "Active", label: txKey("Accepted") },
+  { status: "Completed", label: txKey("Completed") },
+  { status: "Decline", label: txKey("Declined") },
 ];
 
+/** English label of a stored status. Show it with `tx()` or through StatusBadge. */
 export function waitlistStatusLabel(status: string): string {
-  return WAITLIST_TABS.find((tab) => tab.status === status)?.label ?? (status || "Unknown");
+  return WAITLIST_TABS.find((tab) => tab.status === status)?.label ?? (status || txKey("Unknown"));
 }
 
 export function canAccept(status: string): boolean {
@@ -140,5 +144,5 @@ export function readReferralActivity(data: Record<string, unknown>): ReferralAct
 
 /** Name to show for a user record, falling back to email and then to the record ID. */
 export function userLabel(data: Record<string, unknown> | undefined, path: string): string {
-  return text(data?.display_name) || text(data?.user_name) || text(data?.email) || path.split("/").pop() || "Unknown";
+  return text(data?.display_name) || text(data?.user_name) || text(data?.email) || path.split("/").pop() || tx("Unknown");
 }

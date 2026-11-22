@@ -1,4 +1,5 @@
 import { formatDate } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import type { RoleScope } from "@/lib/role-scope";
 import { StoreValleyConfig } from "@/lib/store-valley/config";
 import { availableForOrder } from "@/lib/store-valley/inventory";
@@ -6,7 +7,7 @@ import { NOW, type InventoryView, type Patch, type Row } from "./model";
 
 /** Rules of the stock list (Flutter "Inventory › Product Management"). */
 
-export const STOCK_FILTERS = ["All", "Active", "Inactive", "Low stock"] as const;
+export const STOCK_FILTERS = [txKey("All"), txKey("Active"), txKey("Inactive"), txKey("Low stock")] as const;
 export type StockFilter = (typeof STOCK_FILTERS)[number];
 
 /** Low stock: managed by Azyaa, active, and at or below its alert threshold. */
@@ -32,6 +33,15 @@ export function matchesStockFilter(view: InventoryView, filter: StockFilter, sco
 
 export const DATE_FILTERS = ["All", "Today", "Yesterday", "This week", "This month", "Custom"] as const;
 export type DateFilter = (typeof DATE_FILTERS)[number];
+/** What each "Updated" filter is called on screen. */
+export const DATE_FILTER_LABELS: Record<DateFilter, string> = {
+  All: txKey("Updated any time"),
+  Today: txKey("Updated today"),
+  Yesterday: txKey("Updated yesterday"),
+  "This week": txKey("Updated this week"),
+  "This month": txKey("Updated this month"),
+  Custom: txKey("Custom range"),
+};
 
 const dayStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 const addDays = (date: Date, days: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
@@ -144,7 +154,7 @@ export function matchesStockSearch(view: InventoryView, productName: string, ter
 }
 
 export function thresholdProblem(value: number | null): string | null {
-  if (value == null || !Number.isInteger(value) || value < 0) return "Enter a whole number, 0 or more.";
+  if (value == null || !Number.isInteger(value) || value < 0) return tx("Enter a whole number, 0 or more.");
   return null;
 }
 
@@ -171,19 +181,21 @@ export function reservedSyncSummary(result: { reserved?: unknown; skipped?: unkn
   const reserved = count(result?.reserved);
   const skipped = count(result?.skipped);
   const failed = count(result?.failed);
-  const orders = (n: number) => `${n} ${n === 1 ? "order" : "orders"}`;
-  const text = `Reserved stock for ${orders(reserved)}; ${skipped} already reserved or not applicable${failed ? `; ${orders(failed)} failed` : ""}.`;
+  const orders = (count: number) => (count === 1 ? tx("1 order") : tx("{count} orders", { count }));
+  const text = failed
+    ? tx("Reserved stock for {orders}; {skipped} already reserved or not applicable; {failed} failed.", { orders: orders(reserved), skipped, failed: orders(failed) })
+    : tx("Reserved stock for {orders}; {skipped} already reserved or not applicable.", { orders: orders(reserved), skipped });
   return {
     reserved,
     skipped,
     failed,
-    text: failed ? `${text} A failed order usually means the warehouse does not have enough stock for it; open the order to see its reservation status.` : text,
+    text: failed ? tx("{summary} A failed order usually means the warehouse does not have enough stock for it; open the order to see its reservation status.", { summary: text }) : text,
   };
 }
 
 /** First problem with a designer's collect request, or null. */
 export function collectRequestProblem(input: { quantity: number | null; packageCount: number | null }): string | null {
-  if (input.quantity == null || !Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 999) return "Enter a quantity between 1 and 999.";
-  if (input.packageCount == null || !Number.isInteger(input.packageCount) || input.packageCount < 1 || input.packageCount > 999) return "Enter a package count between 1 and 999.";
+  if (input.quantity == null || !Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 999) return tx("Enter a quantity between 1 and 999.");
+  if (input.packageCount == null || !Number.isInteger(input.packageCount) || input.packageCount < 1 || input.packageCount > 999) return tx("Enter a package count between 1 and 999.");
   return null;
 }

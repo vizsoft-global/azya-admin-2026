@@ -25,6 +25,7 @@ import {
   waitlistStatusLabel,
   type WaitlistStatus,
 } from "@/lib/waitlist";
+import { tx } from "@/lib/i18n/tx";
 import { useAuth } from "./auth-provider";
 import { StatusBadge } from "./shared/status-badge";
 import { buttonVariants } from "./ui/button";
@@ -45,8 +46,8 @@ export function WaitlistPage() {
     <div className="space-y-4">
       <WaitlistFeatureSwitch />
       <div className="flex gap-2">
-        <button className={view === "waitlist" ? chipOn : chipOff} aria-pressed={view === "waitlist"} onClick={() => setView("waitlist")}>Waitlist</button>
-        <button className={view === "referrals" ? chipOn : chipOff} aria-pressed={view === "referrals"} onClick={() => setView("referrals")}>Referrals</button>
+        <button className={view === "waitlist" ? chipOn : chipOff} aria-pressed={view === "waitlist"} onClick={() => setView("waitlist")}>{tx("Waitlist")}</button>
+        <button className={view === "referrals" ? chipOn : chipOff} aria-pressed={view === "referrals"} onClick={() => setView("referrals")}>{tx("Referrals")}</button>
       </div>
       {view === "waitlist" ? <WaitlistTable /> : <ReferralTable />}
     </div>
@@ -70,9 +71,9 @@ function WaitlistFeatureSwitch() {
         [WAITLIST_FEATURE_FIELD]: next,
         updated_at: serverTimestamp(),
       });
-      setNote(next ? "The waitlist is on. New people must be accepted before they can use the app." : "The waitlist is off. Anyone can sign up.");
+      setNote(next ? tx("The waitlist is on. New people must be accepted before they can use the app.") : tx("The waitlist is off. Anyone can sign up."));
     } catch (err) {
-      setNote(`The waitlist setting was not changed: ${err instanceof Error ? err.message : "the save failed"}.`);
+      setNote(tx("The waitlist setting was not changed: {reason}.", { reason: err instanceof Error ? err.message : tx("the save failed") }));
     } finally {
       setSaving(false);
     }
@@ -82,21 +83,21 @@ function WaitlistFeatureSwitch() {
     <section className="rounded-[14px] bg-card p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1 basis-56">
-          <p className="text-sm font-semibold text-heading">App waitlist</p>
-          <p className="text-xs text-muted-foreground">When on, new people join a waitlist and need an access code before they can use the app.</p>
+          <p className="text-sm font-semibold text-heading">{tx("App waitlist")}</p>
+          <p className="text-xs text-muted-foreground">{tx("When on, new people join a waitlist and need an access code before they can use the app.")}</p>
         </div>
-        {loading && <span className="text-xs text-subtle">Loading…</span>}
-        {error && <span className="text-xs text-destructive">Could not load the setting: {error}</span>}
-        {!loading && !error && !company && <span className="text-xs text-destructive">No Company settings record was found.</span>}
+        {loading && <span className="text-xs text-subtle">{tx("Loading…")}</span>}
+        {error && <span className="text-xs text-destructive">{tx("Could not load the setting: {error}", { error })}</span>}
+        {!loading && !error && !company && <span className="text-xs text-destructive">{tx("No Company settings record was found.")}</span>}
         {company && confirming && (
           <div className="flex items-center gap-2">
-            <span className="text-xs">{on ? "Let anyone sign up without a code?" : "Put all new sign-ups on the waitlist?"}</span>
-            <button className={dark} onClick={() => save(!on)}>{on ? "Turn off" : "Turn on"}</button>
-            <button className={light} onClick={() => setConfirming(false)}>Cancel</button>
+            <span className="text-xs">{on ? tx("Let anyone sign up without a code?") : tx("Put all new sign-ups on the waitlist?")}</span>
+            <button className={dark} onClick={() => save(!on)}>{on ? tx("Turn off") : tx("Turn on")}</button>
+            <button className={light} onClick={() => setConfirming(false)}>{tx("Cancel")}</button>
           </div>
         )}
         {company && !confirming && (
-          <Switch checked={on} aria-label="App waitlist" disabled={saving} onCheckedChange={() => setConfirming(true)} />
+          <Switch checked={on} aria-label={tx("App waitlist")} disabled={saving} onCheckedChange={() => setConfirming(true)} />
         )}
       </div>
       {note && <p className="mt-2 text-xs text-muted-foreground" role="status">{note}</p>}
@@ -125,7 +126,7 @@ function WaitlistTable() {
 
   async function accept(entry: (typeof entries)[number]) {
     if (!entry.email) {
-      setNote("This entry has no email address, so an access code cannot be sent.");
+      setNote(tx("This entry has no email address, so an access code cannot be sent."));
       return;
     }
     setBusy(entry.id);
@@ -135,7 +136,7 @@ function WaitlistTable() {
       const reply = await postJson(`${baseUrl}${calls.email}`, { email: entry.email, expiry: ACCESS_CODE_EXPIRY_SECONDS }, headers);
       const requestId = requestIdFrom(reply.body);
       if (reply.status < 200 || reply.status >= 300 || !requestId) {
-        setNote(`The access code email to ${entry.email} was not sent, so the entry is unchanged. Try again in a minute.`);
+        setNote(tx("The access code email to {email} was not sent, so the entry is unchanged. Try again in a minute.", { email: entry.email }));
         return;
       }
       const { db } = getFirebase();
@@ -143,9 +144,9 @@ function WaitlistTable() {
         doc(db, WAITLIST_COLLECTION, entry.id),
         acceptUpdate({ requestId, createdBy: user ? doc(db, "users", user.uid) : null, now: serverTimestamp() }),
       );
-      setNote(`Accepted. An access code that works for 24 hours was emailed to ${entry.email}.`);
+      setNote(tx("Accepted. An access code that works for 24 hours was emailed to {email}.", { email: entry.email }));
     } catch (err) {
-      setNote(`${entry.email} was not accepted: ${err instanceof Error ? err.message : "something went wrong"}.`);
+      setNote(tx("{email} was not accepted: {reason}.", { email: entry.email, reason: err instanceof Error ? err.message : tx("something went wrong") }));
     } finally {
       setBusy(null);
     }
@@ -160,9 +161,9 @@ function WaitlistTable() {
         doc(getFirebase().db, WAITLIST_COLLECTION, entry.id),
         declineUpdate({ now: serverTimestamp(), removeField: deleteField() }),
       );
-      setNote(`Declined ${entry.name || entry.email || "the entry"}.`);
+      setNote(tx("Declined {name}.", { name: entry.name || entry.email || tx("the entry") }));
     } catch (err) {
-      setNote(`The entry was not declined: ${err instanceof Error ? err.message : "something went wrong"}.`);
+      setNote(tx("The entry was not declined: {reason}.", { reason: err instanceof Error ? err.message : tx("something went wrong") }));
     } finally {
       setBusy(null);
     }
@@ -173,35 +174,35 @@ function WaitlistTable() {
       <div className="flex flex-wrap items-center gap-2">
         {WAITLIST_TABS.map((item) => (
           <button key={item.status} className={tab === item.status ? chipOn : chipOff} aria-pressed={tab === item.status} onClick={() => setTab(item.status)}>
-            {item.label} {counts[item.status]}
+            {tx(item.label)} {counts[item.status]}
           </button>
         ))}
         <Input
           type="search"
           value={q}
           onChange={(event) => setQ(event.target.value)}
-          placeholder="Search name, email, phone or ID"
-          aria-label="Search the waitlist"
+          placeholder={tx("Search name, email, phone or ID")}
+          aria-label={tx("Search the waitlist")}
           className="ms-auto sm:w-64"
         />
       </div>
 
       {note && <p className="mt-3 text-xs text-muted-foreground" role="status">{note}</p>}
-      {error && <p className="mt-3 text-xs text-destructive">The waitlist could not be loaded: {error}</p>}
-      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
+      {error && <p className="mt-3 text-xs text-destructive">{tx("The waitlist could not be loaded: {error}", { error })}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">{tx("Loading…")}</p>}
 
       {!loading && !error && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse">
             <thead>
               <tr className="border-b border-border">
-                <th className={th}>Waitlist ID</th>
-                <th className={th}>Name</th>
-                <th className={th}>Email</th>
-                <th className={th}>Phone</th>
-                <th className={th}>Status</th>
-                <th className={th}>Joined</th>
-                <th className={th}>Actions</th>
+                <th className={th}>{tx("Waitlist ID")}</th>
+                <th className={th}>{tx("Name")}</th>
+                <th className={th}>{tx("Email")}</th>
+                <th className={th}>{tx("Phone")}</th>
+                <th className={th}>{tx("Status")}</th>
+                <th className={th}>{tx("Joined")}</th>
+                <th className={th}>{tx("Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -216,19 +217,19 @@ function WaitlistTable() {
                   <td className={td}>
                     {declining === entry.id ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs">Decline this person?</span>
-                        <button className={dark} onClick={() => decline(entry)}>Decline</button>
-                        <button className={light} onClick={() => setDeclining(null)}>Keep</button>
+                        <span className="text-xs">{tx("Decline this person?")}</span>
+                        <button className={dark} onClick={() => decline(entry)}>{tx("Decline")}</button>
+                        <button className={light} onClick={() => setDeclining(null)}>{tx("Keep")}</button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         {canAccept(entry.status) && (
                           <button className={dark} disabled={busy === entry.id} onClick={() => accept(entry)}>
-                            {busy === entry.id ? "Sending…" : "Accept"}
+                            {busy === entry.id ? tx("Sending…") : tx("Accept")}
                           </button>
                         )}
                         {canDecline(entry.status) && (
-                          <button className={light} disabled={busy === entry.id} onClick={() => setDeclining(entry.id)}>Decline</button>
+                          <button className={light} disabled={busy === entry.id} onClick={() => setDeclining(entry.id)}>{tx("Decline")}</button>
                         )}
                       </div>
                     )}
@@ -239,7 +240,7 @@ function WaitlistTable() {
           </table>
           {shown.length === 0 && (
             <p className="py-6 text-center text-xs text-subtle">
-              {q.trim() ? "Nobody in this tab matches your search." : `Nobody is in ${waitlistStatusLabel(tab)} right now.`}
+              {q.trim() ? tx("Nobody in this tab matches your search.") : tx("Nobody is in {tab} right now.", { tab: tx(waitlistStatusLabel(tab)) })}
             </p>
           )}
         </div>
@@ -247,8 +248,8 @@ function WaitlistTable() {
 
       {hasMore && (
         <div className="mt-3 flex items-center gap-2">
-          <button className={light} onClick={loadMore}>Load more</button>
-          <span className="text-xs text-subtle">Counts cover the entries loaded so far.</span>
+          <button className={light} onClick={loadMore}>{tx("Load more")}</button>
+          <span className="text-xs text-subtle">{tx("Counts cover the entries loaded so far.")}</span>
         </div>
       )}
     </section>
@@ -287,25 +288,25 @@ function ReferralTable() {
     };
   }, [activities, users]);
 
-  const name = (path: string) => (path ? userLabel(users[path], path) : "Unknown");
+  const name = (path: string) => (path ? userLabel(users[path], path) : tx("Unknown"));
 
   return (
     <section className="rounded-[14px] bg-card p-4">
-      <p className="text-sm font-semibold text-heading">Referrals</p>
-      <p className="mt-1 text-xs text-muted-foreground">Each row is one new customer who signed up with an existing customer&apos;s referral code.</p>
-      {error && <p className="mt-3 text-xs text-destructive">Referrals could not be loaded: {error}</p>}
-      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
+      <p className="text-sm font-semibold text-heading">{tx("Referrals")}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{tx("Each row is one new customer who signed up with an existing customer's referral code.")}</p>
+      {error && <p className="mt-3 text-xs text-destructive">{tx("Referrals could not be loaded: {error}", { error })}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">{tx("Loading…")}</p>}
       {!loading && !error && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-b border-border">
-                <th className={th}>Referral ID</th>
-                <th className={th}>Referred by</th>
-                <th className={th}>New customer</th>
-                <th className={th}>Points given</th>
-                <th className={th}>Status</th>
-                <th className={th}>Date</th>
+                <th className={th}>{tx("Referral ID")}</th>
+                <th className={th}>{tx("Referred by")}</th>
+                <th className={th}>{tx("New customer")}</th>
+                <th className={th}>{tx("Points given")}</th>
+                <th className={th}>{tx("Status")}</th>
+                <th className={th}>{tx("Date")}</th>
               </tr>
             </thead>
             <tbody>
@@ -321,10 +322,10 @@ function ReferralTable() {
               ))}
             </tbody>
           </table>
-          {activities.length === 0 && <p className="py-6 text-center text-xs text-subtle">No one has used a referral code yet.</p>}
+          {activities.length === 0 && <p className="py-6 text-center text-xs text-subtle">{tx("No one has used a referral code yet.")}</p>}
         </div>
       )}
-      {hasMore && <button className={`${light} mt-3`} onClick={loadMore}>Load more</button>}
+      {hasMore && <button className={`${light} mt-3`} onClick={loadMore}>{tx("Load more")}</button>}
     </section>
   );
 }

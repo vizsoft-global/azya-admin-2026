@@ -18,6 +18,8 @@ import { getFirebase } from "@/lib/firebase";
 import { useDocRow } from "@/lib/firestore-ui";
 import { humanize } from "@/lib/format";
 import { useUnsavedChanges } from "@/lib/unsaved";
+import { isDesignerAccount } from "./designer-profile";
+import { DesignerBankCard, PickupAddressCard } from "./designer-profile-cards";
 import { Section } from "./parts";
 import {
   MIN_PASSWORD_LENGTH,
@@ -30,6 +32,7 @@ import {
   type ProfileForm,
 } from "./profile";
 import { errorText, text, USERS_COLLECTION } from "./util";
+import { tx } from "@/lib/i18n/tx";
 
 const EMPTY_PASSWORD: PasswordForm = { current: "", next: "", confirm: "" };
 
@@ -54,10 +57,10 @@ export function MyProfilePage() {
   const dirty = Object.keys(changes).length > 0;
   useUnsavedChanges(dirty);
 
-  if (!user || !ownId) return <EmptyState icon={UserRound} title="Sign in to see your profile" />;
-  if (error) return <EmptyState icon={UserRound} title="Your profile could not be loaded" description={`${error} Reload the page to try again.`} />;
-  if (missing) return <EmptyState icon={UserRound} title="Your account has no profile record" description="Ask a super admin to check your account." />;
-  if (loading || !row || !form) return <PageLoading label="Loading your profile…" />;
+  if (!user || !ownId) return <EmptyState icon={UserRound} title={tx("Sign in to see your profile")} />;
+  if (error) return <EmptyState icon={UserRound} title={tx("Your profile could not be loaded")} description={tx("{error} Reload the page to try again.", { error })} />;
+  if (missing) return <EmptyState icon={UserRound} title={tx("Your account has no profile record")} description={tx("Ask a super admin to check your account.")} />;
+  if (loading || !row || !form) return <PageLoading label={tx("Loading your profile…")} />;
 
   const data = row.data;
   // The record must belong to the signed-in account; anything else is never written.
@@ -69,7 +72,7 @@ export function MyProfilePage() {
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     if (!isOwn) {
-      toast.error("This record does not belong to your account, so nothing was saved.");
+      toast.error(tx("This record does not belong to your account, so nothing was saved."));
       return;
     }
     const update = profileUpdate(row.data, form);
@@ -78,10 +81,10 @@ export function MyProfilePage() {
     try {
       await updateDoc(doc(getFirebase().db, USERS_COLLECTION, row.id), update);
       setForm(readProfileForm({ ...row.data, display_name: form.name.trim(), phone_number: form.phone.trim(), photo_url: form.photo }));
-      toast.success("Your profile was saved.");
+      toast.success(tx("Your profile was saved."));
       await refreshPermissions();
     } catch (err) {
-      toast.error(`Your profile was not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("Your profile was not saved: {reason}. Nothing was changed.", { reason: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -92,7 +95,7 @@ export function MyProfilePage() {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <div className="grid content-start gap-4">
-        <Section title="Your details" description="Shown to other staff in the admin panel.">
+        <Section title={tx("Your details")} description={tx("Shown to other staff in the admin panel.")}>
           <form
             className="grid gap-4"
             noValidate
@@ -101,36 +104,44 @@ export function MyProfilePage() {
               void save();
             }}
           >
-            <ImageField label="Photo" value={form.photo} onChange={(photo) => set({ photo })} folder="profile" error={errors.photo} hint="A square picture works best. Up to 5 MB." />
+            <ImageField label={tx("Photo")} value={form.photo} onChange={(photo) => set({ photo })} folder="profile" error={errors.photo} hint={tx("A square picture works best. Up to 5 MB.")} />
             <div className="grid gap-4 sm:grid-cols-2">
-              <TextField label="Name" required value={form.name} onChange={(name) => set({ name })} maxLength={50} autoComplete="name" error={errors.name} />
-              <TextField label="Phone" type="tel" dir="ltr" value={form.phone} onChange={(phone) => set({ phone })} maxLength={20} autoComplete="tel" placeholder="+965 5000 0000" error={errors.phone} />
+              <TextField label={tx("Name")} required value={form.name} onChange={(name) => set({ name })} maxLength={50} autoComplete="name" error={errors.name} />
+              <TextField label={tx("Phone")} type="tel" dir="ltr" value={form.phone} onChange={(phone) => set({ phone })} maxLength={20} autoComplete="tel" placeholder="+965 5000 0000" error={errors.phone} />
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {dirty ? (
                 <Button type="button" variant="outline" disabled={saving} onClick={() => { setForm(readProfileForm(data)); setErrors({}); }}>
-                  Discard changes
+                  {tx("Discard changes")}
                 </Button>
               ) : null}
               <Button type="submit" disabled={saving || !dirty}>
                 {saving ? <Spinner size="sm" className="text-current" /> : null}
-                Save changes
+                {tx("Save changes")}
               </Button>
             </div>
           </form>
         </Section>
 
         <EntityDetail
-          title="Your account"
-          description="These are set by an admin on the Roles screen and cannot be changed here."
+          title={tx("Your account")}
+          description={tx("These are set by an admin on the Roles screen and cannot be changed here.")}
           columns={2}
           items={[
-            { label: "Email", value: text(data.email) || user.email || "", ltr: true },
-            { label: "Role", value: text(data.role_unique_key) ? humanize(text(data.role_unique_key)) : "" },
-            { label: "Account status", value: text(data.status) ? <StatusBadge value={text(data.status)} /> : "" },
-            { label: "Account type", value: text(data.user_role) },
+            { label: tx("Email"), value: text(data.email) || user.email || "", ltr: true },
+            { label: tx("Role"), value: text(data.role_unique_key) ? humanize(text(data.role_unique_key)) : "" },
+            { label: tx("Account status"), value: text(data.status) ? <StatusBadge value={text(data.status)} /> : "" },
+            { label: tx("Account type"), value: text(data.user_role) ? tx(text(data.user_role)) : "" },
           ]}
         />
+
+        {/* A designer keeps their own pickup address and bank details; nobody else sees these two cards. */}
+        {isDesignerAccount(data) ? (
+          <>
+            <PickupAddressCard row={row} accountEmail={user.email ?? text(data.email)} canWrite={isOwn} />
+            <DesignerBankCard row={row} canWrite={isOwn} />
+          </>
+        ) : null}
       </div>
 
       <PasswordCard />
@@ -148,8 +159,8 @@ function PasswordCard() {
   if (!user) return null;
   if (!usesPassword) {
     return (
-      <Section title="Password" className="content-start self-start">
-        <p className="text-[13px] text-muted-foreground">This account signs in with Google or Apple, so it has no password to change here.</p>
+      <Section title={tx("Password")} className="content-start self-start">
+        <p className="text-[13px] text-muted-foreground">{tx("This account signs in with Google or Apple, so it has no password to change here.")}</p>
       </Section>
     );
   }
@@ -165,11 +176,11 @@ function PasswordCard() {
       await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, form.current));
       await updatePassword(user, form.next);
       setForm(EMPTY_PASSWORD);
-      toast.success("Your password was changed. Use the new one next time you sign in.");
+      toast.success(tx("Your password was changed. Use the new one next time you sign in."));
     } catch (err) {
       const code = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : "";
       const message = passwordErrorMessage(code);
-      if (code === "auth/wrong-password" || code === "auth/invalid-credential" || code === "auth/invalid-login-credentials") setErrors({ current: "This is not your current password." });
+      if (code === "auth/wrong-password" || code === "auth/invalid-credential" || code === "auth/invalid-login-credentials") setErrors({ current: tx("This is not your current password.") });
       toast.error(message);
     } finally {
       setSaving(false);
@@ -179,7 +190,7 @@ function PasswordCard() {
   const set = (patch: Partial<PasswordForm>) => setForm((cur) => ({ ...cur, ...patch }));
 
   return (
-    <Section title="Password" description="Enter your current password, then the new one twice." className="self-start">
+    <Section title={tx("Password")} description={tx("Enter your current password, then the new one twice.")} className="self-start">
       <form
         className="grid gap-4"
         noValidate
@@ -188,22 +199,22 @@ function PasswordCard() {
           void change();
         }}
       >
-        <TextField label="Current password" required type="password" value={form.current} onChange={(current) => set({ current })} autoComplete="current-password" error={errors.current} />
+        <TextField label={tx("Current password")} required type="password" value={form.current} onChange={(current) => set({ current })} autoComplete="current-password" error={errors.current} />
         <TextField
-          label="New password"
+          label={tx("New password")}
           required
           type="password"
           value={form.next}
           onChange={(next) => set({ next })}
           autoComplete="new-password"
           error={errors.next}
-          hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+          hint={tx("At least {count} characters.", { count: MIN_PASSWORD_LENGTH })}
         />
-        <TextField label="New password again" required type="password" value={form.confirm} onChange={(confirm) => set({ confirm })} autoComplete="new-password" error={errors.confirm} />
+        <TextField label={tx("New password again")} required type="password" value={form.confirm} onChange={(confirm) => set({ confirm })} autoComplete="new-password" error={errors.confirm} />
         <div className="flex justify-end">
           <Button type="submit" disabled={saving || !form.current || !form.next || !form.confirm}>
             {saving ? <Spinner size="sm" className="text-current" /> : null}
-            Change password
+            {tx("Change password")}
           </Button>
         </div>
       </form>

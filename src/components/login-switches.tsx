@@ -13,6 +13,7 @@ import {
 } from "@/lib/login-options";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * On/off switches for the sign-in buttons in the customer app. They live on the
@@ -35,9 +36,9 @@ export function LoginSwitches() {
         ...loginOptionUpdate(option.field, next),
         updated_at: serverTimestamp(),
       });
-      setNote(`${option.label} sign-in is now ${next ? "on" : "off"} for customers.`);
+      setNote(next ? tx("{option} sign-in is now on for customers.", { option: tx(option.label) }) : tx("{option} sign-in is now off for customers.", { option: tx(option.label) }));
     } catch (err) {
-      setNote(`${option.label} sign-in was not changed: ${err instanceof Error ? err.message : "the save failed"}.`);
+      setNote(tx("{option} sign-in was not changed: {error}.", { option: tx(option.label), error: err instanceof Error ? err.message : tx("the save failed") }));
     } finally {
       setSaving(null);
     }
@@ -45,13 +46,13 @@ export function LoginSwitches() {
 
   return (
     <section className="rounded-[14px] bg-card p-4" aria-labelledby="login-options-title">
-      <p id="login-options-title" className="text-sm font-semibold text-heading">Login options</p>
-      <p className="mt-1 text-xs text-muted-foreground">Choose which sign-in buttons customers see in the app. Email sign-in is always on.</p>
+      <p id="login-options-title" className="text-sm font-semibold text-heading">{tx("Login options")}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{tx("Choose which sign-in buttons customers see in the app. Email sign-in is always on.")}</p>
 
-      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
-      {error && <p className="mt-3 text-xs text-destructive">Login options could not be loaded: {error}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">{tx("Loading…")}</p>}
+      {error && <p className="mt-3 text-xs text-destructive">{tx("Login options could not be loaded: {error}", { error })}</p>}
       {!loading && !error && !company && (
-        <p className="mt-3 text-xs text-destructive">No Company settings record was found, so there is nothing to switch.</p>
+        <p className="mt-3 text-xs text-destructive">{tx("No Company settings record was found, so there is nothing to switch.")}</p>
       )}
 
       {company && (
@@ -63,23 +64,23 @@ export function LoginSwitches() {
             return (
               <li key={option.field} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
                 <div className="min-w-0 flex-1 basis-56">
-                  <p className="text-[13px] font-medium text-foreground">{option.label}</p>
-                  <p className="text-xs text-muted-foreground">{option.hint}</p>
+                  <p className="text-[13px] font-medium text-foreground">{tx(option.label)}</p>
+                  <p className="text-xs text-muted-foreground">{tx(option.hint)}</p>
                 </div>
                 {pendingOff === option.field ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs">Hide this button for all customers?</span>
+                    <span className="text-xs">{tx("Hide this button for all customers?")}</span>
                     <Button size="sm" onClick={() => save(option, false)}>
-                      Turn off
+                      {tx("Turn off")}
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => setPendingOff(null)}>
-                      Keep on
+                      {tx("Keep on")}
                     </Button>
                   </div>
                 ) : (
                   <Switch
                     checked={on}
-                    aria-label={`${option.label} sign-in`}
+                    aria-label={tx("{option} sign-in", { option: tx(option.label) })}
                     disabled={locked || busy}
                     onCheckedChange={(next) => (next ? save(option, true) : setPendingOff(option.field))}
                   />

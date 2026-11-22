@@ -1,13 +1,14 @@
 "use client";
 
 import { Spinner } from "@/components/ui/spinner";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * Full-screen blocking overlay shown while a save is in flight. It sits above
  * everything (sheets, dialogs, the sidebar) so the user cannot click twice or
  * navigate away mid-write.
  */
-export function BusyOverlay({ open, label = "Saving…", hint }: { open: boolean; label?: string; hint?: string }) {
+export function BusyOverlay({ open, label = tx("Saving…"), hint }: { open: boolean; label?: string; hint?: string }) {
   if (!open) return null;
   return (
     <div

@@ -5,6 +5,7 @@ import { Check, ChevronsUpDown, Search, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import type { RefOption, RefQuery } from "@/lib/ref-options";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 import { Field, type FieldProps } from "./fields";
 
@@ -34,8 +35,8 @@ export function RefField({
   sublabelKey,
   searchKeys,
   valueKey,
-  placeholder = "Select…",
-  searchPlaceholder = "Search…",
+  placeholder = tx("Select…"),
+  searchPlaceholder = tx("Search…"),
   clearable = true,
   loadOptions = loadFromFirestore,
   ...field
@@ -71,7 +72,7 @@ export function RefField({
     loader
       .current(JSON.parse(requestKey) as RefQuery)
       .then((loaded) => !cancelled && setOptions(loaded))
-      .catch((err) => !cancelled && setProblem(err instanceof Error ? err.message : "The list could not be loaded."));
+      .catch((err) => !cancelled && setProblem(err instanceof Error ? err.message : tx("The list could not be loaded.")));
     return () => {
       cancelled = true;
     };
@@ -119,7 +120,7 @@ export function RefField({
           {clearable && value && !field.disabled ? (
             <button
               type="button"
-              aria-label="Clear"
+              aria-label={tx("Clear")}
               onClick={() => onChange(null, null)}
               className="absolute end-7 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
             >
@@ -144,10 +145,10 @@ export function RefField({
               <p className="px-2 py-3 text-[12px] text-destructive">{problem}</p>
             ) : options === null ? (
               <p className="flex items-center gap-2 px-2 py-3 text-[12px] text-subtle">
-                <Spinner size="sm" /> Loading…
+                <Spinner size="sm" /> {tx("Loading…")}
               </p>
             ) : matches.length === 0 ? (
-              <p className="px-2 py-3 text-[12px] text-subtle">{term.trim() ? "Nothing matches your search." : "There is nothing to choose from yet."}</p>
+              <p className="px-2 py-3 text-[12px] text-subtle">{term.trim() ? tx("Nothing matches your search.") : tx("There is nothing to choose from yet.")}</p>
             ) : (
               matches.slice(0, VISIBLE).map((option) => (
                 <button
@@ -173,7 +174,7 @@ export function RefField({
           </div>
           {matches.length > VISIBLE ? (
             <p className="border-t border-border px-2.5 py-1.5 text-[11px] text-subtle">
-              Showing {VISIBLE} of {matches.length}. Type to narrow the list.
+              {tx("Showing {shown} of {total}. Type to narrow the list.", { shown: VISIBLE, total: matches.length })}
             </p>
           ) : null}
         </PopoverContent>

@@ -7,13 +7,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { downloadCsv, toCsv, type CsvCell } from "@/lib/csv";
-import { pluralise } from "@/lib/format";
+import { countedNoun, nounText } from "@/lib/i18n/nouns";
+import { englishFor, tx, txLang } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "./empty-state";
 
 export type Column<T> = {
   /** Unique within the table. */
   key: string;
+  /** In English. The table shows its Arabic when the panel is in Arabic; the CSV export keeps the English. */
   header: string;
   cell: (row: T) => ReactNode;
   /** Classes for both the header and the body cell, e.g. "text-end" or "w-24". */
@@ -83,7 +85,10 @@ export type DataTableProps<T extends { id: string }> = {
 
   /** Fixed layout that never scrolls sideways; columns use `Column.width` and cells should truncate. */
   fit?: boolean;
-  /** What a row is called in the footer count: "product" → "12 products". Default "row". */
+  /**
+   * What a row is called in the footer count: "product" → "12 products". Default "row".
+   * Pass it in English (the table looks up its Arabic) or already translated.
+   */
   noun?: string;
   /** Plural of `noun` when adding "s" is wrong. Default: English rules ("category" → "categories"). */
   nounPlural?: string;
@@ -117,12 +122,12 @@ export function DataTable<T extends { id: string }>({
   columns,
   loading,
   error,
-  emptyMessage = "Nothing here yet.",
+  emptyMessage = tx("Nothing here yet."),
   emptyState,
   searchText,
   search,
   onSearch,
-  searchPlaceholder = "Search",
+  searchPlaceholder = tx("Search"),
   hideSearch,
   toolbar,
   defaultSort,
@@ -139,7 +144,7 @@ export function DataTable<T extends { id: string }>({
   exportName,
   fit,
   noun = "row",
-  nounPlural = pluralise(noun),
+  nounPlural,
   className,
 }: DataTableProps<T>) {
   const [ownTerm, setOwnTerm] = useState("");
@@ -214,8 +219,19 @@ export function DataTable<T extends { id: string }>({
   function exportCsv() {
     const picked = selected.size ? sorted.filter((row) => selected.has(row.id)) : sorted;
     const lines = picked.map((row) => exportable.map((col) => (col.exportValue ?? col.sortValue)!(row) ?? ""));
-    downloadCsv(exportName ?? "export", toCsv(exportable.map((col) => col.header), lines));
+    // The header row stays English in either language, so exports can be compared across staff.
+    downloadCsv(exportName ?? "export", toCsv(exportable.map((col) => englishFor(col.header)), lines));
   }
+
+  // Footer count, e.g. "3 selected · 12 orders of 40+". Western digits in both languages.
+  const number = (value: number) => value.toLocaleString("en-US");
+  const more = hasMore ? "+" : "";
+  const shownCount = `${number(sorted.length)}${more}`;
+  const counted = countedNoun(sorted.length, noun, nounPlural);
+  const countLine =
+    needle && filtered.length !== rows.length
+      ? tx("{count} {noun} of {total}", { count: shownCount, noun: counted, total: `${number(rows.length)}${more}` })
+      : `${shownCount} ${counted}`;
 
   const colCount = columns.length + (selectable ? 1 : 0) + (rowChevron ? 1 : 0);
   const showExport = Boolean(exportName) && exportable.length > 0;
@@ -245,7 +261,7 @@ export function DataTable<T extends { id: string }>({
           {toolbar}
           {showExport ? (
             <Button variant="outline" size="sm" className="ms-auto" onClick={exportCsv} disabled={sorted.length === 0}>
-              <Download /> {selected.size ? `Export ${selected.size} selected` : "Export CSV"}
+              <Download /> {selected.size ? tx("Export {count} selected", { count: selected.size }) : tx("Export CSV")}
             </Button>
           ) : null}
         </div>
@@ -273,7 +289,7 @@ export function DataTable<T extends { id: string }>({
               {selectable ? (
                 <th className="w-10 bg-card px-3 py-2">
                   <Checkbox
-                    aria-label="Select all rows shown"
+                    aria-label={tx("Select all rows shown")}
                     checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
                     onCheckedChange={toggleVisible}
                   />
@@ -294,7 +310,7 @@ export function DataTable<T extends { id: string }>({
                         onClick={() => cycleSort(col)}
                         className={cn("inline-flex items-center gap-1 rounded hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none", active && "text-foreground")}
                       >
-                        {col.header}
+                        {tx(col.header)}
                         {active && sort!.dir === "asc" ? (
                           <ArrowUp className="size-3.5 shrink-0" />
                         ) : active ? (
@@ -304,7 +320,7 @@ export function DataTable<T extends { id: string }>({
                         )}
                       </button>
                     ) : (
-                      col.header
+                      tx(col.header)
                     )}
                   </th>
                 );
@@ -317,7 +333,7 @@ export function DataTable<T extends { id: string }>({
               <tr>
                 <td className="border-t border-border px-4 py-8 text-subtle" colSpan={Math.max(colCount, 1)}>
                   <span className="inline-flex items-center gap-2">
-                    <Spinner size="sm" /> Loading…
+                    <Spinner size="sm" /> {tx("Loading…")}
                   </span>
                 </td>
               </tr>
@@ -325,7 +341,13 @@ export function DataTable<T extends { id: string }>({
               <tr>
                 <td className="border-t border-border" colSpan={Math.max(colCount, 1)}>
                   {needle ? (
-                    <EmptyState compact icon={Search} title="Nothing matches your search" description={`No ${noun} contains “${term.trim()}”.`} />
+                    <EmptyState
+                      compact
+                      icon={Search}
+                      title={tx("Nothing matches your search")}
+                      // Arabic leaves the noun out: the verb would have to agree with its gender.
+                      description={txLang() === "ar" ? tx("Nothing contains “{term}”.", { term: term.trim() }) : `No ${nounText(noun)} contains “${term.trim()}”.`}
+                    />
                   ) : (
                     emptyState ?? <EmptyState compact title={emptyMessage} />
                   )}
@@ -352,7 +374,7 @@ export function DataTable<T extends { id: string }>({
                 >
                   {selectable ? (
                     <td className="w-10 px-3 py-3">
-                      <Checkbox aria-label={`Select ${row.id}`} checked={selected.has(row.id)} onCheckedChange={() => toggleRow(row.id)} />
+                      <Checkbox aria-label={tx("Select {id}", { id: row.id })} checked={selected.has(row.id)} onCheckedChange={() => toggleRow(row.id)} />
                     </td>
                   ) : null}
                   {columns.map((col) => (
@@ -374,28 +396,26 @@ export function DataTable<T extends { id: string }>({
 
       <div className="flex min-h-11 flex-wrap items-center justify-between gap-3 px-4 py-2 text-[12px] text-subtle">
         <span>
-          {selected.size > 0 ? `${selected.size.toLocaleString()} selected · ` : ""}
-          {sorted.length.toLocaleString()}
-          {hasMore ? "+" : ""} {sorted.length === 1 ? noun : nounPlural}
-          {needle && filtered.length !== rows.length ? ` of ${rows.length.toLocaleString()}${hasMore ? "+" : ""}` : ""}
+          {selected.size > 0 ? `${tx("{count} selected", { count: number(selected.size) })} · ` : ""}
+          {countLine}
         </span>
         <div className="flex items-center gap-2">
           {pageSize && pageCount > 1 ? (
             <>
               <span>
-                Page {currentPage + 1} of {pageCount}
+                {tx("Page {page} of {pages}", { page: currentPage + 1, pages: pageCount })}
               </span>
-              <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>
+              <Button variant="outline" size="icon-sm" aria-label={tx("Previous page")} disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>
                 <ChevronLeft className="rtl:rotate-180" />
               </Button>
-              <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>
+              <Button variant="outline" size="icon-sm" aria-label={tx("Next page")} disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>
                 <ChevronRight className="rtl:rotate-180" />
               </Button>
             </>
           ) : null}
           {hasMore && onLoadMore ? (
             <Button variant="outline" size="sm" disabled={loadingMore} onClick={onLoadMore}>
-              {loadingMore ? <Spinner size="sm" /> : null} Load more
+              {loadingMore ? <Spinner size="sm" /> : null} {tx("Load more")}
             </Button>
           ) : null}
         </div>

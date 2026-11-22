@@ -6,6 +6,7 @@ import { Archive, Bell, CircleHelp, Copy, Download, Mail, Pencil, Plus, Send, Tr
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useAuth } from "@/components/auth-provider";
 import { InShellContext } from "@/components/header-slots";
 import { ShellFrame, type ShellCrumb, type ShellPageHit } from "@/components/layout/shell-frame";
 import { THEMES, THEME_LABELS, currentTheme, type ThemeName } from "@/components/layout/theme-toggle";
@@ -63,8 +64,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { Row } from "@/lib/firestore-ui";
-import type { Lang } from "@/lib/i18n";
-import { KNOWN_STATUSES, statusLabel } from "@/lib/status";
+import { KNOWN_STATUSES } from "@/lib/status";
 import { mockCategories, mockDesigners, mockImage, mockNav, mockOrders, mockTitles } from "./mock-data";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -83,14 +83,8 @@ function useHashPage(fallback: string) {
 
 export function UiKitPreview() {
   const active = useHashPage("orders");
-  const [lang, setLangState] = useState<Lang>("en");
-
-  // The preview flips direction itself rather than through the auth provider, so nothing is stored.
-  const setLang = useCallback((next: Lang) => {
-    setLangState(next);
-    document.documentElement.lang = next;
-    document.documentElement.dir = next === "ar" ? "rtl" : "ltr";
-  }, []);
+  // The panel's own language switch, so the preview shows the same Arabic texts and direction as the panel.
+  const { lang, setLang } = useAuth();
 
   const leaves = useMemo(
     () => [...mockNav.main, ...mockNav.secondary, ...mockNav.settings].flatMap((section) => (section.children ?? [{ label: section.label, tabs: section.tabs ?? [] }]).map((leaf) => ({ section, leaf }))),
@@ -928,7 +922,7 @@ function DisplaySection() {
                 <TableCell className="font-mono text-[12px]">{String(row.data.order_id)}</TableCell>
                 <TableCell>{String(row.data.customer_name)}</TableCell>
                 <TableCell>
-                  <StatusBadge value={statusLabel(String(row.data.order_status))} />
+                  <StatusBadge value={String(row.data.order_status)} />
                 </TableCell>
                 <TableCell className="text-end tabular-nums">{formatMoney(row.data.total_price)}</TableCell>
               </TableRow>

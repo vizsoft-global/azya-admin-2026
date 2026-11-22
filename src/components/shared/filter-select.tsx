@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 
 export type FilterOption = {
@@ -60,7 +61,7 @@ export function FilterBar({
   summary,
   active,
   onClear,
-  clearLabel = "Clear",
+  clearLabel = tx("Clear"),
   className,
 }: {
   children: ReactNode;

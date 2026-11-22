@@ -9,6 +9,7 @@
  */
 
 import { toNumber } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { rec, str, type Data } from "./product-model";
 
 export const SIZE_CHART_LIST_FIELD = "designer_main_info.designer_size_chart_list";
@@ -68,9 +69,9 @@ export function chartChoices(charts: SizeChart[], type: ChartType, current = "")
     if (seen.has(chart.chart_image)) continue;
     seen.add(chart.chart_image);
     const detail = [chart.chart_type, chart.chart_metrics].filter(Boolean).join(", ");
-    options.push({ value: chart.chart_image, label: `${chart.chart_name || `Chart ${chart.chart_id}`}${detail ? ` (${detail})` : ""}` });
+    options.push({ value: chart.chart_image, label: `${chart.chart_name || tx("Chart {id}", { id: chart.chart_id })}${detail ? ` (${detail})` : ""}` });
   }
-  if (current && !seen.has(current)) options.unshift({ value: current, label: "Current chart" });
+  if (current && !seen.has(current)) options.unshift({ value: current, label: tx("Current chart") });
   return options;
 }
 
@@ -85,9 +86,9 @@ export type ChartErrors = Partial<Record<keyof ChartForm, string>>;
 export function validateChartForm(form: ChartForm): ChartErrors {
   const errors: ChartErrors = {};
   const name = form.name.trim();
-  if (!name) errors.name = "Enter a name for the chart.";
-  else if (name.length > 30) errors.name = "Keep the name under 30 characters.";
-  if (!form.image) errors.image = "Choose the picture of the chart.";
+  if (!name) errors.name = tx("Enter a name for the chart.");
+  else if (name.length > 30) errors.name = tx("Keep the name under 30 characters.");
+  if (!form.image) errors.image = tx("Choose the picture of the chart.");
   return errors;
 }
 

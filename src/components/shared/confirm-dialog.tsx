@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { tx } from "@/lib/i18n/tx";
 
 export type ConfirmOptions = {
   title: string;
@@ -38,8 +39,8 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel = tx("Confirm"),
+  cancelLabel = tx("Cancel"),
   destructive,
   onConfirm,
   children,
@@ -53,7 +54,7 @@ export function ConfirmDialog({
       await onConfirm();
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "That did not work. Nothing was changed.");
+      toast.error(err instanceof Error ? err.message : tx("That did not work. Nothing was changed."));
     } finally {
       setBusy(false);
     }

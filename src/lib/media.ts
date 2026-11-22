@@ -1,5 +1,6 @@
 import { collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { getFirebase } from "./firebase";
+import { tx } from "./i18n/tx";
 import { uploadFile } from "./upload";
 
 /** One picture of the media library (`images` collection). */
@@ -43,11 +44,11 @@ export const MEDIA_MAX_MB = 10;
 
 /** Uploads one picture to the signed-in person's storage folder and adds it to the media library. */
 export async function uploadMedia(file: File): Promise<MediaItem> {
-  if (!file.type.startsWith("image/")) throw new Error(`${file.name} is not a picture.`);
-  if (file.size > MEDIA_MAX_MB * 1024 * 1024) throw new Error(`${file.name} is larger than ${MEDIA_MAX_MB} MB.`);
+  if (!file.type.startsWith("image/")) throw new Error(tx("{name} is not a picture.", { name: file.name }));
+  if (file.size > MEDIA_MAX_MB * 1024 * 1024) throw new Error(tx("{name} is larger than {size} MB.", { name: file.name, size: MEDIA_MAX_MB }));
   const { auth, db } = getFirebase();
   const uid = auth.currentUser?.uid;
-  if (!uid) throw new Error("Sign in again to upload a picture.");
+  if (!uid) throw new Error(tx("Sign in again to upload a picture."));
   const url = await uploadFile(file, "media");
   const ref = doc(collection(db, "images"));
   const record = mediaRecord({ url, fileName: file.name, uid, imageId: newImageId(Date.now(), Math.random()), now: serverTimestamp() });

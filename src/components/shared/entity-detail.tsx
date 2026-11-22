@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { describeValue } from "@/lib/describe-value";
 import { humanize } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 
 export type DetailItem = {
@@ -23,7 +24,7 @@ export function EntityDetail({
   items,
   columns = 3,
   card = true,
-  emptyText = "Not given",
+  emptyText = tx("Not given"),
   children,
   className,
 }: {
@@ -64,7 +65,14 @@ export function EntityDetail({
                 dir={item.ltr ? "ltr" : undefined}
                 className={cn("mt-0.5 text-[13px] break-words whitespace-pre-wrap text-foreground", item.mono && "font-mono text-[12px]", item.ltr && "text-start")}
               >
-                {empty ? <span className="text-subtle">{emptyText}</span> : item.value}
+                {empty ? (
+                  <span className="text-subtle">{emptyText}</span>
+                ) : typeof item.value === "string" || typeof item.value === "number" ? (
+                  // Isolated, so a value such as "12.500 KWD" or a phone number keeps its order inside Arabic.
+                  <bdi>{item.value}</bdi>
+                ) : (
+                  item.value
+                )}
               </dd>
             </div>
           );
@@ -90,7 +98,7 @@ export function ValueView({ value, depth = 0 }: { value: unknown; depth?: number
     case "date":
       return <span>{described.text}</span>;
     case "boolean":
-      return <span>{described.value ? "Yes" : "No"}</span>;
+      return <span>{described.value ? tx("Yes") : tx("No")}</span>;
     case "reference":
       return (
         <span className="font-mono text-[12px] break-all" dir="ltr">
@@ -110,7 +118,7 @@ export function ValueView({ value, depth = 0 }: { value: unknown; depth?: number
         </span>
       );
     case "list":
-      if (depth >= 3) return <span className="text-subtle">{described.items.length} items</span>;
+      if (depth >= 3) return <span className="text-subtle">{tx("{count} items", { count: described.items.length })}</span>;
       if (described.items.every((item) => typeof item === "string" || typeof item === "number")) {
         const allLinks = described.items.every((item) => typeof item === "string" && /^https?:\/\//i.test(item));
         if (!allLinks) return <span className="break-words">{described.items.join(", ")}</span>;
@@ -128,7 +136,7 @@ export function ValueView({ value, depth = 0 }: { value: unknown; depth?: number
         </ol>
       );
     case "map":
-      if (depth >= 3) return <span className="text-subtle">{described.entries.length} fields</span>;
+      if (depth >= 3) return <span className="text-subtle">{tx("{count} fields", { count: described.entries.length })}</span>;
       return (
         <dl className={cn("space-y-1.5", depth > 0 && "border-s border-border ps-3")}>
           {described.entries
@@ -150,7 +158,7 @@ export function ValueView({ value, depth = 0 }: { value: unknown; depth?: number
 /** Every field of a document as a read-only list, alphabetical, with values formatted by `ValueView`. */
 export function RecordFields({ data, className }: { data: Record<string, unknown>; className?: string }) {
   const keys = Object.keys(data).sort((a, b) => a.localeCompare(b));
-  if (!keys.length) return <p className="text-[13px] text-subtle">This record has no fields.</p>;
+  if (!keys.length) return <p className="text-[13px] text-subtle">{tx("This record has no fields.")}</p>;
   return (
     <dl className={cn("divide-y divide-border", className)}>
       {keys.map((key) => (

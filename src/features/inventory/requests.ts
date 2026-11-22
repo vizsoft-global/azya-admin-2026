@@ -1,10 +1,13 @@
+import { tx, txKey } from "@/lib/i18n/tx";
 import type { RoleScope } from "@/lib/role-scope";
+import { statusLabel } from "@/lib/status";
 import { ownedInScope } from "@/lib/role-scope";
 import { availableForOrder } from "@/lib/store-valley/inventory";
 import { isFulfillComplete } from "@/lib/store-valley/intake-tracking";
 import { canReturnQty, InventoryRequestType, isRestock, isReturnToDesigner, movementStatus, needsSuperadminApprove } from "@/lib/store-valley/request-type";
 import { designerMustAccept, RestockRequestOrigin } from "@/lib/store-valley/restock";
 import { DELETE, NOW, type Patch, type RequestView } from "./model";
+import { stockCounted } from "./stock-moves";
 
 /**
  * Rules of the restock / return request life cycle, as the Flutter admin's
@@ -12,7 +15,7 @@ import { DELETE, NOW, type Patch, type RequestView } from "./model";
  * Flutter tabs and the designer's view read.
  */
 
-export const REQUEST_TABS = ["Pending", "Accepted", "Declined", "Archived"] as const;
+export const REQUEST_TABS = [txKey("Pending"), txKey("Accepted"), txKey("Declined"), txKey("Archived")] as const;
 export type RequestTab = (typeof REQUEST_TABS)[number];
 
 /** Tabs a person sees. The Flutter admin gives designers no Archived tab. */
@@ -48,12 +51,12 @@ export function mustDesignerAccept(view: RequestView) {
 /** Label of the fulfil column, as on the Flutter board. */
 export function fulfillLabel(view: RequestView) {
   if (view.enquiry.id) {
-    if (view.enquiry.fulfillStatus === "DeliveryPartnerAssigned") return "Enquiry shipping";
-    if (view.enquiry.fulfillStatus === "Received") return "Enquiry closed";
+    if (view.enquiry.fulfillStatus === "DeliveryPartnerAssigned") return txKey("Enquiry shipping");
+    if (view.enquiry.fulfillStatus === "Received") return txKey("Enquiry closed");
     if (view.enquiry.fulfillStatus) return view.enquiry.fulfillStatus;
   }
-  if (view.fulfillStatus === "DeliveryPartnerAssigned") return "Shipping";
-  if (isComplete(view)) return "Completed";
+  if (view.fulfillStatus === "DeliveryPartnerAssigned") return txKey("Shipping");
+  if (isComplete(view)) return txKey("Completed");
   return view.fulfillStatus;
 }
 
@@ -66,13 +69,16 @@ export type RequestAction =
   | "ready"
   | "pickup"
   | "cancel"
+  | "receive"
+  | "bookReturn"
   | "raiseEnquiry"
   | "cancelEnquiry"
   | "receiveEnquiry";
 
 /**
  * What the signed-in person may do with a request. Approve, decline, edit,
- * delete, cancel and enquiry handling are super-admin only; accept, ready to
+ * delete, cancel, adding received pieces to stock and enquiry handling are
+ * super-admin only (the role key, not a permission); accept, ready to
  * pick up, create pickup and "enquiry received" belong to the designer who owns
  * the request. Other staff read.
  */
@@ -106,7 +112,11 @@ export function requestActions(view: RequestView, scope: RoleScope): Set<Request
   }
   if (accepted) {
     if (!complete && view.fulfillStatus !== "Cancelled") actions.add("cancel");
-    if (complete && restock && view.enquiry.status === "") actions.add("raiseEnquiry");
+    if (complete && restock && view.enquiry.status === "" && stockCounted(view)) actions.add("raiseEnquiry");
+    if (restock && view.fulfillStatus === "Completed" && !view.stockReceived) actions.add("receive");
+  }
+  if (restock && view.enquiry.status === "active" && view.enquiry.fulfillStatus === "Enquiry open" && view.enquiry.issueType === "Damaged" && !view.enquiryDelivery.refId) {
+    actions.add("bookReturn");
   }
   if (view.enquiry.status !== "" && (view.enquiry.fulfillStatus === "Enquiry open" || view.enquiry.fulfillStatus === "DeliveryPartnerAssigned")) {
     actions.add("cancelEnquiry");
@@ -114,17 +124,9 @@ export function requestActions(view: RequestView, scope: RoleScope): Set<Request
   return actions;
 }
 
-/**
- * Approving a return to designer books a warehouse delivery with the vendor.
- * That call is not made from this panel yet, so the approval is held back.
- */
-export function approveBlockedReason(view: RequestView): string | null {
-  return isReturnToDesigner(view.requestType)
-    ? "Approving a return to designer books a warehouse delivery. That step is not available in this panel yet; approve it in the old admin."
-    : null;
-}
-
 export const REQUEST_TYPE_OPTIONS = [InventoryRequestType.restock, InventoryRequestType.returnToDesigner];
+/** The stored request types are shown as they are in English; these are the same texts, listed so they get Arabic. */
+export const REQUEST_TYPE_TEXTS = [txKey("Restock"), txKey("Return to Designer"), txKey("Request")];
 
 export type NewRequestInput = {
   productId: string;
@@ -138,11 +140,11 @@ export type NewRequestInput = {
 
 /** First problem with a new request, or null. Same checks as the Flutter dialog. */
 export function newRequestProblem(input: NewRequestInput): string | null {
-  if (!input.productId) return "Choose the product.";
-  if (input.quantity == null || !Number.isInteger(input.quantity) || input.quantity < 1) return "Enter a quantity of 1 or more.";
-  if (!input.isDesigner && !input.preferredDate) return "Choose the preferred arrival date.";
+  if (!input.productId) return tx("Choose the product.");
+  if (input.quantity == null || !Number.isInteger(input.quantity) || input.quantity < 1) return tx("Enter a quantity of 1 or more.");
+  if (!input.isDesigner && !input.preferredDate) return tx("Choose the preferred arrival date.");
   if (isReturnToDesigner(input.requestType) && !canReturnQty({ qty: input.quantity, availableForOrder: input.availableForOrder })) {
-    return `Return quantity cannot exceed what the warehouse has available for order (${input.availableForOrder}).`;
+    return tx("Return quantity cannot exceed what the warehouse has available for order ({count}).", { count: input.availableForOrder });
   }
   return null;
 }
@@ -295,9 +297,11 @@ export const cancelPatch = (): Patch => ({
 
 /** Why a request can no longer be cancelled, read from a fresh copy, or null. */
 export function cancelBlocked(view: RequestView): string | null {
-  if (view.requestStatus === "Cancelled" || view.fulfillStatus === "Cancelled") return "This request was already cancelled. Nothing was changed.";
-  if (view.requestStatus !== "Accepted") return `This request is ${view.requestStatus ? view.requestStatus.toLowerCase() : "not accepted"} now, so it cannot be cancelled here. Nothing was changed.`;
-  if (isComplete(view)) return "This request was completed in the meantime, so it cannot be cancelled. Nothing was changed.";
+  if (view.requestStatus === "Cancelled" || view.fulfillStatus === "Cancelled") return tx("This request was already cancelled. Nothing was changed.");
+  if (view.requestStatus !== "Accepted") {
+    return tx("This request is {status} now, so it cannot be cancelled here. Nothing was changed.", { status: view.requestStatus ? statusLabel(view.requestStatus).toLowerCase() : tx("not accepted") });
+  }
+  if (isComplete(view)) return tx("This request was completed in the meantime, so it cannot be cancelled. Nothing was changed.");
   return null;
 }
 
@@ -328,14 +332,25 @@ export type StockState = {
   stockReserved: unknown;
   /** `store_valley_inventory/<product>_WH-KWT-MAIN.stored_quantity`; 0 when the warehouse has no record. */
   storedQuantity: unknown;
+  /** `inventory.stock` and `inventory.stock_on_hand`, needed only to give back what an approval took. */
+  stock?: unknown;
+  stockOnHand?: unknown;
 };
+
+/** True when approving this return in this panel took pieces out of `stock`, so a cancel gives them back. */
+export function returnTookStock(view: RequestView) {
+  return returnHoldsStock(view) && view.stockReturned != null;
+}
 
 /**
  * What cancelling writes. For a return to designer with a booked delivery the
  * held pieces become available again: `stock_unavailable` drops by the held
  * quantity (never below zero) and `available_for_order` is recomputed as the
  * old admin and the cloud functions do: warehouse stored − reserved −
- * unavailable, never below zero. Any other cancel leaves stock numbers alone.
+ * unavailable, never below zero. `stock` and `stock_on_hand` get back exactly
+ * what the approval stamped on the request; a return approved in the old admin
+ * has no stamp and took nothing from them, so nothing is credited. Any other
+ * cancel leaves stock numbers alone.
  */
 export function cancelWrites(view: RequestView, stock: StockState | null): { request: Patch; inventory: Patch } {
   const inventory = inventoryClearedPatch();
@@ -343,16 +358,16 @@ export function cancelWrites(view: RequestView, stock: StockState | null): { req
     const unavailable = Math.max(0, whole(stock.stockUnavailable) - heldQuantity(view));
     inventory.stock_unavailable = unavailable;
     inventory.available_for_order = availableForOrder({ stored: whole(stock.storedQuantity), reserved: whole(stock.stockReserved), unavailable });
+    if (view.stockReturned != null) {
+      inventory.stock = whole(stock.stock) + view.stockReturned;
+      inventory.stock_on_hand = whole(stock.stockOnHand) + (view.stockOnHandReturned ?? view.stockReturned);
+    }
   }
   return { request: cancelPatch(), inventory };
 }
 
 /** Written when the warehouse reports the goods stored (the webhook normally does this). */
 export const completedPatch = (): Patch => ({ update_at: NOW, "request_info.fulfill_status": "Completed" });
-
-/** Shown wherever a completed restock appears. */
-export const STOCK_NOT_UPDATED_NOTE =
-  "Stock is not updated automatically when a restock completes. The quantity the app sells from stays as it was until someone changes it on the product.";
 
 export function requestTitle(view: RequestView) {
   return view.requestId || view.movementLogId || view.id;

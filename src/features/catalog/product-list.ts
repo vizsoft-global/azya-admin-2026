@@ -5,6 +5,7 @@
  */
 
 import { toDate, toNumber } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import type { RoleScope } from "@/lib/role-scope";
 import { ownedInScope } from "@/lib/role-scope";
 import { productName, productThumb, productTypeOf, rec, refId, str, type Data } from "./product-model";
@@ -222,7 +223,7 @@ export function pendingCountFilters(scope: Pick<RoleScope, "isDesigner" | "uid">
  * products loaded so far, not all of them. Empty when everything is loaded.
  */
 export function coverageNote(loaded: number, hasMore: boolean) {
-  return hasMore ? `Of the ${loaded} products loaded so far` : "";
+  return hasMore ? tx("Of the {count} products loaded so far", { count: loaded }) : "";
 }
 
 /* ---------- Headline numbers ---------- */

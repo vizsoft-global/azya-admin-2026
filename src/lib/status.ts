@@ -1,3 +1,5 @@
+import { txIn } from "@/lib/i18n/tx";
+
 export type StatusTone = "success" | "warning" | "danger" | "info" | "progress" | "neutral";
 
 /**
@@ -83,11 +85,25 @@ export function statusTone(value?: string | null): StatusTone {
   return TONES[normalise(value)] ?? "neutral";
 }
 
-/** Display text for a raw status: `request` → `Request`, `out_for_delivery` → `Out for delivery`. */
+/** The sentence-case form a status's Arabic is keyed by: `PUBLISHED`, `published` → `Published`; `out_for_delivery` → `Out for delivery`. */
+export function statusKey(value: string) {
+  const text = normalise(value);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Display text for a raw status: `request` → `Request`, `out_for_delivery` → `Out for delivery`.
+ * With the panel in Arabic a status that has an Arabic text is shown in Arabic (the entry
+ * `"status:<key>"` in the dictionary, else a plain entry for the key); any other status falls
+ * back to the tidied English. The stored value is never changed.
+ */
 export function statusLabel(value?: string | null) {
   if (!value || !value.trim()) return "—";
   const text = value.replace(/_+/g, " ").trim();
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const english = text.charAt(0).toUpperCase() + text.slice(1);
+  const key = statusKey(value);
+  const translated = txIn("status", key);
+  return translated === key ? english : translated;
 }
 
 /** Every status the tone map knows, for the design preview. */

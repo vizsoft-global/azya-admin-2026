@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { changedFields, initialValues, isVisible, validateForm } from "@/lib/crud-form";
 import type { RefLoader } from "./ref-field";
+import { tx } from "@/lib/i18n/tx";
 import { useUnsavedChanges } from "@/lib/unsaved";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "./confirm-dialog";
@@ -97,7 +98,7 @@ function EntityFormBody({
     setErrors(found);
     const messages = Object.values(found);
     if (messages.length) {
-      toast.error(found._form ?? (messages.length === 1 ? messages[0] : `${messages.length} fields need attention.`));
+      toast.error(found._form ?? (messages.length === 1 ? messages[0] : tx("{count} fields need attention.", { count: messages.length })));
       return;
     }
     if (editing && !dirty) {
@@ -109,7 +110,7 @@ function EntityFormBody({
       await onSubmit(values, editing ? changed : fields.map((field) => field.name));
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "The record was not saved.");
+      toast.error(err instanceof Error ? err.message : tx("The record was not saved."));
     } finally {
       setBusy(false);
     }
@@ -117,7 +118,7 @@ function EntityFormBody({
 
   async function requestClose(next: boolean) {
     if (next) return;
-    if (dirty && !(await confirm({ title: "Discard your changes?", description: "What you typed in this form has not been saved.", confirmLabel: "Discard", cancelLabel: "Keep editing", destructive: true }))) return;
+    if (dirty && !(await confirm({ title: tx("Discard your changes?"), description: tx("What you typed in this form has not been saved."), confirmLabel: tx("Discard"), cancelLabel: tx("Keep editing"), destructive: true }))) return;
     onOpenChange(false);
   }
 
@@ -147,13 +148,13 @@ function EntityFormBody({
     description,
     onSubmit: submit,
     submitting: busy,
-    submitLabel: submitLabel ?? (editing ? "Save changes" : "Create"),
+    submitLabel: submitLabel ?? (editing ? tx("Save changes") : tx("Create")),
     footerStart,
   };
   return layout === "modal" ? <FormModal {...shell}>{body}</FormModal> : <FormSheet {...shell}>{body}</FormSheet>;
 }
 
-/** One control of a config-driven form. */
+/** One control of a config-driven form. The field's label, hint, placeholder and option labels are configured in English and shown in the panel language. */
 function FieldControl({
   field,
   value,
@@ -173,12 +174,13 @@ function FieldControl({
   loadRefOptions?: RefLoader;
   uploadImage?: ImageUploader;
 }) {
-  const common = { label: field.label, required: field.required, hint: field.hint, error, disabled };
+  const common = { label: tx(field.label), required: field.required, hint: field.hint ? tx(field.hint) : undefined, error, disabled };
+  const placeholder = field.placeholder ? tx(field.placeholder) : undefined;
   switch (field.type) {
     case "text":
-      return <TextField {...common} type={field.inputType} maxLength={field.maxLength} placeholder={field.placeholder} value={String(value ?? "")} onChange={onChange} />;
+      return <TextField {...common} type={field.inputType} maxLength={field.maxLength} placeholder={placeholder} value={String(value ?? "")} onChange={onChange} />;
     case "textarea":
-      return <TextareaField {...common} rows={field.rows} maxLength={field.maxLength} placeholder={field.placeholder} value={String(value ?? "")} onChange={onChange} />;
+      return <TextareaField {...common} rows={field.rows} maxLength={field.maxLength} placeholder={placeholder} value={String(value ?? "")} onChange={onChange} />;
     case "number":
       return (
         <NumberField
@@ -188,15 +190,15 @@ function FieldControl({
           step={field.step}
           integer={field.integer}
           suffix={field.suffix}
-          placeholder={field.placeholder}
+          placeholder={placeholder}
           value={typeof value === "number" ? value : null}
           onChange={onChange}
         />
       );
     case "money":
-      return <MoneyField {...common} currency={field.currency} placeholder={field.placeholder} value={typeof value === "number" ? value : null} onChange={onChange} />;
+      return <MoneyField {...common} currency={field.currency} placeholder={placeholder} value={typeof value === "number" ? value : null} onChange={onChange} />;
     case "select":
-      return <SelectField {...common} options={field.options} clearable={field.clearable} placeholder={field.placeholder} value={String(value ?? "")} onChange={onChange} />;
+      return <SelectField {...common} options={field.options.map((option) => ({ ...option, label: tx(option.label) }))} clearable={field.clearable} placeholder={placeholder} value={String(value ?? "")} onChange={onChange} />;
     case "switch":
       return <SwitchField {...common} checked={Boolean(value)} onChange={onChange} />;
     case "date":
@@ -215,7 +217,7 @@ function FieldControl({
           sublabelKey={field.sublabelKey}
           searchKeys={field.searchKeys}
           valueKey={field.valueKey}
-          placeholder={field.placeholder}
+          placeholder={placeholder}
           loadOptions={loadRefOptions}
           value={typeof value === "string" && value ? value : null}
           onChange={(next) => onChange(next)}
@@ -223,7 +225,7 @@ function FieldControl({
       );
     case "custom":
       return (
-        <Field label={field.label} required={field.required} hint={field.hint} error={error}>
+        <Field label={common.label} required={field.required} hint={common.hint} error={error}>
           {field.render({ value, onChange, values, error, disabled })}
         </Field>
       );

@@ -4,7 +4,7 @@ import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "./auth-provider";
-import { t } from "@/lib/i18n";
+import { tx } from "@/lib/i18n/tx";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -53,7 +53,7 @@ function AuthField({
 const linkClass = "text-muted-foreground underline-offset-4 hover:text-foreground hover:underline";
 
 export function LoginForm() {
-  const { login, lang } = useAuth();
+  const { login } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,7 +61,7 @@ export function LoginForm() {
   const [busy, setBusy] = useState(false);
   return (
     <AuthCard
-      title={t(lang, "login")}
+      title={tx("Log in")}
       onSubmit={async (event) => {
         event.preventDefault();
         setBusy(true);
@@ -71,14 +71,14 @@ export function LoginForm() {
           if (message) setError(message);
           else router.push("/dashboard");
         } catch (err) {
-          setError(err instanceof Error ? err.message : "Login failed");
+          setError(err instanceof Error ? err.message : tx("Login failed"));
         } finally {
           setBusy(false);
         }
       }}
     >
-      <AuthField label={t(lang, "email")} value={email} onChange={setEmail} autoComplete="username" />
-      <AuthField label={t(lang, "password")} type="password" value={password} onChange={setPassword} autoComplete="current-password" />
+      <AuthField label={tx("Email")} value={email} onChange={setEmail} autoComplete="username" />
+      <AuthField label={tx("Password")} type="password" value={password} onChange={setPassword} autoComplete="current-password" />
       {error && (
         <p className="text-sm text-destructive" role="alert">
           {error}
@@ -86,14 +86,14 @@ export function LoginForm() {
       )}
       <Button type="submit" size="lg" disabled={busy} className="w-full">
         {busy ? <Spinner size="sm" className="text-current" /> : null}
-        {t(lang, "login")}
+        {tx("Log in")}
       </Button>
       <div className="flex justify-between text-sm">
         <Link href="/forgot-password" className={linkClass}>
-          Forgot password
+          {tx("Forgot password")}
         </Link>
         <Link href="/register" className={linkClass}>
-          Register
+          {tx("Register")}
         </Link>
       </div>
     </AuthCard>
@@ -109,20 +109,20 @@ export function RegisterForm() {
   const [error, setError] = useState("");
   return (
     <AuthCard
-      title="Register"
+      title={tx("Register")}
       onSubmit={async (event) => {
         event.preventDefault();
         try {
           await register(email, password, name);
-          setDone("Account created as Pending. An existing admin must set status to Published and assign a role.");
+          setDone(tx("Account created as Pending. An existing admin must set status to Published and assign a role."));
         } catch (err) {
-          setError(err instanceof Error ? err.message : "Could not register");
+          setError(err instanceof Error ? err.message : tx("Could not register"));
         }
       }}
     >
-      <AuthField label="Name" value={name} onChange={setName} autoComplete="name" />
-      <AuthField label="Email" value={email} onChange={setEmail} autoComplete="username" />
-      <AuthField label="Password" type="password" value={password} onChange={setPassword} autoComplete="new-password" />
+      <AuthField label={tx("Name")} value={name} onChange={setName} autoComplete="name" />
+      <AuthField label={tx("Email")} value={email} onChange={setEmail} autoComplete="username" />
+      <AuthField label={tx("Password")} type="password" value={password} onChange={setPassword} autoComplete="new-password" />
       {error && (
         <p className="text-sm text-destructive" role="alert">
           {error}
@@ -134,10 +134,10 @@ export function RegisterForm() {
         </p>
       )}
       <Button type="submit" size="lg" className="w-full">
-        Create account
+        {tx("Create account")}
       </Button>
       <Link className={`block text-sm ${linkClass}`} href="/login">
-        Back to login
+        {tx("Back to login")}
       </Link>
     </AuthCard>
   );
@@ -150,18 +150,18 @@ export function ForgotForm() {
   const [error, setError] = useState("");
   return (
     <AuthCard
-      title="Forgot password"
+      title={tx("Forgot password")}
       onSubmit={async (event) => {
         event.preventDefault();
         try {
           await reset(email);
-          setDone("Reset email sent.");
+          setDone(tx("Reset email sent."));
         } catch (err) {
-          setError(err instanceof Error ? err.message : "Could not send reset");
+          setError(err instanceof Error ? err.message : tx("Could not send reset"));
         }
       }}
     >
-      <AuthField label="Email" value={email} onChange={setEmail} autoComplete="username" />
+      <AuthField label={tx("Email")} value={email} onChange={setEmail} autoComplete="username" />
       {error && (
         <p className="text-sm text-destructive" role="alert">
           {error}
@@ -173,10 +173,10 @@ export function ForgotForm() {
         </p>
       )}
       <Button type="submit" size="lg" className="w-full">
-        Send reset link
+        {tx("Send reset link")}
       </Button>
       <Link className={`block text-sm ${linkClass}`} href="/login">
-        Back to login
+        {tx("Back to login")}
       </Link>
     </AuthCard>
   );

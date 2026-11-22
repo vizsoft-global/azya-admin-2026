@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { tx } from "@/lib/i18n/tx";
 
 /** A titled block of a settings-style page. */
 export function Section({
@@ -32,6 +33,11 @@ export function Section({
       {children}
     </section>
   );
+}
+
+/** Option lists are defined once with English labels (marked with `txKey`); this gives the list in the panel's language. */
+export function txOptions<T extends { label: string }>(options: readonly T[]): T[] {
+  return options.map((option) => ({ ...option, label: tx(option.label) }));
 }
 
 /** Message of a thrown value, for toasts. */

@@ -1,5 +1,6 @@
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { getFirebase } from "./firebase";
+import { tx } from "./i18n/tx";
 
 /** Keeps letters, digits, dot, dash and underscore; everything else becomes a dash. */
 export function safeFileName(name: string) {
@@ -20,7 +21,7 @@ export function uploadPath(uid: string, folder: string, fileName: string, now: n
 export async function uploadFile(file: File, folder: string) {
   const { auth, storage } = getFirebase();
   const uid = auth.currentUser?.uid;
-  if (!uid) throw new Error("Sign in again to upload a file.");
+  if (!uid) throw new Error(tx("Sign in again to upload a file."));
   const target = ref(storage, uploadPath(uid, folder, file.name, Date.now()));
   await uploadBytes(target, file, { contentType: file.type || undefined });
   return getDownloadURL(target);

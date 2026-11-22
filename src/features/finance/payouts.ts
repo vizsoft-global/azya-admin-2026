@@ -1,4 +1,5 @@
 import { formatMoney } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { promotionFacts, promotionHeadroom, round3, type BankDetails, type PartnerRole, type PromotionSales } from "./finance";
 
 /**
@@ -7,7 +8,8 @@ import { promotionFacts, promotionHeadroom, round3, type BankDetails, type Partn
  * itself is in `data.ts`.
  */
 
-export const PAYMENT_METHODS = ["Bank transfer", "Online transfer", "Cheque", "Cash", "Other"] as const;
+/** Stored as written here (`transactions.payment_method`); shown with `tx(...)`. */
+export const PAYMENT_METHODS = [txKey("Bank transfer"), txKey("Online transfer"), txKey("Cheque"), txKey("Cash"), txKey("Other")] as const;
 
 export type PaymentForm = {
   amount: number | null;
@@ -21,10 +23,13 @@ export type PaymentErrors = Partial<Record<keyof PaymentForm, string>>;
 
 /** Why an amount cannot be recorded, or "" when it can: it must be a real number above zero. */
 export function amountProblem(amount: unknown): string {
-  if (typeof amount !== "number" || !Number.isFinite(amount)) return "The amount is not a number.";
-  if (!(amount > 0)) return "The amount must be more than zero.";
+  if (typeof amount !== "number" || !Number.isFinite(amount)) return tx("The amount is not a number.");
+  if (!(amount > 0)) return tx("The amount must be more than zero.");
   return "";
 }
+
+/** Which limit a payment is checked against; picks the wording of the "too much" message. */
+export type PaymentLimitLabel = "payable balance" | "delivered sales not yet recorded as paid";
 
 /** Smallest amount that can be recorded: one fils. */
 const ONE_FILS = 0.001;
@@ -33,18 +38,24 @@ const ONE_FILS = 0.001;
  * Checks a payment before it is recorded. `limit` is the most that may be
  * recorded for this person now; `limitLabel` names it in the message.
  */
-export function validatePayment(form: PaymentForm, limit: number, now: Date, limitLabel = "payable balance"): PaymentErrors {
+export function validatePayment(form: PaymentForm, limit: number, now: Date, limitLabel: PaymentLimitLabel = "payable balance"): PaymentErrors {
   const errors: PaymentErrors = {};
-  if (form.amount == null) errors.amount = "Enter the amount that was paid.";
+  if (form.amount == null) errors.amount = tx("Enter the amount that was paid.");
   else if (amountProblem(form.amount)) errors.amount = amountProblem(form.amount);
-  else if (form.amount < ONE_FILS) errors.amount = "The amount must be more than zero.";
-  else if (round3(form.amount) !== form.amount) errors.amount = "Use at most three decimals.";
-  else if (form.amount > round3(limit)) errors.amount = `This is more than the ${limitLabel} of ${formatMoney(round3(limit))}.`;
-  if (!form.method.trim()) errors.method = "Choose how it was paid.";
-  if (!form.paidAt) errors.paidAt = "Enter the date it was paid.";
-  else if (form.paidAt.getTime() > now.getTime() + 24 * 3600 * 1000) errors.paidAt = "The payment date cannot be in the future.";
-  if (form.reference.length > 120) errors.reference = "Keep the reference under 120 characters.";
-  if (form.note.length > 500) errors.note = "Keep the note under 500 characters.";
+  else if (form.amount < ONE_FILS) errors.amount = tx("The amount must be more than zero.");
+  else if (round3(form.amount) !== form.amount) errors.amount = tx("Use at most three decimals.");
+  else if (form.amount > round3(limit)) {
+    const amount = formatMoney(round3(limit));
+    errors.amount =
+      limitLabel === "payable balance"
+        ? tx("This is more than the payable balance of {amount}.", { amount })
+        : tx("This is more than the delivered sales not yet recorded as paid of {amount}.", { amount });
+  }
+  if (!form.method.trim()) errors.method = tx("Choose how it was paid.");
+  if (!form.paidAt) errors.paidAt = tx("Enter the date it was paid.");
+  else if (form.paidAt.getTime() > now.getTime() + 24 * 3600 * 1000) errors.paidAt = tx("The payment date cannot be in the future.");
+  if (form.reference.length > 120) errors.reference = tx("Keep the reference under 120 characters.");
+  if (form.note.length > 500) errors.note = tx("Keep the note under 500 characters.");
   return errors;
 }
 
@@ -88,7 +99,7 @@ export function allocateToPromotions(rawPromotions: unknown, byPromotion: Record
 export function promotionsAfterPayout(rawPromotions: unknown, byPromotion: Record<string, PromotionSales>, amount: number): { promotions: Record<string, unknown>[]; allocations: Allocation[] } {
   const list = Array.isArray(rawPromotions) ? (rawPromotions as Record<string, unknown>[]) : [];
   const { allocations, unallocated } = allocateToPromotions(list, byPromotion, amount);
-  if (unallocated > 0) throw new Error("The amount is more than this creator's promotions have earned and not yet been paid. Nothing was recorded.");
+  if (unallocated > 0) throw new Error(tx("The amount is more than this creator's promotions have earned and not yet been paid. Nothing was recorded."));
   const share = new Map(allocations.map((item) => [item.index, item.amount]));
   const facts = promotionFacts(list);
   const seen = new Set<string>();
@@ -202,13 +213,14 @@ export function payoutInfoUpdate(role: PartnerRole, stored: unknown, input: { no
 export type PayoutAction = "mark-paid" | "skip";
 
 export const PAYOUT_STATUS_LABEL: Record<string, string> = {
-  completed: "Paid",
-  pending: "Yet to pay",
-  skipped: "Skipped",
+  completed: txKey("Paid"),
+  pending: txKey("Yet to pay"),
+  skipped: txKey("Skipped"),
 };
 
+/** The English name of a payout status (used as it is in the CSV); show it with `tx(payoutStatusLabel(status))`. */
 export function payoutStatusLabel(status: string) {
-  return PAYOUT_STATUS_LABEL[status] ?? (status || "No status");
+  return PAYOUT_STATUS_LABEL[status] ?? (status || txKey("No status"));
 }
 
 /** The status a record moves to, or null when the action does not apply. Only a record that is yet to be paid can change. */

@@ -13,6 +13,7 @@
  */
 
 import { toNumber } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { getPath } from "@/lib/object-path";
 
 export type Data = Record<string, unknown>;
@@ -47,15 +48,17 @@ export const PRODUCT_STATUSES = ["active", "inactive", "draft", "request", "arch
 export const STAFF_STATUS_CHOICES = ["active", "inactive", "draft", "request"] as const;
 
 const STATUS_LABELS: Record<string, string> = {
-  active: "Active",
-  inactive: "Inactive",
-  draft: "Draft",
-  request: "Awaiting approval",
-  archived: "Archived",
+  active: txKey("Active"),
+  inactive: txKey("Inactive"),
+  draft: txKey("Draft"),
+  request: txKey("Awaiting approval"),
+  archived: txKey("Archived"),
 };
 
+/** The status as a person reads it, in the panel's language. A status this list does not know is shown as stored. */
 export function productStatusLabel(status: string) {
-  return STATUS_LABELS[status] ?? (status || "No status");
+  const known = STATUS_LABELS[status];
+  return known ? tx(known) : status || tx("No status");
 }
 
 /** A designer's save always goes back for approval; staff keep what they chose. */
@@ -92,18 +95,18 @@ export type NumberKind = "decimal" | "whole";
 /** Every numeric field of a product the apps parse, and whether it must be a whole number. */
 export const PRODUCT_NUMBER_FIELDS: readonly { path: string; kind: NumberKind; label: string }[] = [
   { path: "product.SKU", kind: "whole", label: "SKU" },
-  { path: "product.product_price", kind: "decimal", label: "Price" },
-  { path: "product.product_sale_price", kind: "decimal", label: "Sale price" },
-  { path: "product.product_regular_price", kind: "decimal", label: "Compare-at price" },
-  { path: "product.procurement_cost", kind: "decimal", label: "Cost" },
-  { path: "product.procurement_price", kind: "decimal", label: "Designer price" },
-  { path: "product.weight_gm", kind: "decimal", label: "Weight" },
-  { path: "product.product_quantity", kind: "whole", label: "Quantity" },
-  { path: "product.product_threshold_quantity", kind: "whole", label: "Stock alert level" },
-  { path: "product.product_shipped_number_days", kind: "whole", label: "Shipping days" },
-  { path: "product.return_product_number_day", kind: "whole", label: "Return days" },
-  { path: "product_authorizer.affiliate_commission_rate", kind: "decimal", label: "Commission rate" },
-  { path: "product_authorizer.affiliate_commission_points", kind: "whole", label: "Commission points" },
+  { path: "product.product_price", kind: "decimal", label: txKey("Price") },
+  { path: "product.product_sale_price", kind: "decimal", label: txKey("Sale price") },
+  { path: "product.product_regular_price", kind: "decimal", label: txKey("Compare-at price") },
+  { path: "product.procurement_cost", kind: "decimal", label: txKey("Cost") },
+  { path: "product.procurement_price", kind: "decimal", label: txKey("Designer price") },
+  { path: "product.weight_gm", kind: "decimal", label: txKey("Weight") },
+  { path: "product.product_quantity", kind: "whole", label: txKey("Quantity") },
+  { path: "product.product_threshold_quantity", kind: "whole", label: txKey("Stock alert level") },
+  { path: "product.product_shipped_number_days", kind: "whole", label: txKey("Shipping days") },
+  { path: "product.return_product_number_day", kind: "whole", label: txKey("Return days") },
+  { path: "product_authorizer.affiliate_commission_rate", kind: "decimal", label: txKey("Commission rate") },
+  { path: "product_authorizer.affiliate_commission_points", kind: "whole", label: txKey("Commission points") },
 ];
 
 export type NumberRepair = {
@@ -401,56 +404,56 @@ export function validateProductForm(form: ProductForm, ctx: { mode: "create" | "
   const errors: ProductErrors = {};
   const creating = ctx.mode === "create";
 
-  if (!form.name.trim()) errors.name = "Enter the product title.";
-  else if (form.name.trim().length > 100) errors.name = "Keep the title under 100 characters.";
+  if (!form.name.trim()) errors.name = tx("Enter the product title.");
+  else if (form.name.trim().length > 100) errors.name = tx("Keep the title under 100 characters.");
 
-  if (creating && !form.designerUid) errors.designerUid = "Choose the designer of this product.";
-  if (!(PRODUCT_STATUSES as readonly string[]).includes(form.status)) errors.status = "Choose a status.";
+  if (creating && !form.designerUid) errors.designerUid = tx("Choose the designer of this product.");
+  if (!(PRODUCT_STATUSES as readonly string[]).includes(form.status)) errors.status = tx("Choose a status.");
 
-  if (form.price == null) errors.price = "Enter the price customers pay.";
-  else if (form.price <= 0) errors.price = "The price must be more than zero.";
+  if (form.price == null) errors.price = tx("Enter the price customers pay.");
+  else if (form.price <= 0) errors.price = tx("The price must be more than zero.");
 
-  if (form.comparePrice != null && form.comparePrice < 0) errors.comparePrice = "The compare-at price cannot be negative.";
+  if (form.comparePrice != null && form.comparePrice < 0) errors.comparePrice = tx("The compare-at price cannot be negative.");
 
-  if (form.weightGm == null) errors.weightGm = "Enter the weight in grams.";
-  else if (form.weightGm <= 0) errors.weightGm = "The weight must be more than zero.";
+  if (form.weightGm == null) errors.weightGm = tx("Enter the weight in grams.");
+  else if (form.weightGm <= 0) errors.weightGm = tx("The weight must be more than zero.");
 
   if (ctx.switches.procurementCost) {
     if (form.procurementCost == null) {
-      if (creating) errors.procurementCost = "Enter the cost.";
-    } else if (form.procurementCost < 0) errors.procurementCost = "The cost cannot be negative.";
+      if (creating) errors.procurementCost = tx("Enter the cost.");
+    } else if (form.procurementCost < 0) errors.procurementCost = tx("The cost cannot be negative.");
   }
   if (ctx.switches.procurementPrice) {
     if (form.procurementPrice == null) {
-      if (creating) errors.procurementPrice = "Enter the designer price.";
-    } else if (form.procurementPrice < 0) errors.procurementPrice = "The designer price cannot be negative.";
+      if (creating) errors.procurementPrice = tx("Enter the designer price.");
+    } else if (form.procurementPrice < 0) errors.procurementPrice = tx("The designer price cannot be negative.");
   }
   if (ctx.switches.shippingDays) {
     if (form.shippingDays == null) {
-      if (creating) errors.shippingDays = "Enter how many days until it ships.";
-    } else if (!whole(form.shippingDays) || form.shippingDays < 1 || form.shippingDays > 99) errors.shippingDays = "Shipping days must be a whole number from 1 to 99.";
+      if (creating) errors.shippingDays = tx("Enter how many days until it ships.");
+    } else if (!whole(form.shippingDays) || form.shippingDays < 1 || form.shippingDays > 99) errors.shippingDays = tx("Shipping days must be a whole number from 1 to 99.");
   }
 
   if (form.type === "ready") {
     const tracksStock = creating || ctx.hasInventory !== false;
     if (form.thresholdStock == null) {
-      if (creating) errors.thresholdStock = "Enter the stock level that should trigger a restock alert.";
+      if (creating) errors.thresholdStock = tx("Enter the stock level that should trigger a restock alert.");
     } else if (tracksStock && (!whole(form.thresholdStock) || form.thresholdStock < 0 || form.thresholdStock > 999)) {
-      errors.thresholdStock = "The alert level must be a whole number from 0 to 999.";
+      errors.thresholdStock = tx("The alert level must be a whole number from 0 to 999.");
     }
     if (form.returnable) {
-      if (form.returnDays == null) errors.returnDays = "Enter how many days after purchase a return is accepted.";
-      else if (!whole(form.returnDays) || form.returnDays < 1 || form.returnDays > 99) errors.returnDays = "Return days must be a whole number from 1 to 99.";
+      if (form.returnDays == null) errors.returnDays = tx("Enter how many days after purchase a return is accepted.");
+      else if (!whole(form.returnDays) || form.returnDays < 1 || form.returnDays > 99) errors.returnDays = tx("Return days must be a whole number from 1 to 99.");
     }
   }
 
   if (form.affiliate) {
-    if (form.commissionRate != null && (form.commissionRate < 0 || form.commissionRate > 100)) errors.commissionRate = "The commission rate is a percentage from 0 to 100.";
-    if (form.commissionPoints != null && (!whole(form.commissionPoints) || form.commissionPoints < 0)) errors.commissionPoints = "Commission points must be a whole number.";
+    if (form.commissionRate != null && (form.commissionRate < 0 || form.commissionRate > 100)) errors.commissionRate = tx("The commission rate is a percentage from 0 to 100.");
+    if (form.commissionPoints != null && (!whole(form.commissionPoints) || form.commissionPoints < 0)) errors.commissionPoints = tx("Commission points must be a whole number.");
   }
 
-  if (form.sku != null && (!whole(form.sku) || form.sku < 0)) errors.sku = "The SKU must be a whole number.";
-  if (creating && !form.featureImage) errors.featureImage = "Add a picture and choose the main one.";
+  if (form.sku != null && (!whole(form.sku) || form.sku < 0)) errors.sku = tx("The SKU must be a whole number.");
+  if (creating && !form.featureImage) errors.featureImage = tx("Add a picture and choose the main one.");
   return errors;
 }
 
@@ -788,9 +791,9 @@ export function buildNewProduct(
 
 /* ---------- The whole record (super admins) ---------- */
 
-function parseRecord(text: string, what: string): Data {
+function parseRecord(text: string, notRecord: string): Data {
   const value: unknown = JSON.parse(text);
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${what} is not a record.`);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(notRecord);
   return value as Data;
 }
 
@@ -802,8 +805,8 @@ function parseRecord(text: string, what: string): Data {
  * the text is kept, not removed. Throws when either text is not a JSON record.
  */
 export function changedTopLevelFields(originalText: string, editedText: string): Data {
-  const original = parseRecord(originalText, "The stored copy");
-  const edited = parseRecord(editedText, "The text");
+  const original = parseRecord(originalText, tx("The stored copy is not a record."));
+  const edited = parseRecord(editedText, tx("The text is not a record."));
   return Object.fromEntries(Object.entries(edited).filter(([key, value]) => !same(value, original[key])));
 }
 
@@ -820,7 +823,7 @@ export async function pickUnusedSku(isUsed: (sku: number) => Promise<boolean>, r
     const sku = randomSku(random());
     if (!(await isUsed(sku))) return sku;
   }
-  throw new Error("No free SKU was found. Try again.");
+  throw new Error(tx("No free SKU was found. Try again."));
 }
 
 /* ---------- Approve, reject, archive ---------- */
@@ -841,8 +844,8 @@ export function rejectProductPatch(ctx: { reason: string; uid: string; now: unkn
 /** Why a rejection cannot be saved, or empty when it can. */
 export function rejectReasonProblem(reason: string) {
   const text = reason.trim();
-  if (!text) return "Say why the product is rejected, so the designer knows what to change.";
-  if (text.length > 500) return "Keep the reason under 500 characters.";
+  if (!text) return tx("Say why the product is rejected, so the designer knows what to change.");
+  if (text.length > 500) return tx("Keep the reason under 500 characters.");
   return "";
 }
 
