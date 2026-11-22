@@ -27,6 +27,7 @@ import {
 } from "react";
 import { getFirebase } from "@/lib/firebase";
 import type { Lang } from "@/lib/i18n";
+import { scopeOf, type RoleScope } from "@/lib/role-scope";
 
 type Profile = Record<string, unknown> & { id: string };
 
@@ -42,6 +43,14 @@ type AuthValue = {
   reset: (email: string) => Promise<string | null>;
   logout: () => Promise<void>;
   allowed: (permission?: string) => boolean;
+  /** Firebase Auth uid of the signed-in person, or "". */
+  uid: string;
+  /** `users.role_unique_key` of the signed-in person, or "". */
+  roleKey: string;
+  /** Who is signed in, for "designers see only their own records". */
+  scope: RoleScope;
+  /** Reloads the signed-in person's record and their role's permissions (after editing either). */
+  refreshPermissions: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -54,15 +63,30 @@ async function loadProfile(uid: string) {
   return { id: item.id, ...item.data() } as Profile;
 }
 
+/** The role's permission keys, or null when no role has that key. */
 async function loadPermissions(roleKey: string) {
-  if (!roleKey) return [] as string[];
+  if (!roleKey) return null;
   const { db } = getFirebase();
   const snap = await getDocs(
     query(collection(db, "roles"), where("role_unique_key", "==", roleKey), limit(1)),
   );
-  if (snap.empty) return [];
+  if (snap.empty) return null;
   const list = snap.docs[0].data().permissions_list;
   return Array.isArray(list) ? list.map(String) : [];
+}
+
+/**
+ * The same gate as sign-in, applied every time a session is restored: the account
+ * must still be Published and its role must still exist. Returns the permissions,
+ * or the reason the account may not use the panel.
+ */
+async function loadAccess(uid: string): Promise<{ profile: Profile; permissions: string[] } | { denied: "no-record" | "not-published" | "no-role" }> {
+  const profile = await loadProfile(uid);
+  if (!profile) return { denied: "no-record" };
+  if (String(profile.status ?? "") !== "Published") return { denied: "not-published" };
+  const permissions = await loadPermissions(String(profile.role_unique_key ?? ""));
+  if (!permissions) return { denied: "no-role" };
+  return { profile, permissions };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -92,17 +116,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { auth } = getFirebase();
     return onAuthStateChanged(auth, async (next) => {
-      setUser(next);
       if (!next) {
+        setUser(null);
         setProfile(null);
         setPermissions([]);
         setLoading(false);
         return;
       }
-      const loaded = await loadProfile(next.uid);
-      setProfile(loaded);
-      const roleKey = String(loaded?.role_unique_key ?? "");
-      setPermissions(await loadPermissions(roleKey));
+      const access = await loadAccess(next.uid);
+      if ("denied" in access) {
+        // An account that was unpublished or lost its role is treated as signed out.
+        // A brand-new account has no record yet while Register is still writing it,
+        // so that case is left for Register to sign out itself.
+        setUser(null);
+        setProfile(null);
+        setPermissions([]);
+        setLoading(false);
+        if (access.denied !== "no-record") await signOut(auth).catch(() => undefined);
+        return;
+      }
+      setUser(next);
+      setProfile(access.profile);
+      setPermissions(access.permissions);
       setLoading(false);
     });
   }, []);
@@ -115,10 +150,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       lang,
       setLang,
+      uid: user?.uid ?? "",
+      roleKey: String(profile?.role_unique_key ?? ""),
+      scope: scopeOf(profile, user?.uid ?? "", permissions),
       allowed(permission) {
         if (!permission) return true;
-        if (permissions.includes("super_admin")) return true;
+        // A super admin opens every page, as in the Flutter admin: by role key, or by the permission.
+        if (profile?.role_unique_key === "super_admin" || permissions.includes("super_admin")) return true;
         return permissions.includes(permission);
+      },
+      async refreshPermissions() {
+        const current = getFirebase().auth.currentUser;
+        if (!current) return;
+        const access = await loadAccess(current.uid);
+        if ("denied" in access) {
+          setUser(null);
+          setProfile(null);
+          setPermissions([]);
+          await signOut(getFirebase().auth).catch(() => undefined);
+          return;
+        }
+        setProfile(access.profile);
+        setPermissions(access.permissions);
       },
       async login(email, password) {
         const { auth, db } = getFirebase();

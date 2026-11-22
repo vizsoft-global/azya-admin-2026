@@ -7,10 +7,21 @@ export function safeFileName(name: string) {
   return cleaned || "file";
 }
 
-/** Uploads a file to Firebase Storage under `folder/` and returns its download URL. */
+/**
+ * Where an upload goes. Storage only lets a signed-in person write under their own
+ * `users/<uid>/` folder, so every upload lands there, grouped by `folder`.
+ */
+export function uploadPath(uid: string, folder: string, fileName: string, now: number) {
+  const group = folder.replace(/^\/+|\/+$/g, "");
+  return `users/${uid}/${group ? `${group}/` : ""}${now}-${safeFileName(fileName)}`;
+}
+
+/** Uploads a file to Firebase Storage under the signed-in person's folder and returns its download URL. */
 export async function uploadFile(file: File, folder: string) {
-  const path = `${folder.replace(/^\/+|\/+$/g, "")}/${Date.now()}-${safeFileName(file.name)}`;
-  const target = ref(getFirebase().storage, path);
+  const { auth, storage } = getFirebase();
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error("Sign in again to upload a file.");
+  const target = ref(storage, uploadPath(uid, folder, file.name, Date.now()));
   await uploadBytes(target, file, { contentType: file.type || undefined });
   return getDownloadURL(target);
 }
