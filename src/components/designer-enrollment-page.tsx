@@ -43,12 +43,15 @@ import {
   type UploadedFile,
 } from "@/lib/designer-enrollment";
 import { useAuth } from "./auth-provider";
+import { buttonVariants } from "./ui/button";
+import { Input } from "./ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Textarea } from "./ui/textarea";
 
-const dark = "rounded-lg bg-[#1a1a1a] px-2.5 py-1 text-xs text-white hover:bg-black disabled:opacity-40";
-const light = "rounded-lg border border-[#e3e3e3] bg-white px-2.5 py-1 text-xs hover:bg-[#fafafa] disabled:opacity-40";
-const th = "px-3 py-2 text-left text-xs font-medium text-[#757575]";
-const td = "px-3 py-2 text-[13px]";
-const field = "w-full rounded-lg border border-[#e3e3e3] px-2.5 py-1.5 text-xs";
+const dark = buttonVariants({ size: "sm" });
+const light = buttonVariants({ variant: "outline", size: "sm" });
+const th = "px-3 py-2 text-start text-xs font-medium whitespace-nowrap text-muted-foreground";
+const td = "px-3 py-2 text-[13px] text-foreground";
 
 type Note = { text: string; failed?: boolean };
 type Entry = DesignerApplication & { id: string };
@@ -87,30 +90,31 @@ export function DesignerEnrollmentPage() {
   }
 
   return (
-    <section className="rounded-[14px] bg-white p-4">
+    <section className="rounded-[14px] bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="min-w-0 flex-1 basis-56">
-          <p className="text-sm font-semibold">Designer applications waiting for review: {applications.length}</p>
-          <p className="text-xs text-[#757575]">Open an application to see the form, portfolio and ID documents, then approve or reject it.</p>
+          <p className="text-sm font-semibold text-heading">Designer applications waiting for review: {applications.length}</p>
+          <p className="text-xs text-muted-foreground">Open an application to see the form, portfolio and ID documents, then approve or reject it.</p>
         </div>
-        <input
+        <Input
+          type="search"
           value={q}
           onChange={(event) => setQ(event.target.value)}
           placeholder="Search name, email, phone or request ID"
           aria-label="Search designer applications"
-          className="w-full rounded-lg border border-[#e3e3e3] px-2.5 py-1 text-xs sm:w-64"
+          className="sm:w-64"
         />
       </div>
 
-      {note && <p className={`mt-3 text-xs ${note.failed ? "text-[#b42318]" : "text-[#757575]"}`} role="status">{note.text}</p>}
-      {error && <p className="mt-3 text-xs text-[#b42318]">Designer applications could not be loaded: {error}</p>}
-      {loading && <p className="mt-3 text-xs text-[#a9a9a9]">Loading…</p>}
+      {note && <p className={`mt-3 text-xs ${note.failed ? "text-destructive" : "text-muted-foreground"}`} role="status">{note.text}</p>}
+      {error && <p className="mt-3 text-xs text-destructive">Designer applications could not be loaded: {error}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
 
       {!loading && !error && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse">
             <thead>
-              <tr className="border-b border-[#f0f0f0]">
+              <tr className="border-b border-border">
                 <th className={th}>Request ID</th>
                 <th className={th}>Name</th>
                 <th className={th}>Email</th>
@@ -122,7 +126,7 @@ export function DesignerEnrollmentPage() {
             </thead>
             <tbody>
               {shown.map((item) => (
-                <tr key={item.id} className="border-b border-[#f7f7f7]">
+                <tr key={item.id} className="border-b border-border">
                   <td className={td}>{item.requestId}</td>
                   <td className={td}>{item.name}</td>
                   <td className={td}>{item.email || item.accountEmail}</td>
@@ -137,7 +141,7 @@ export function DesignerEnrollmentPage() {
             </tbody>
           </table>
           {shown.length === 0 && (
-            <p className="py-6 text-center text-xs text-[#a9a9a9]">
+            <p className="py-6 text-center text-xs text-subtle">
               {q.trim() ? "No application matches your search." : "No designer applications are waiting for review."}
             </p>
           )}
@@ -147,7 +151,7 @@ export function DesignerEnrollmentPage() {
       {hasMore && (
         <div className="mt-3 flex items-center gap-2">
           <button className={light} onClick={loadMore}>Load more</button>
-          <span className="text-xs text-[#a9a9a9]">The count covers the applications loaded so far.</span>
+          <span className="text-xs text-subtle">The count covers the applications loaded so far.</span>
         </div>
       )}
     </section>
@@ -245,16 +249,16 @@ function ApplicationReview({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[14px] bg-white p-4">
+      <section className="rounded-[14px] bg-card p-4">
         <div className="flex flex-wrap items-center gap-3">
           <button className={light} onClick={onBack} disabled={busy}>← All applications</button>
           {application.brandPhoto && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={application.brandPhoto} alt="" className="size-10 shrink-0 rounded-full bg-[#f1f1f1] object-cover" />
+            <img src={application.brandPhoto} alt="" className="size-10 shrink-0 rounded-full bg-muted object-cover" />
           )}
           <div className="min-w-0 flex-1 basis-56">
-            <p className="truncate text-sm font-semibold">{name}</p>
-            <p className="text-xs text-[#757575]">
+            <p className="truncate text-sm font-semibold text-heading">{name}</p>
+            <p className="text-xs text-muted-foreground">
               {[application.requestId && `Request ${application.requestId}`, sellerType(application), application.submittedAt ? `submitted ${cellText(application.submittedAt)}` : ""]
                 .filter(Boolean)
                 .join(" · ")}
@@ -268,10 +272,10 @@ function ApplicationReview({
           )}
         </div>
 
-        {!canEdit && <p className="mt-3 text-xs text-[#757575]">You can view this application, but your role cannot approve or reject designers.</p>}
+        {!canEdit && <p className="mt-3 text-xs text-muted-foreground">You can view this application, but your role cannot approve or reject designers.</p>}
 
         {canEdit && step === "approve" && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-[#fafafa] p-3">
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-muted p-3">
             <span className="min-w-0 flex-1 basis-56 text-xs">
               Approve {name} as a designer? They get the next designer ID and an approval email.
             </span>
@@ -282,11 +286,11 @@ function ApplicationReview({
 
         {canEdit && step === "reject" && <RejectForm name={name} busy={busy} onReject={reject} onCancel={() => setStep("idle")} />}
 
-        {problem && <p className="mt-3 text-xs text-[#b42318]" role="alert">{problem}</p>}
+        {problem && <p className="mt-3 text-xs text-destructive" role="alert">{problem}</p>}
       </section>
 
-      <section className="rounded-[14px] bg-white p-4">
-        <p className="text-sm font-semibold">Application details</p>
+      <section className="rounded-[14px] bg-card p-4">
+        <p className="text-sm font-semibold text-heading">Application details</p>
         <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
           <Detail label="Email" value={application.email || application.accountEmail} />
           <Detail label="Phone" value={application.phone} ltr />
@@ -300,12 +304,12 @@ function ApplicationReview({
           <Detail label="Takes custom orders" value={application.customOrders ? "Yes" : "No"} />
           <Detail label="Open to events and collaborations" value={application.eventCollaborations ? "Yes" : "No"} />
           <div>
-            <dt className="text-xs text-[#757575]">Portfolio link</dt>
+            <dt className="text-xs text-muted-foreground">Portfolio link</dt>
             <dd className="mt-0.5 break-words text-[13px]">
               {portfolioLink ? (
-                <a href={portfolioLink} target="_blank" rel="noopener noreferrer" className="underline">{portfolioLink}</a>
+                <a href={portfolioLink} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{portfolioLink}</a>
               ) : (
-                application.portfolioLink || <span className="text-[#a9a9a9]">Not given</span>
+                application.portfolioLink || <span className="text-subtle">Not given</span>
               )}
             </dd>
           </div>
@@ -314,9 +318,9 @@ function ApplicationReview({
         </dl>
       </section>
 
-      <section className="rounded-[14px] bg-white p-4">
-        <p className="text-sm font-semibold">Portfolio and work samples</p>
-        {application.portfolio.length === 0 && <p className="mt-3 text-xs text-[#a9a9a9]">No portfolio files were uploaded.</p>}
+      <section className="rounded-[14px] bg-card p-4">
+        <p className="text-sm font-semibold text-heading">Portfolio and work samples</p>
+        {application.portfolio.length === 0 && <p className="mt-3 text-xs text-subtle">No portfolio files were uploaded.</p>}
         {pictures.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-3">
             {pictures.map((file, index) => <FileTile key={`${file.url}-${index}`} file={file} onView={setViewing} />)}
@@ -329,8 +333,8 @@ function ApplicationReview({
         )}
       </section>
 
-      <section className="rounded-[14px] bg-white p-4">
-        <p className="text-sm font-semibold">Identity verification</p>
+      <section className="rounded-[14px] bg-card p-4">
+        <p className="text-sm font-semibold text-heading">Identity verification</p>
         <div className="mt-3 flex flex-wrap gap-6">
           <Upload label={application.licensedStore ? "Store licence" : "ID document"} file={application.idDocument} onView={setViewing} />
           <Upload label="Selfie" file={application.selfie} onView={setViewing} />
@@ -361,27 +365,31 @@ function RejectForm({
   const mustType = rejectionNeedsMessage(reason);
 
   return (
-    <div className="mt-3 space-y-2 rounded-lg bg-[#fafafa] p-3">
+    <div className="mt-3 space-y-2 rounded-lg bg-muted p-3">
       <p className="text-xs font-medium">Reject the application from {name}?</p>
-      {loading && <p className="text-xs text-[#a9a9a9]">Loading the reasons…</p>}
+      {loading && <p className="text-xs text-subtle">Loading the reasons…</p>}
       {!loading && reasons.length > 0 && (
-        <label className="block text-xs text-[#757575]">
-          Reason
-          <select value={picked} onChange={(event) => setPicked(event.target.value)} className={`${field} mt-1 bg-white text-[#1a1a1a]`}>
-            <option value="">Choose a reason…</option>
-            {reasons.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-        </label>
+        <div className="block text-xs text-muted-foreground">
+          <span id="reject-reason-label">Reason</span>
+          <Select value={picked || undefined} onValueChange={setPicked}>
+            <SelectTrigger className="mt-1 bg-card text-foreground" aria-labelledby="reject-reason-label">
+              <SelectValue placeholder="Choose a reason…" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              {reasons.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       )}
       {!loading && (
-        <label className="block text-xs text-[#757575]">
+        <label className="block text-xs text-muted-foreground">
           {mustType ? "Reason in your own words" : "More detail (optional)"}
-          <textarea
+          <Textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             rows={3}
             placeholder={mustType ? "Type the reason for rejecting this application" : "Anything to add to the reason"}
-            className={`${field} mt-1 bg-white text-[#1a1a1a]`}
+            className="mt-1 text-foreground"
           />
         </label>
       )}
@@ -398,9 +406,9 @@ function RejectForm({
 export function Detail({ label, value, ltr, wide }: { label: string; value: string; ltr?: boolean; wide?: boolean }) {
   return (
     <div className={wide ? "sm:col-span-2 lg:col-span-3" : undefined}>
-      <dt className="text-xs text-[#757575]">{label}</dt>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 whitespace-pre-wrap break-words text-[13px]" dir={ltr ? "ltr" : undefined}>
-        {value || <span className="text-[#a9a9a9]">Not given</span>}
+        {value || <span className="text-subtle">Not given</span>}
       </dd>
     </div>
   );
@@ -409,8 +417,8 @@ export function Detail({ label, value, ltr, wide }: { label: string; value: stri
 function Upload({ label, file, onView }: { label: string; file: UploadedFile | null; onView: (file: UploadedFile) => void }) {
   return (
     <div>
-      <p className="mb-1 text-xs text-[#757575]">{label}</p>
-      {!file && <p className="text-xs text-[#a9a9a9]">Not uploaded</p>}
+      <p className="mb-1 text-xs text-muted-foreground">{label}</p>
+      {!file && <p className="text-xs text-subtle">Not uploaded</p>}
       {file && (file.isImage ? <FileTile file={file} onView={onView} /> : <FileLink file={file} />)}
     </div>
   );
@@ -421,9 +429,9 @@ export function FileTile({ file, onView }: { file: UploadedFile; onView: (file: 
   const [broken, setBroken] = useState(false);
   if (broken) return <FileLink file={file} />;
   return (
-    <button onClick={() => onView(file)} title={`View ${file.name}`} className="block overflow-hidden rounded-lg border border-[#e3e3e3] hover:opacity-90">
+    <button onClick={() => onView(file)} title={`View ${file.name}`} className="block overflow-hidden rounded-lg border border-border hover:opacity-90">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={file.url} alt={file.name} loading="lazy" onError={() => setBroken(true)} className="size-36 bg-[#f1f1f1] object-cover" />
+      <img src={file.url} alt={file.name} loading="lazy" onError={() => setBroken(true)} className="size-36 bg-muted object-cover" />
     </button>
   );
 }

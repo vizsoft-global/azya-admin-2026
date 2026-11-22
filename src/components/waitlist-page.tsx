@@ -26,14 +26,17 @@ import {
   type WaitlistStatus,
 } from "@/lib/waitlist";
 import { useAuth } from "./auth-provider";
+import { StatusBadge } from "./shared/status-badge";
+import { buttonVariants } from "./ui/button";
+import { Input } from "./ui/input";
+import { Switch } from "./ui/switch";
 
-const chip = "rounded-lg border px-2.5 py-1 text-xs";
-const chipOn = `${chip} border-[#1a1a1a] bg-[#1a1a1a] text-white`;
-const chipOff = `${chip} border-[#e3e3e3] bg-white hover:bg-[#fafafa]`;
-const dark = "rounded-lg bg-[#1a1a1a] px-2.5 py-1 text-xs text-white hover:bg-black disabled:opacity-40";
-const light = "rounded-lg border border-[#e3e3e3] bg-white px-2.5 py-1 text-xs hover:bg-[#fafafa] disabled:opacity-40";
-const th = "px-3 py-2 text-left text-xs font-medium text-[#757575]";
-const td = "px-3 py-2 text-[13px]";
+const chipOn = buttonVariants({ size: "sm" });
+const chipOff = buttonVariants({ variant: "outline", size: "sm" });
+const dark = buttonVariants({ size: "sm" });
+const light = buttonVariants({ variant: "outline", size: "sm" });
+const th = "px-3 py-2 text-start text-xs font-medium whitespace-nowrap text-muted-foreground";
+const td = "px-3 py-2 text-[13px] text-foreground";
 
 /** Customer waitlist: accept or decline people, switch the waitlist on or off, and see referrals. */
 export function WaitlistPage() {
@@ -42,8 +45,8 @@ export function WaitlistPage() {
     <div className="space-y-4">
       <WaitlistFeatureSwitch />
       <div className="flex gap-2">
-        <button className={view === "waitlist" ? chipOn : chipOff} onClick={() => setView("waitlist")}>Waitlist</button>
-        <button className={view === "referrals" ? chipOn : chipOff} onClick={() => setView("referrals")}>Referrals</button>
+        <button className={view === "waitlist" ? chipOn : chipOff} aria-pressed={view === "waitlist"} onClick={() => setView("waitlist")}>Waitlist</button>
+        <button className={view === "referrals" ? chipOn : chipOff} aria-pressed={view === "referrals"} onClick={() => setView("referrals")}>Referrals</button>
       </div>
       {view === "waitlist" ? <WaitlistTable /> : <ReferralTable />}
     </div>
@@ -76,15 +79,15 @@ function WaitlistFeatureSwitch() {
   }
 
   return (
-    <section className="rounded-[14px] bg-white p-4">
+    <section className="rounded-[14px] bg-card p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1 basis-56">
-          <p className="text-sm font-semibold">App waitlist</p>
-          <p className="text-xs text-[#757575]">When on, new people join a waitlist and need an access code before they can use the app.</p>
+          <p className="text-sm font-semibold text-heading">App waitlist</p>
+          <p className="text-xs text-muted-foreground">When on, new people join a waitlist and need an access code before they can use the app.</p>
         </div>
-        {loading && <span className="text-xs text-[#a9a9a9]">Loading…</span>}
-        {error && <span className="text-xs text-[#b42318]">Could not load the setting: {error}</span>}
-        {!loading && !error && !company && <span className="text-xs text-[#b42318]">No Company settings record was found.</span>}
+        {loading && <span className="text-xs text-subtle">Loading…</span>}
+        {error && <span className="text-xs text-destructive">Could not load the setting: {error}</span>}
+        {!loading && !error && !company && <span className="text-xs text-destructive">No Company settings record was found.</span>}
         {company && confirming && (
           <div className="flex items-center gap-2">
             <span className="text-xs">{on ? "Let anyone sign up without a code?" : "Put all new sign-ups on the waitlist?"}</span>
@@ -93,19 +96,10 @@ function WaitlistFeatureSwitch() {
           </div>
         )}
         {company && !confirming && (
-          <button
-            role="switch"
-            aria-checked={on}
-            aria-label="App waitlist"
-            disabled={saving}
-            onClick={() => setConfirming(true)}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${on ? "bg-[#1a1a1a]" : "bg-[#d4d4d4]"}`}
-          >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
-          </button>
+          <Switch checked={on} aria-label="App waitlist" disabled={saving} onCheckedChange={() => setConfirming(true)} />
         )}
       </div>
-      {note && <p className="mt-2 text-xs text-[#757575]" role="status">{note}</p>}
+      {note && <p className="mt-2 text-xs text-muted-foreground" role="status">{note}</p>}
     </section>
   );
 }
@@ -175,31 +169,32 @@ function WaitlistTable() {
   }
 
   return (
-    <section className="rounded-[14px] bg-white p-4">
+    <section className="rounded-[14px] bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
         {WAITLIST_TABS.map((item) => (
-          <button key={item.status} className={tab === item.status ? chipOn : chipOff} onClick={() => setTab(item.status)}>
+          <button key={item.status} className={tab === item.status ? chipOn : chipOff} aria-pressed={tab === item.status} onClick={() => setTab(item.status)}>
             {item.label} {counts[item.status]}
           </button>
         ))}
-        <input
+        <Input
+          type="search"
           value={q}
           onChange={(event) => setQ(event.target.value)}
           placeholder="Search name, email, phone or ID"
           aria-label="Search the waitlist"
-          className="ml-auto w-full rounded-lg border border-[#e3e3e3] px-2.5 py-1 text-xs sm:w-64"
+          className="ms-auto sm:w-64"
         />
       </div>
 
-      {note && <p className="mt-3 text-xs text-[#757575]" role="status">{note}</p>}
-      {error && <p className="mt-3 text-xs text-[#b42318]">The waitlist could not be loaded: {error}</p>}
-      {loading && <p className="mt-3 text-xs text-[#a9a9a9]">Loading…</p>}
+      {note && <p className="mt-3 text-xs text-muted-foreground" role="status">{note}</p>}
+      {error && <p className="mt-3 text-xs text-destructive">The waitlist could not be loaded: {error}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
 
       {!loading && !error && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse">
             <thead>
-              <tr className="border-b border-[#f0f0f0]">
+              <tr className="border-b border-border">
                 <th className={th}>Waitlist ID</th>
                 <th className={th}>Name</th>
                 <th className={th}>Email</th>
@@ -211,12 +206,12 @@ function WaitlistTable() {
             </thead>
             <tbody>
               {shown.map((entry) => (
-                <tr key={entry.id} className="border-b border-[#f7f7f7]">
+                <tr key={entry.id} className="border-b border-border">
                   <td className={td}>{entry.waitlistId}</td>
                   <td className={td}>{entry.name}</td>
                   <td className={td}>{entry.email}</td>
                   <td className={td} dir="ltr">{entry.phone}</td>
-                  <td className={td}>{waitlistStatusLabel(entry.status)}</td>
+                  <td className={td}><StatusBadge value={waitlistStatusLabel(entry.status)} /></td>
                   <td className={td}>{cellText(entry.createdAt)}</td>
                   <td className={td}>
                     {declining === entry.id ? (
@@ -243,7 +238,7 @@ function WaitlistTable() {
             </tbody>
           </table>
           {shown.length === 0 && (
-            <p className="py-6 text-center text-xs text-[#a9a9a9]">
+            <p className="py-6 text-center text-xs text-subtle">
               {q.trim() ? "Nobody in this tab matches your search." : `Nobody is in ${waitlistStatusLabel(tab)} right now.`}
             </p>
           )}
@@ -253,7 +248,7 @@ function WaitlistTable() {
       {hasMore && (
         <div className="mt-3 flex items-center gap-2">
           <button className={light} onClick={loadMore}>Load more</button>
-          <span className="text-xs text-[#a9a9a9]">Counts cover the entries loaded so far.</span>
+          <span className="text-xs text-subtle">Counts cover the entries loaded so far.</span>
         </div>
       )}
     </section>
@@ -295,16 +290,16 @@ function ReferralTable() {
   const name = (path: string) => (path ? userLabel(users[path], path) : "Unknown");
 
   return (
-    <section className="rounded-[14px] bg-white p-4">
-      <p className="text-sm font-semibold">Referrals</p>
-      <p className="mt-1 text-xs text-[#757575]">Each row is one new customer who signed up with an existing customer&apos;s referral code.</p>
-      {error && <p className="mt-3 text-xs text-[#b42318]">Referrals could not be loaded: {error}</p>}
-      {loading && <p className="mt-3 text-xs text-[#a9a9a9]">Loading…</p>}
+    <section className="rounded-[14px] bg-card p-4">
+      <p className="text-sm font-semibold text-heading">Referrals</p>
+      <p className="mt-1 text-xs text-muted-foreground">Each row is one new customer who signed up with an existing customer&apos;s referral code.</p>
+      {error && <p className="mt-3 text-xs text-destructive">Referrals could not be loaded: {error}</p>}
+      {loading && <p className="mt-3 text-xs text-subtle">Loading…</p>}
       {!loading && !error && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse">
             <thead>
-              <tr className="border-b border-[#f0f0f0]">
+              <tr className="border-b border-border">
                 <th className={th}>Referral ID</th>
                 <th className={th}>Referred by</th>
                 <th className={th}>New customer</th>
@@ -315,18 +310,18 @@ function ReferralTable() {
             </thead>
             <tbody>
               {activities.map((item) => (
-                <tr key={item.id} className="border-b border-[#f7f7f7]">
+                <tr key={item.id} className="border-b border-border">
                   <td className={td}>{item.referralId}</td>
                   <td className={td}>{name(item.referrerPath)}</td>
                   <td className={td}>{name(item.refereePath)}</td>
                   <td className={td}>{item.points}</td>
-                  <td className={td}>{item.status}</td>
+                  <td className={td}><StatusBadge value={item.status} /></td>
                   <td className={td}>{cellText(item.createdAt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {activities.length === 0 && <p className="py-6 text-center text-xs text-[#a9a9a9]">No one has used a referral code yet.</p>}
+          {activities.length === 0 && <p className="py-6 text-center text-xs text-subtle">No one has used a referral code yet.</p>}
         </div>
       )}
       {hasMore && <button className={`${light} mt-3`} onClick={loadMore}>Load more</button>}

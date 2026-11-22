@@ -1,14 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { doc, updateDoc } from "firebase/firestore";
-import { Check, ChevronDown, Download, EllipsisVertical, ListFilter, Plus, Search, Settings2, Upload, X } from "lucide-react";
+import { Check, ChevronDown, Download, EllipsisVertical, ListFilter, Plus, Settings2, Upload, X } from "lucide-react";
 import { getFirebase } from "@/lib/firebase";
 import { useCollection } from "@/lib/firestore-ui";
 import { productThumbUrl } from "@/lib/product-thumb";
-import { HeaderSlot } from "./header-slots";
+import { downloadCsv, toCsv } from "@/lib/csv";
+import type { StatusTone } from "@/lib/status";
+import { cn } from "@/lib/utils";
+import { EmptyState } from "./shared/empty-state";
+import { HeaderSearch, PageHeader } from "./shared/page-header";
+import { StatusBadge } from "./shared/status-badge";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 type Info = Record<string, unknown>;
 
@@ -136,94 +150,77 @@ export function ProductsPage({ view = "list" }: { view?: "list" | "grid" }) {
   }
 
   function exportCsv() {
-    const lines = ["ID,Name,Type,Price,Stock,Designer,Status"];
-    for (const card of filtered) {
-      lines.push([card.code, card.name, card.type, card.price ?? "", card.stock ?? "", card.designer, card.status].map((v) => `"${String(v).replaceAll('"', '""')}"`).join(","));
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "products.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    const lines = filtered.map((card) => [card.code, card.name, card.type, card.price ?? "", card.stock ?? "", card.designer, card.status]);
+    downloadCsv("products.csv", toCsv(["ID", "Name", "Type", "Price", "Stock", "Designer", "Status"], lines));
   }
 
   const edit = (id: string) => router.push(`/product-edit?id=${id}`);
 
   return (
     <div className="space-y-3">
-      <HeaderSlot slot="center">
-        <label className="flex h-9 w-full max-w-[340px] items-center gap-2 rounded-lg border border-[#e6e6e6] bg-white px-3 text-[13px] focus-within:border-[#cfcfcf]">
-          <Search className="size-3.5 shrink-0 text-[#a9a9a9]" />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search products, ID, designer…"
-            className="w-full min-w-0 bg-transparent outline-none placeholder:text-[#bbb]"
-          />
-        </label>
-      </HeaderSlot>
+      <PageHeader
+        center={<HeaderSearch value={q} onChange={setQ} placeholder="Search products, ID, designer…" />}
+        actions={
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="lg" className="bg-card">
+                  <ListFilter className="text-muted-foreground" />
+                  {filter === "All" ? "All statuses" : filter}
+                  <ChevronDown className="text-subtle" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto min-w-44">
+                {filters.map((item) => (
+                  <DropdownMenuItem key={item} onSelect={() => setFilter(item)} className="justify-between gap-3">
+                    <span className={item === filter ? "font-medium" : ""}>{item === "All" ? "All statuses" : item}</span>
+                    <span className="text-[12px] text-subtle">{counts[item] ?? 0}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="lg" className="bg-card">
+                  <Settings2 className="text-muted-foreground" /> Options
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto min-w-44">
+                <DropdownMenuItem onSelect={exportCsv}>
+                  <Download /> Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => importRef.current?.click()}>
+                  <Upload /> Import CSV
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/product-settings">Product settings</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/size-chart">Size chart</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/pending-products">Pending approvals</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={() => setNote("Import reads the file locally. Saving imported rows is the next product pass.")}
+            />
+            <Button asChild size="lg">
+              <Link href="/product-add">
+                <Plus /> Add Product
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
-      <HeaderSlot slot="actions">
-        <Dropdown
-          label={
-            <>
-              <ListFilter className="size-3.5 text-[#757575]" />
-              {filter === "All" ? "All statuses" : filter}
-              <ChevronDown className="size-3.5 text-[#a9a9a9]" />
-            </>
-          }
-        >
-          {(close) =>
-            filters.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => {
-                  setFilter(item);
-                  close();
-                }}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-start hover:bg-[#fafafa]"
-              >
-                <span className={item === filter ? "font-medium" : ""}>{item === "All" ? "All statuses" : item}</span>
-                <span className="text-[12px] text-[#a9a9a9]">{counts[item] ?? 0}</span>
-              </button>
-            ))
-          }
-        </Dropdown>
-        <Dropdown
-          label={
-            <>
-              <Settings2 className="size-3.5 text-[#757575]" /> Options
-            </>
-          }
-        >
-          {(close) => (
-            <>
-              <MenuButton icon={<Download className="size-3.5" />} onClick={() => { exportCsv(); close(); }}>Export CSV</MenuButton>
-              <MenuButton icon={<Upload className="size-3.5" />} onClick={() => { importRef.current?.click(); close(); }}>Import CSV</MenuButton>
-              <div className="my-1 border-t border-[#f3f3f3]" />
-              <MenuLink href="/product-settings">Product settings</MenuLink>
-              <MenuLink href="/size-chart">Size chart</MenuLink>
-              <MenuLink href="/pending-products">Pending approvals</MenuLink>
-            </>
-          )}
-        </Dropdown>
-        <input
-          ref={importRef}
-          type="file"
-          accept=".csv"
-          className="hidden"
-          onChange={() => setNote("Import reads the file locally. Saving imported rows is the next product pass.")}
-        />
-        <Link href="/product-add" className="inline-flex h-9 items-center gap-1 rounded-lg bg-[#1a1a1a] px-3 text-[13px] font-medium text-white hover:bg-black">
-          <Plus className="size-3.5" /> Add Product
-        </Link>
-      </HeaderSlot>
-
-      <div className="grid grid-cols-2 divide-[#f1f1f1] rounded-[14px] bg-white lg:grid-cols-4 lg:divide-x">
+      <div className="grid grid-cols-2 divide-border rounded-[14px] bg-card lg:grid-cols-4 lg:divide-x">
         <Stat label="Total products" value={products.hasMore ? `${cards.length}+` : String(cards.length)} />
         <Stat label="Pending approvals" value={String(counts.Pending ?? 0)} onClick={() => setFilter("Pending")} />
         <Stat label="Low stock (under 5)" value={String(low)} />
@@ -243,19 +240,19 @@ export function ProductsPage({ view = "list" }: { view?: "list" | "grid" }) {
             />
           ))}
           {!products.loading && filtered.length === 0 && <Empty />}
-          {products.loading && cards.length === 0 && Array.from({ length: 8 }, (_, i) => <div key={i} className="aspect-[4/5] animate-pulse rounded-[14px] bg-white" />)}
+          {products.loading && cards.length === 0 && Array.from({ length: 8 }, (_, i) => <div key={i} className="aspect-[4/5] animate-pulse rounded-[14px] bg-card" />)}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[14px] bg-white">
+        <div className="overflow-hidden rounded-[14px] bg-card">
           <div className="overflow-auto">
             <table className="w-full min-w-[860px] text-start text-[13px]">
-              <thead className="text-[#a9a9a9]">
+              <thead className="text-muted-foreground">
                 <tr>
                   <th className="w-10 px-4 py-2.5">
-                    <input type="checkbox" checked={allChecked} onChange={() => setPicked(allChecked ? [] : filtered.map((card) => card.id))} />
+                    <Checkbox aria-label="Select all products shown" checked={allChecked} onCheckedChange={() => setPicked(allChecked ? [] : filtered.map((card) => card.id))} />
                   </th>
                   {["Product", "ID", "Type", "Price", "Stock", "Designer", "Status", ""].map((h, i) => (
-                    <th key={i} className="whitespace-nowrap px-3 py-2.5 font-medium">{h}</th>
+                    <th key={i} className="px-3 py-2.5 font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -264,22 +261,22 @@ export function ProductsPage({ view = "list" }: { view?: "list" | "grid" }) {
                   <tr
                     key={card.id}
                     onClick={() => edit(card.id)}
-                    className={`cursor-pointer border-t border-[#f3f3f3] ${picked.includes(card.id) ? "bg-[#f5f9ff]" : "hover:bg-[#fafafa]"}`}
+                    className={cn("cursor-pointer border-t border-border", picked.includes(card.id) ? "bg-tint-info" : "hover:bg-muted")}
                   >
                     <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={picked.includes(card.id)} onChange={() => toggle(card.id)} />
+                      <Checkbox aria-label={`Select ${card.name}`} checked={picked.includes(card.id)} onCheckedChange={() => toggle(card.id)} />
                     </td>
                     <td className="px-3 py-2">
                       <span className="flex min-w-0 items-center gap-3">
                         <Thumb src={card.image} className="size-10 rounded-lg" />
-                        <span className="max-w-[280px] truncate font-medium">{card.name}</span>
+                        <span className="max-w-[280px] truncate font-medium text-foreground">{card.name}</span>
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-[12px] text-[#757575]">{card.code}</td>
-                    <td className="px-3 py-2 capitalize text-[#757575]">{card.type || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2"><Price card={card} /></td>
-                    <td className={`px-3 py-2 ${card.stock != null && card.stock < 5 ? "font-medium text-[#f52525]" : ""}`}>{card.stock ?? "—"}</td>
-                    <td className="max-w-[160px] truncate px-3 py-2 text-[#757575]">{card.designer || "—"}</td>
+                    <td className="px-3 py-2 font-mono text-[12px] whitespace-nowrap text-muted-foreground">{card.code}</td>
+                    <td className="px-3 py-2 text-muted-foreground capitalize">{card.type || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap"><Price card={card} /></td>
+                    <td className={cn("px-3 py-2", card.stock != null && card.stock < 5 && "font-medium text-destructive")}>{card.stock ?? "—"}</td>
+                    <td className="max-w-[160px] truncate px-3 py-2 text-muted-foreground">{card.designer || "—"}</td>
                     <td className="px-3 py-2"><StatusPill status={card.status} /></td>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <ApproveReject card={card} onStatus={(status) => void setStatus([card.id], status)} />
@@ -290,7 +287,7 @@ export function ProductsPage({ view = "list" }: { view?: "list" | "grid" }) {
                   <tr><td colSpan={9}><Empty /></td></tr>
                 )}
                 {products.loading && cards.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-8 text-[#a9a9a9]">Loading products…</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-8 text-subtle">Loading products…</td></tr>
                 )}
               </tbody>
             </table>
@@ -298,22 +295,22 @@ export function ProductsPage({ view = "list" }: { view?: "list" | "grid" }) {
         </div>
       )}
 
-      <div className="flex min-h-10 items-center justify-between gap-3 text-[12px] text-[#a9a9a9]">
+      <div className="flex min-h-10 items-center justify-between gap-3 text-[12px] text-subtle">
         <span>
           {picked.length > 0 ? `${picked.length} selected` : `${filtered.length}${products.hasMore ? "+" : ""} products`}
-          {note && <span className="ms-3 text-[#757575]">{note}</span>}
-          {products.error && <span className="ms-3 text-[#f52525]">{products.error}</span>}
+          {note && <span className="ms-3 text-muted-foreground" role="status">{note}</span>}
+          {products.error && <span className="ms-3 text-destructive">{products.error}</span>}
         </span>
-        <div className="flex gap-2 text-[13px]">
+        <div className="flex gap-2">
           {picked.length > 0 ? (
             <>
-              <button className="rounded-lg border border-[#e3e3e3] bg-white px-3 py-1.5 text-[#303030]" onClick={() => setPicked([])}>Clear</button>
-              <button className="rounded-lg bg-[#f52525] px-3 py-1.5 text-white" onClick={() => void setStatus(picked, "inactive")}>Reject</button>
-              <button className="rounded-lg bg-[#067647] px-3 py-1.5 text-white" onClick={() => void setStatus(picked, "active")}>Approve</button>
+              <Button variant="outline" className="bg-card" onClick={() => setPicked([])}>Clear</Button>
+              <Button variant="destructive" onClick={() => void setStatus(picked, "inactive")}>Reject</Button>
+              <Button onClick={() => void setStatus(picked, "active")}>Approve</Button>
             </>
           ) : (
             products.hasMore && (
-              <button className="rounded-lg border border-[#e3e3e3] bg-white px-3 py-1.5 text-[#303030] hover:bg-[#fafafa]" onClick={products.loadMore}>Load more</button>
+              <Button variant="outline" className="bg-card" onClick={products.loadMore}>Load more</Button>
             )
           )}
         </div>
@@ -338,43 +335,42 @@ function GridCard({
   return (
     <div
       onClick={onOpen}
-      className={`group cursor-pointer overflow-hidden rounded-[14px] bg-white p-2 transition-shadow hover:shadow-md ${picked ? "ring-2 ring-[#1a1a1a]" : ""}`}
+      className={cn("group cursor-pointer overflow-hidden rounded-[14px] bg-card p-2 transition-shadow hover:shadow-md", picked && "ring-2 ring-primary")}
     >
       <div className="relative">
         <Thumb src={card.image} className="aspect-[4/5] w-full rounded-[10px]" />
         <span className="absolute start-2 top-2"><StatusPill status={card.status} solid /></span>
         <span className="absolute end-2 top-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
+          <Checkbox
             aria-label={`Select ${card.name}`}
             checked={picked}
-            onChange={onPick}
-            className={`size-4 ${picked ? "" : "opacity-0 group-hover:opacity-100"}`}
+            onCheckedChange={onPick}
+            className={cn("bg-card", !picked && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")}
           />
-          <Dropdown
-            compact
-            label={<EllipsisVertical className="size-4" />}
-          >
-            {(close) => (
-              <>
-                <MenuButton onClick={() => { onOpen(); close(); }}>Edit</MenuButton>
-                {bucket(card.status) !== "Active" && <MenuButton onClick={() => { onStatus("active"); close(); }}>Approve</MenuButton>}
-                {bucket(card.status) !== "Inactive" && <MenuButton onClick={() => { onStatus("inactive"); close(); }}>Reject</MenuButton>}
-              </>
-            )}
-          </Dropdown>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" aria-label={`Actions for ${card.name}`} className="grid size-7 place-items-center rounded-full bg-card/90 text-foreground shadow-sm outline-none hover:bg-card focus-visible:ring-2 focus-visible:ring-ring/50">
+                <EllipsisVertical className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-auto min-w-36">
+              <DropdownMenuItem onSelect={onOpen}>Edit</DropdownMenuItem>
+              {bucket(card.status) !== "Active" && <DropdownMenuItem onSelect={() => onStatus("active")}>Approve</DropdownMenuItem>}
+              {bucket(card.status) !== "Inactive" && <DropdownMenuItem onSelect={() => onStatus("inactive")}>Reject</DropdownMenuItem>}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
       </div>
-      <div className="px-1 pb-1 pt-2">
-        <p className="truncate text-[13px] font-medium" title={card.name}>{card.name}</p>
+      <div className="px-1 pt-2 pb-1">
+        <p className="truncate text-[13px] font-medium text-foreground" title={card.name}>{card.name}</p>
         <div className="mt-1 flex items-end justify-between gap-2">
-          <p className="min-w-0 truncate text-[11px] text-[#a9a9a9]">
+          <p className="min-w-0 truncate text-[11px] text-subtle">
             {card.code}
-            {card.stock != null && <span className={card.stock < 5 ? "text-[#f52525]" : ""}> · {card.stock} in stock</span>}
+            {card.stock != null && <span className={card.stock < 5 ? "text-destructive" : ""}> · {card.stock} in stock</span>}
           </p>
           <Price card={card} />
         </div>
-        {card.designer && <p className="mt-0.5 truncate text-[11px] text-[#757575]">{card.designer}</p>}
+        {card.designer && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{card.designer}</p>}
       </div>
     </div>
   );
@@ -385,26 +381,26 @@ function ApproveReject({ card, onStatus }: { card: Card; onStatus: (status: stri
   return (
     <span className="inline-flex gap-1">
       {state !== "Active" && (
-        <button className="grid size-7 place-items-center rounded-md text-[#067647] hover:bg-emerald-50" aria-label="Approve" title="Approve" onClick={() => onStatus("active")}>
+        <Button variant="ghost" size="icon-sm" className="text-success hover:bg-tint-success hover:text-success" aria-label="Approve" title="Approve" onClick={() => onStatus("active")}>
           <Check className="size-4" />
-        </button>
+        </Button>
       )}
       {state !== "Inactive" && (
-        <button className="grid size-7 place-items-center rounded-md text-[#f52525] hover:bg-red-50" aria-label="Reject" title="Reject" onClick={() => onStatus("inactive")}>
+        <Button variant="ghost" size="icon-sm" className="text-destructive hover:bg-tint-danger hover:text-destructive" aria-label="Reject" title="Reject" onClick={() => onStatus("inactive")}>
           <X className="size-4" />
-        </button>
+        </Button>
       )}
     </span>
   );
 }
 
 function Price({ card }: { card: Card }) {
-  if (card.price == null) return <span className="text-[#c4c4c4]">—</span>;
+  if (card.price == null) return <span className="text-subtle">—</span>;
   const onSale = card.regular != null && card.regular > card.price;
   return (
-    <span className="whitespace-nowrap text-[13px] font-semibold">
+    <span className="text-[13px] font-semibold whitespace-nowrap text-foreground">
       {card.price} KD
-      {onSale && <span className="ms-1 text-[11px] font-normal text-[#a9a9a9] line-through">{card.regular}</span>}
+      {onSale && <span className="ms-1 text-[11px] font-normal text-subtle line-through">{card.regular}</span>}
     </span>
   );
 }
@@ -412,89 +408,36 @@ function Price({ card }: { card: Card }) {
 function Thumb({ src, className }: { src: string; className: string }) {
   return src ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" loading="lazy" className={`${className} shrink-0 bg-[#f1f1f1] object-cover`} />
+    <img src={src} alt="" loading="lazy" className={`${className} shrink-0 bg-muted object-cover`} />
   ) : (
-    <span className={`${className} block shrink-0 bg-[#f1f1f1]`} />
+    <span className={`${className} block shrink-0 bg-muted`} />
   );
 }
 
 function Stat({ label, value, small, onClick }: { label: string; value: string; small?: boolean; onClick?: () => void }) {
   const body = (
     <>
-      <p className="text-[12px] text-[#a9a9a9]">{label}</p>
-      <p className={`mt-1 truncate font-semibold tracking-tight text-[#303030] ${small ? "text-[14px] leading-7" : "text-[20px]"}`} title={value}>{value}</p>
+      <p className="text-[12px] text-subtle">{label}</p>
+      <p className={cn("mt-1 truncate font-semibold tracking-tight text-foreground", small ? "text-[14px] leading-7" : "text-[20px]")} title={value}>{value}</p>
     </>
   );
   return onClick ? (
-    <button type="button" onClick={onClick} className="min-w-0 px-4 py-3 text-start hover:bg-[#fafafa]">{body}</button>
+    <button type="button" onClick={onClick} className="min-w-0 px-4 py-3 text-start outline-none hover:bg-muted focus-visible:bg-muted">{body}</button>
   ) : (
     <div className="min-w-0 px-4 py-3">{body}</div>
   );
 }
 
-function StatusPill({ status, solid }: { status: string; solid?: boolean }) {
+/** Product states use their own wording: a rejected product is "Inactive" and reads as a stop, not as a neutral state. */
+const BUCKET_TONE: Record<string, StatusTone> = { Pending: "warning", Active: "success", Inactive: "danger", Draft: "neutral", Archived: "neutral" };
+
+function StatusPill({ status, solid }: { status: string; solid?: boolean }): ReactNode {
   const label = bucket(status);
-  const tone =
-    label === "Pending"
-      ? "bg-amber-50 text-amber-700"
-      : label === "Active"
-        ? "bg-emerald-50 text-emerald-700"
-        : label === "Inactive"
-          ? "bg-red-50 text-red-600"
-          : "bg-neutral-100 text-neutral-600";
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${tone} ${solid ? "shadow-sm ring-1 ring-white" : ""}`}>{label}</span>;
+  const badge = <StatusBadge value={label} tone={BUCKET_TONE[label]} className="text-[11px]" />;
+  // Over a product photo the pill sits on an opaque backing, so the dark themes' translucent tints stay readable.
+  return solid ? <span className="inline-flex rounded-full bg-card shadow-sm ring-1 ring-card">{badge}</span> : badge;
 }
 
 function Empty() {
-  return <p className="col-span-full px-4 py-10 text-center text-[13px] text-[#a9a9a9]">No products match these filters.</p>;
-}
-
-function Dropdown({ label, children, compact }: { label: ReactNode; children: (close: () => void) => ReactNode; compact?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    function onPointer(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointer);
-    return () => document.removeEventListener("mousedown", onPointer);
-  }, [open]);
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={
-          compact
-            ? "grid size-7 place-items-center rounded-full bg-white/90 text-[#303030] shadow-sm hover:bg-white"
-            : "inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#e3e3e3] bg-white px-3 text-[13px] font-medium hover:bg-[#fafafa]"
-        }
-      >
-        {label}
-      </button>
-      {open && (
-        <div className="absolute end-0 z-40 mt-1 min-w-44 overflow-hidden rounded-[12px] border border-[#eee] bg-white py-1 text-[13px] shadow-lg">
-          {children(() => setOpen(false))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MenuButton({ icon, onClick, children }: { icon?: ReactNode; onClick: () => void; children: ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} className="flex w-full items-center gap-2 px-3 py-2 text-start hover:bg-[#fafafa]">
-      {icon}
-      {children}
-    </button>
-  );
-}
-
-function MenuLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Link href={href} className="block px-3 py-2 hover:bg-[#fafafa]">
-      {children}
-    </Link>
-  );
+  return <EmptyState compact className="col-span-full" title="No products match these filters." />;
 }
