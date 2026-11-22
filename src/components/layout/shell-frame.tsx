@@ -345,7 +345,7 @@ function SectionItem({ section, active, expanded, hrefFor }: { section: NavSecti
   const router = useRouter();
   const Icon = section.icon;
   const children = section.children;
-  const containsActive = children ? children.some((child) => inLeaf(child, active)) : Boolean(section.tabs?.includes(active));
+  const containsActive = children ? children.some((child) => inLeaf(child, active)) : Boolean(section.tabs?.includes(active) || section.hidden?.includes(active));
   const [open, setOpen] = useState(containsActive);
 
   useEffect(() => {

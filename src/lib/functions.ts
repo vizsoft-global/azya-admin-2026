@@ -3,6 +3,7 @@
 import { httpsCallable } from "firebase/functions";
 import { getFirebase } from "./firebase";
 import { StoreValleyConfig } from "./store-valley/config";
+import { pushPayload, type PushPayload } from "@/features/marketing/push-rules";
 
 export async function callFunction<T = Record<string, unknown>>(
   name: string,
@@ -72,16 +73,30 @@ export function storeValleyProxy(input: {
   });
 }
 
-export function sendPushToUser(input: { userRef: string; title: string; body: string }) {
-  return callFunction("sendPushNotificationToUser", input);
+/** Older call shape (`users/<id>` paths or bare ids, plain `title` / `body`), still accepted and converted. */
+type LegacyPush = { userRefs: string[]; title: string; body: string };
+
+const userIdFromRef = (ref: string) => ref.trim().split("/").filter(Boolean).pop() ?? "";
+
+/**
+ * Sends one push notification to one person. `userId` is the document id of their
+ * `users` record. The function uses only the token on that record; prefer
+ * `sendPushToUsers`, which also looks at the person's newer device tokens.
+ */
+export function sendPushToUser(input: { userId: string; title: string; body: string; imageUrl?: string }) {
+  const { userIds, ...message } = pushPayload({ userIds: [input.userId], title: input.title, body: input.body, imageUrl: input.imageUrl });
+  return callFunction("sendPushNotificationToUser", { userId: userIds[0] ?? "", ...message });
 }
 
-export function sendPushToUsers(input: { userRefs: string[]; title: string; body: string }) {
-  return callFunction("sendPushNotificationToUsers", input);
-}
-
-export function sendPushToMultiple(input: { tokens: string[]; title: string; body: string }) {
-  return callFunction("sendPushNotificationToMultipleUsers", input);
+/**
+ * Sends a push notification to a list of people (`userIds` are `users` document ids).
+ * The function needs exactly `userIds`, `notificationTitle` and `notificationBody`,
+ * and answers `{ status, summary: { success: [{ userId }], failed: [{ userId, reason }] } }`:
+ * a resolved call does not mean everyone was reached, so read the summary.
+ */
+export function sendPushToUsers(input: PushPayload | LegacyPush) {
+  const payload = "userRefs" in input ? pushPayload({ userIds: input.userRefs.map(userIdFromRef), title: input.title, body: input.body }) : input;
+  return callFunction("sendPushNotificationToUsers", { ...payload });
 }
 
 export function generateDynamicReport(input: Record<string, unknown> = {}) {
