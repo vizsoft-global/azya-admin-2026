@@ -1,3 +1,4 @@
+import { tx } from "@/lib/i18n/tx";
 import { StoreValleyConfig } from "@/lib/store-valley/config";
 import {
   JOB_MAX_ATTEMPTS,
@@ -105,10 +106,10 @@ const designerIdOk = (value: unknown) => /^DSN-/i.test(text(value));
 export function buildRequest(input: { order: Dict; group: RequestGroup; inventory: Record<string, Dict>; designer?: Dict; notes?: string; skip?: number }): BuiltRequest {
   const { order, group, inventory } = input;
   const orderId = text(order.order_id);
-  if (!orderId) return { ok: false, message: "This order has no order number." };
+  if (!orderId) return { ok: false, message: tx("This order has no order number.") };
   const customer = readAddress(order.shipping_address);
-  if (!isCompleteAddress(customer)) return { ok: false, message: "The delivery address is missing a street, city, name or phone number." };
-  if (!group.lines.length) return { ok: false, message: "There is nothing to ship in this request." };
+  if (!isCompleteAddress(customer)) return { ok: false, message: tx("The delivery address is missing a street, city, name or phone number.") };
+  if (!group.lines.length) return { ok: false, message: tx("There is nothing to ship in this request.") };
   const productIds = group.lines.map((line) => text(line.product_id));
   const notes = (input.notes ?? "").trim();
   const common = {
@@ -143,10 +144,10 @@ export function buildRequest(input: { order: Dict; group: RequestGroup; inventor
   }
 
   const info = dict(dict(input.designer).designer_main_info);
-  if (!designerIdOk(info.designer_id)) return { ok: false, message: "The designer has no Store Valley designer ID (DSN-…) yet, so a courier cannot be sent to them." };
+  if (!designerIdOk(info.designer_id)) return { ok: false, message: tx("The designer has no Store Valley designer ID (DSN-…) yet, so a courier cannot be sent to them.") };
   const pickupRaw = dict(linePickup(group.lines[0]).pickup_address);
   const pickup = readAddress(isCompleteAddress(readAddress(pickupRaw)) ? pickupRaw : info.designer_pickup_address);
-  if (!isCompleteAddress(pickup)) return { ok: false, message: "The designer's pickup address is missing a street, city, contact name or phone number." };
+  if (!isCompleteAddress(pickup)) return { ok: false, message: tx("The designer's pickup address is missing a street, city, contact name or phone number.") };
   const custom = text(group.lines[0].product_main_type).toLowerCase() === "custom";
   const clientOrderId = withSequence(`${orderId}-CM-${group.designerUid}`, order, "custom", productIds, input.skip);
   return {
@@ -188,7 +189,7 @@ export function existingRequest(response: { status: number; body: Dict }): "none
 
 /** What to tell the person when Store Valley took the request but writing it on the order failed. */
 export function acceptedButNotRecorded(trackingId: string, reason: string) {
-  return `Store Valley accepted the request (tracking ${trackingId}) but saving it on the order failed: ${reason}. Do not create it anywhere else. Sending again from here does not make a second request: it finds this one and only records it.`;
+  return tx("Store Valley accepted the request (tracking {tracking}) but saving it on the order failed: {reason}. Do not create it anywhere else. Sending again from here does not make a second request: it finds this one and only records it.", { tracking: trackingId, reason });
 }
 
 /** The `delivery` record for a request, in the shape the server's delivery jobs write. */

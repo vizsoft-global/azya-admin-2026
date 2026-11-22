@@ -15,6 +15,8 @@
  * stay exactly as written.
  */
 
+import { tx } from "./i18n/tx";
+
 export const USERS_COLLECTION = "users";
 export const ID_MAP_COLLECTION = "id_map";
 export const SALES_HISTORY_COLLECTION = "sales_history";
@@ -242,15 +244,16 @@ export function readApplication(data: Record<string, unknown>): DesignerApplicat
     testimonials: text(form.testimonials),
     licensedStore,
     brandPhoto: safeUrl(form.brand_photo),
-    idDocument: uploaded(form.document_url, licensedStore ? "Store licence" : "ID document"),
-    selfie: uploaded(request.designer_selfie, "Selfie"),
+    // The names are only shown on screen (never stored), so they follow the panel language.
+    idDocument: uploaded(form.document_url, licensedStore ? tx("Store licence") : tx("ID document")),
+    selfie: uploaded(request.designer_selfie, tx("Selfie")),
     portfolio: readPortfolio(request.designer_sample_designs),
     accountEmail: text(data.email),
   };
 }
 
 export function applicantLabel(application: DesignerApplication): string {
-  return application.name || application.email || application.accountEmail || "this applicant";
+  return application.name || application.email || application.accountEmail || tx("this applicant");
 }
 
 export function matchesSearch(application: DesignerApplication, query: string): boolean {

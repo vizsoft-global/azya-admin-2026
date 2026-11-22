@@ -26,6 +26,7 @@ import {
   COUPON_STATES,
   COUPON_TYPES,
   couponCreatePayload,
+  couponDiscountLabel,
   couponDiscountText,
   couponFormFromDoc,
   couponRedeemed,
@@ -39,16 +40,21 @@ import {
   type CouponForm,
   type CouponState,
 } from "./coupon-rules";
-import { errorText } from "./parts";
+import { errorText, txOptions } from "./parts";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 const ALL = "__all__";
 const STATE_TONE: Record<CouponState, StatusTone> = { active: "success", scheduled: "info", expired: "danger", "used up": "warning", archived: "neutral" };
-const STATE_OPTIONS = [{ value: ALL, label: "All coupons" }, ...COUPON_STATES.map((state) => ({ value: state, label: state.charAt(0).toUpperCase() + state.slice(1) }))];
-const TYPE_OPTIONS = COUPON_TYPES.map((value) => ({ value, label: value === "Amount" ? "Fixed amount (KWD)" : "Percentage" }));
-const AUDIENCE_OPTIONS = COUPON_AUDIENCES.map((value) => ({ value, label: `${value}s` }));
+const STATE_LABEL: Record<CouponState, string> = { active: txKey("Active"), scheduled: txKey("Scheduled"), expired: txKey("Expired"), "used up": txKey("Used up"), archived: txKey("Archived") };
+const STATE_OPTIONS = [{ value: ALL, label: txKey("All coupons") }, ...COUPON_STATES.map((state) => ({ value: state as string, label: STATE_LABEL[state] }))];
+const TYPE_OPTIONS = COUPON_TYPES.map((value) => ({ value, label: value === "Amount" ? txKey("Fixed amount (KWD)") : txKey("Percentage") }));
+/** Stored value of `coupon_for` → the group's name, plural for the picker and singular for the table. */
+const AUDIENCE_PLURAL: Record<string, string> = { Customer: txKey("Customers"), Creator: txKey("Creators"), Designer: txKey("Designers") };
+const AUDIENCE_SINGULAR: Record<string, string> = { Customer: txKey("Customer"), Creator: txKey("Creator"), Designer: txKey("Designer") };
+const AUDIENCE_OPTIONS = COUPON_AUDIENCES.map((value) => ({ value, label: AUDIENCE_PLURAL[value] }));
 const STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "archived", label: "Archived" },
+  { value: "active", label: txKey("Active") },
+  { value: "archived", label: txKey("Archived") },
 ];
 
 /** Ids of coupons that already use `code`. The app matches the code exactly, so this does too. */
@@ -79,25 +85,25 @@ export function CouponsPage({ startCreating = false }: { startCreating?: boolean
     const code = String(row.data.coupon_value ?? row.id);
     if (status === "archived") {
       const ok = await confirm({
-        title: `Archive coupon ${code}?`,
-        description: "Customers will no longer be able to use this code. Orders that already used it are not affected, and you can make it active again later.",
-        confirmLabel: "Archive",
+        title: tx("Archive coupon {code}?", { code }),
+        description: tx("Customers will no longer be able to use this code. Orders that already used it are not affected, and you can make it active again later."),
+        confirmLabel: tx("Archive"),
         destructive: true,
       });
       if (!ok) return;
     }
     try {
       await updateDoc(doc(getFirebase().db, "coupon", row.id), { coupon_status: status });
-      toast.success(status === "archived" ? `Coupon ${code} archived.` : `Coupon ${code} is active again.`);
+      toast.success(status === "archived" ? tx("Coupon {code} archived.", { code }) : tx("Coupon {code} is active again.", { code }));
     } catch (err) {
-      toast.error(`Coupon ${code} was not changed: ${errorText(err)}`);
+      toast.error(tx("Coupon {code} was not changed: {error}", { code, error: errorText(err) }));
     }
   }
 
   const columns: Column<Row>[] = [
     {
       key: "coupon_value",
-      header: "Code",
+      header: tx("Code"),
       cell: (row) => (
         <span className="block min-w-0">
           <span className="block font-mono text-[13px] font-medium text-foreground" dir="ltr" lang="en">{String(row.data.coupon_value ?? "—")}</span>
@@ -108,25 +114,26 @@ export function CouponsPage({ startCreating = false }: { startCreating?: boolean
       sortValue: (row) => String(row.data.coupon_value ?? ""),
       exportValue: (row) => String(row.data.coupon_value ?? ""),
     },
-    { key: "discount", header: "Discount", cell: (row) => couponDiscountText(row.data) || "—", className: "whitespace-nowrap", sortable: true, sortValue: (row) => toNumber(row.data.coupon_price), exportValue: (row) => couponDiscountText(row.data) },
-    { key: "coupon_for", header: "For", cell: (row) => String(row.data.coupon_for ?? "—"), sortable: true, sortValue: (row) => String(row.data.coupon_for ?? ""), exportValue: (row) => String(row.data.coupon_for ?? "") },
+    { key: "discount", header: tx("Discount"), cell: (row) => couponDiscountLabel(row.data) || "—", className: "whitespace-nowrap", sortable: true, sortValue: (row) => toNumber(row.data.coupon_price), exportValue: (row) => couponDiscountText(row.data) },
+    { key: "coupon_for", header: tx("For"), cell: (row) => tx(AUDIENCE_SINGULAR[String(row.data.coupon_for)] ?? String(row.data.coupon_for ?? "—")), sortable: true, sortValue: (row) => String(row.data.coupon_for ?? ""), exportValue: (row) => String(row.data.coupon_for ?? "") },
     {
       key: "valid",
-      header: "Valid",
+      header: tx("Valid"),
       className: "whitespace-nowrap",
-      cell: (row) => `${formatDate(row.data.coupon_start_date) || "—"} → ${formatDate(row.data.coupon_end_date) || "—"}`,
+      // Kept left-to-right so the two dates and the arrow between them read in order in Arabic too.
+      cell: (row) => <span dir="ltr" lang="en">{`${formatDate(row.data.coupon_start_date) || "—"} → ${formatDate(row.data.coupon_end_date) || "—"}`}</span>,
       sortable: true,
       sortValue: (row) => toDate(row.data.coupon_end_date)?.getTime() ?? null,
       exportValue: (row) => `${formatDate(row.data.coupon_start_date)} to ${formatDate(row.data.coupon_end_date)}`,
     },
-    { key: "coupon_limit", header: "Uses left", className: "text-end tabular-nums", cell: (row) => toNumber(row.data.coupon_limit)?.toLocaleString("en-US") ?? "—", sortable: true, sortValue: (row) => toNumber(row.data.coupon_limit), exportValue: (row) => toNumber(row.data.coupon_limit) },
-    { key: "redeemed", header: "Used by", className: "text-end tabular-nums", cell: (row) => couponRedeemed(row.data).toLocaleString("en-US"), sortable: true, sortValue: (row) => couponRedeemed(row.data), exportValue: (row) => couponRedeemed(row.data) },
+    { key: "coupon_limit", header: tx("Uses left"), className: "text-end tabular-nums", cell: (row) => toNumber(row.data.coupon_limit)?.toLocaleString("en-US") ?? "—", sortable: true, sortValue: (row) => toNumber(row.data.coupon_limit), exportValue: (row) => toNumber(row.data.coupon_limit) },
+    { key: "redeemed", header: tx("Used by"), className: "text-end tabular-nums", cell: (row) => couponRedeemed(row.data).toLocaleString("en-US"), sortable: true, sortValue: (row) => couponRedeemed(row.data), exportValue: (row) => couponRedeemed(row.data) },
     {
       key: "state",
-      header: "State",
+      header: tx("State"),
       cell: (row) => {
         const state = couponState(row.data, today);
-        return <StatusBadge value={state} tone={STATE_TONE[state]} />;
+        return <StatusBadge value={state} label={tx(STATE_LABEL[state])} tone={STATE_TONE[state]} />;
       },
       sortable: true,
       sortValue: (row) => couponState(row.data, today),
@@ -140,21 +147,21 @@ export function CouponsPage({ startCreating = false }: { startCreating?: boolean
         <span onClick={(event) => event.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={`Actions for coupon ${String(row.data.coupon_value ?? row.id)}`}>
+              <Button variant="ghost" size="icon-sm" aria-label={tx("Actions for coupon {code}", { code: String(row.data.coupon_value ?? row.id) })}>
                 <EllipsisVertical />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-auto min-w-40">
               <DropdownMenuItem onSelect={() => setEditing({ row })}>
-                <Pencil /> Edit
+                <Pencil /> {tx("Edit")}
               </DropdownMenuItem>
               {row.data.coupon_status === "active" ? (
                 <DropdownMenuItem variant="destructive" onSelect={() => void setStatus(row, "archived")}>
-                  <Archive /> Archive
+                  <Archive /> {tx("Archive")}
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem onSelect={() => void setStatus(row, "active")}>
-                  <ArchiveRestore /> Make active
+                  <ArchiveRestore /> {tx("Make active")}
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -167,11 +174,11 @@ export function CouponsPage({ startCreating = false }: { startCreating?: boolean
   return (
     <>
       <PageHeader
-        description="Discount codes customers type at checkout. Each person can use a code once."
+        description={tx("Discount codes customers type at checkout. Each person can use a code once.")}
         actions={
           canCreate ? (
             <Button onClick={() => setEditing({ row: null })}>
-              <Plus /> Add coupon
+              <Plus /> {tx("Add coupon")}
             </Button>
           ) : null
         }
@@ -180,16 +187,17 @@ export function CouponsPage({ startCreating = false }: { startCreating?: boolean
         rows={shown}
         columns={columns}
         loading={loading}
-        error={error ? `The coupons could not be loaded: ${error}` : null}
-        emptyMessage={stateFilter === ALL ? "No coupons yet." : "No coupons in this state."}
+        error={error ? tx("The coupons could not be loaded: {error}", { error }) : null}
+        emptyMessage={stateFilter === ALL ? tx("No coupons yet.") : tx("No coupons in this state.")}
         searchText={(row) => `${row.data.coupon_value ?? ""} ${row.data.coupon_id ?? ""} ${row.data.coupon_for ?? ""}`}
-        searchPlaceholder="Search by code"
-        toolbar={<FilterSelect value={stateFilter} onChange={setStateFilter} options={STATE_OPTIONS} ariaLabel="Filter by state" />}
+        searchPlaceholder={tx("Search by code")}
+        toolbar={<FilterSelect value={stateFilter} onChange={setStateFilter} options={txOptions(STATE_OPTIONS)} ariaLabel={tx("Filter by state")} />}
         hasMore={hasMore}
         onLoadMore={loadMore}
         pageSize={25}
         exportName="coupons"
-        noun="coupon"
+        noun={tx("coupon")}
+        nounPlural={tx("coupons")}
         onRowClick={(row) => setEditing({ row })}
         activeRowId={editing?.row?.id ?? null}
       />
@@ -222,7 +230,7 @@ function CouponSheet({ row, today, onClose }: { row: Row | null; today: Date; on
     const found = validateCoupon(form, { mode, today });
     setErrors(found);
     if (Object.keys(found).length) {
-      toast.error("The coupon was not saved. Check the highlighted fields.");
+      toast.error(tx("The coupon was not saved. Check the highlighted fields."));
       return;
     }
     setSaving(true);
@@ -232,26 +240,26 @@ function CouponSheet({ row, today, onClose }: { row: Row | null; today: Date; on
       if (!row || code !== normaliseCode(before.code)) {
         const taken = (await couponsWithCode(code)).filter((id) => id !== row?.id);
         if (taken.length) {
-          setErrors({ code: "Another coupon already uses this code." });
-          toast.error(`The coupon was not saved: the code ${code} is already in use.`);
+          setErrors({ code: tx("Another coupon already uses this code.") });
+          toast.error(tx("The coupon was not saved: the code {code} is already in use.", { code }));
           return;
         }
       }
       if (row) {
         const changes = couponUpdatePayload(before, form);
         if (Object.keys(changes).length) await updateDoc(doc(db, "coupon", row.id), changes);
-        toast.success(`Coupon ${code} saved.`);
+        toast.success(tx("Coupon {code} saved.", { code }));
       } else {
         const counters = await idMapRef();
-        await runTransaction(db, async (tx) => {
-          const ids = await takeIds(tx, counters, ["coupon_id"]);
-          tx.set(doc(collection(db, "coupon")), couponCreatePayload(form, ids.coupon_id, serverTimestamp()));
+        await runTransaction(db, async (trx) => {
+          const ids = await takeIds(trx, counters, ["coupon_id"]);
+          trx.set(doc(collection(db, "coupon")), couponCreatePayload(form, ids.coupon_id, serverTimestamp()));
         });
-        toast.success(`Coupon ${code} created. Customers can use it from ${formatDate(form.from)}.`);
+        toast.success(tx("Coupon {code} created. Customers can use it from {date}.", { code, date: formatDate(form.from) }));
       }
       onClose();
     } catch (err) {
-      toast.error(`The coupon was not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("The coupon was not saved: {error}. Nothing was changed.", { error: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -263,50 +271,50 @@ function CouponSheet({ row, today, onClose }: { row: Row | null; today: Date; on
     <FormSheet
       open
       onOpenChange={(open) => !open && onClose()}
-      title={row ? `Edit coupon ${before.code}` : "Add coupon"}
-      description={row ? `${String(row.data.coupon_id ?? "")} · used by ${couponRedeemed(row.data)} ${couponRedeemed(row.data) === 1 ? "person" : "people"}` : "The code works for the chosen group between the two dates, once per person."}
+      title={row ? tx("Edit coupon {code}", { code: before.code }) : tx("Add coupon")}
+      description={row ? (couponRedeemed(row.data) === 1 ? tx("{id} · used by 1 person", { id: String(row.data.coupon_id ?? "") }) : tx("{id} · used by {count} people", { id: String(row.data.coupon_id ?? ""), count: couponRedeemed(row.data) })) : tx("The code works for the chosen group between the two dates, once per person.")}
       onSubmit={save}
       submitting={saving}
-      submitLabel={row ? "Save changes" : "Create coupon"}
+      submitLabel={row ? tx("Save changes") : tx("Create coupon")}
       submitDisabled={Boolean(row) && !dirty}
       wide
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <TextField label="Code" required value={form.code} onChange={(value) => set("code", value)} maxLength={COUPON_CODE_MAX} dir="ltr" placeholder="AZYAA10" error={errors.code} hint={`Up to ${COUPON_CODE_MAX} characters. Customers must type it exactly, capitals included.`} />
-        <SelectField label="Who can use it" required value={form.audience} onChange={(value) => set("audience", value as CouponForm["audience"])} options={AUDIENCE_OPTIONS} error={errors.audience} />
-        <SelectField label="Discount type" required value={form.type} onChange={(value) => set("type", value as CouponForm["type"])} options={TYPE_OPTIONS} />
+        <TextField label={tx("Code")} required value={form.code} onChange={(value) => set("code", value)} maxLength={COUPON_CODE_MAX} dir="ltr" placeholder="AZYAA10" error={errors.code} hint={tx("Up to {max} characters. Customers must type it exactly, capitals included.", { max: COUPON_CODE_MAX })} />
+        <SelectField label={tx("Who can use it")} required value={form.audience} onChange={(value) => set("audience", value as CouponForm["audience"])} options={txOptions(AUDIENCE_OPTIONS)} error={errors.audience} />
+        <SelectField label={tx("Discount type")} required value={form.type} onChange={(value) => set("type", value as CouponForm["type"])} options={txOptions(TYPE_OPTIONS)} />
         {form.type === "Percentage" ? (
-          <NumberField label="Percent off" required value={form.value} onChange={(value) => set("value", value)} min={0} max={100} suffix="%" error={errors.value} />
+          <NumberField label={tx("Percent off")} required value={form.value} onChange={(value) => set("value", value)} min={0} max={100} suffix="%" error={errors.value} />
         ) : (
-          <MoneyField label="Amount off" required value={form.value} onChange={(value) => set("value", value)} error={errors.value} />
+          <MoneyField label={tx("Amount off")} required value={form.value} onChange={(value) => set("value", value)} error={errors.value} />
         )}
         {form.type === "Percentage" ? (
-          <MoneyField label="Largest discount" required value={form.maxDiscount} onChange={(value) => set("maxDiscount", value)} error={errors.maxDiscount} hint="The most the percentage may take off one order." />
+          <MoneyField label={tx("Largest discount")} required value={form.maxDiscount} onChange={(value) => set("maxDiscount", value)} error={errors.maxDiscount} hint={tx("The most the percentage may take off one order.")} />
         ) : null}
         <MoneyField
-          label="Minimum order"
+          label={tx("Minimum order")}
           required
           value={form.minOrder}
           onChange={(value) => set("minOrder", value)}
           error={errors.minOrder}
-          hint={form.audience === "Creator" ? "Not checked for creator coupons." : "The order subtotal must be more than this."}
+          hint={form.audience === "Creator" ? tx("Not checked for creator coupons.") : tx("The order subtotal must be more than this.")}
         />
-        <DateField label="First day" required value={form.from} onChange={(value) => set("from", value)} min={minDate} error={errors.from} />
-        <DateField label="Last day" required value={form.to} onChange={(value) => set("to", value)} min={form.from ?? minDate} error={errors.to} />
+        <DateField label={tx("First day")} required value={form.from} onChange={(value) => set("from", value)} min={minDate} error={errors.from} />
+        <DateField label={tx("Last day")} required value={form.to} onChange={(value) => set("to", value)} min={form.from ?? minDate} error={errors.to} />
         <NumberField
-          label={row ? "Uses left" : "Total uses"}
+          label={row ? tx("Uses left") : tx("Total uses")}
           required
           integer
           value={form.limit}
           onChange={(value) => set("limit", value)}
           min={0}
           error={errors.limit}
-          hint={row ? "Goes down by one each time the coupon is used. Changing it sets how many uses remain." : "How many orders in total can use this coupon."}
+          hint={row ? tx("Goes down by one each time the coupon is used. Changing it sets how many uses remain.") : tx("How many orders in total can use this coupon.")}
         />
-        {row ? <SelectField label="Status" required value={form.status} onChange={(value) => set("status", value as CouponForm["status"])} options={STATUS_OPTIONS} hint="Archived coupons cannot be used." /> : null}
+        {row ? <SelectField label={tx("Status")} required value={form.status} onChange={(value) => set("status", value as CouponForm["status"])} options={txOptions(STATUS_OPTIONS)} hint={tx("Archived coupons cannot be used.")} /> : null}
       </div>
-      <TextField label="Short description" value={form.shortDescription} onChange={(value) => set("shortDescription", value)} maxLength={80} />
-      <TextareaField label="Description" required value={form.description} onChange={(value) => set("description", value)} rows={3} error={errors.description} />
+      <TextField label={tx("Short description")} value={form.shortDescription} onChange={(value) => set("shortDescription", value)} maxLength={80} />
+      <TextareaField label={tx("Description")} required value={form.description} onChange={(value) => set("description", value)} rows={3} error={errors.description} />
     </FormSheet>
   );
 }

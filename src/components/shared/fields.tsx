@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { currencyDecimals, roundMoney, toNumber } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 
 export type FieldProps = {
@@ -263,7 +264,7 @@ export function SelectField({
   value,
   onChange,
   options,
-  placeholder = "Select…",
+  placeholder = tx("Select…"),
   clearable,
   ...field
 }: FieldProps & {
@@ -287,7 +288,7 @@ export function SelectField({
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent position="popper">
-          {clearable ? <SelectItem value={NONE}>None</SelectItem> : null}
+          {clearable ? <SelectItem value={NONE}>{tx("None")}</SelectItem> : null}
           {shown.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
@@ -419,7 +420,7 @@ export function BilingualField({
         placeholder={placeholder?.[lang] ?? (lang === "ar" ? "بالعربية" : "In English")}
         onChange={(e) => onChange({ ...value, [lang]: e.target.value })}
         disabled={field.disabled}
-        aria-label={`${field.label ?? ""} (${lang === "ar" ? "Arabic" : "English"})`.trim()}
+        aria-label={(lang === "ar" ? tx("{label} (Arabic)", { label: field.label ?? "" }) : tx("{label} (English)", { label: field.label ?? "" })).trim()}
         aria-invalid={Boolean(field.error) || undefined}
         aria-describedby={describedBy(id, field)}
         className="pe-9"

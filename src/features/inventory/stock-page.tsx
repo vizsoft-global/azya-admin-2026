@@ -8,7 +8,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useConfirm } from "@/components/shared/confirm-dialog";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { EmptyState } from "@/components/shared/empty-state";
-import { DateField, NumberField, SelectField } from "@/components/shared/fields";
+import { DateField, NumberField, SelectField, TextareaField } from "@/components/shared/fields";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { FormModal } from "@/components/shared/form-modal";
 import { PageHeader } from "@/components/shared/page-header";
@@ -18,11 +18,12 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { formatDate } from "@/lib/format";
-import { notifyDesignerLowStock, raiseCollectRequest, refreshWarehouseStock, saveThreshold, syncReservedOrders } from "./data";
+import { adjustStock, notifyDesignerLowStock, raiseCollectRequest, refreshWarehouseStock, saveThreshold, syncReservedOrders } from "./data";
 import { readAddress, type InventoryView, type ProductView } from "./model";
 import { addressProblem } from "./pickup";
 import {
   collectRequestProblem,
+  DATE_FILTER_LABELS,
   DATE_FILTERS,
   isLowStock,
   matchesDateFilter,
@@ -38,7 +39,9 @@ import {
   type StockFilter,
   type StockNumbers,
 } from "./stock";
+import { adjustedStock, adjustProblem, type AdjustMode } from "./stock-moves";
 import { useDesignerNames, useInventory, useProducts, useWarehouseStored } from "./use-inventory-data";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -61,24 +64,99 @@ function ThresholdDialog({ row, onClose }: { row: StockRow | null; onClose: () =
     if (!row) return;
     const found = thresholdProblem(value);
     if (found || value == null) {
-      setProblem(found ?? "Enter a number.");
+      setProblem(found ?? tx("Enter a number."));
       return;
     }
     setSaving(true);
     try {
       await saveThreshold(row.id, value);
-      toast.success(`Alert threshold set to ${value}.`);
+      toast.success(tx("Alert threshold set to {count}.", { count: value }));
       onClose();
     } catch (error) {
-      toast.error(`The threshold was not saved: ${message(error)}`);
+      toast.error(tx("The threshold was not saved: {reason}", { reason: message(error) }));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <FormModal open={row != null} onOpenChange={(open) => !open && onClose()} title="Alert threshold" description={row ? `${row.name}. The product counts as low on stock when its stock is at or below this number.` : undefined} onSubmit={submit} submitting={saving} size="sm">
-      <NumberField label="Threshold" required integer min={0} value={value} onChange={setValue} error={problem || undefined} suffix="units" />
+    <FormModal open={row != null} onOpenChange={(open) => !open && onClose()} title={tx("Alert threshold")} description={row ? tx("{product}. The product counts as low on stock when its stock is at or below this number.", { product: row.name }) : undefined} onSubmit={submit} submitting={saving} size="sm">
+      <NumberField label={tx("Threshold")} required integer min={0} value={value} onChange={setValue} error={problem || undefined} suffix={tx("units")} />
+    </FormModal>
+  );
+}
+
+/** A super admin corrects the stock the app sells from, with a reason that is kept on a movement record. */
+function AdjustStockDialog({ row, by, onClose }: { row: StockRow | null; by: string; onClose: () => void }) {
+  const [mode, setMode] = useState<AdjustMode>("change");
+  const [value, setValue] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setMode("change");
+    setValue(null);
+    setReason("");
+    setProblem("");
+  }, [row?.id]);
+
+  const stock = row?.view.stock ?? 0;
+  const preview = value != null && Number.isInteger(value) ? adjustedStock(mode, value, stock) : null;
+
+  async function submit() {
+    if (!row) return;
+    const found = adjustProblem({ mode, value, reason, stock });
+    if (found || value == null) {
+      setProblem(found ?? tx("Enter a whole number."));
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await adjustStock({ inventoryDocId: row.id, mode, value, reason, by, productName: row.product?.storedName || row.name });
+      toast.success(tx("Stock changed from {before} to {after}.", { before: result.before, after: result.after }));
+      onClose();
+    } catch (error) {
+      toast.error(tx("Stock was not changed: {reason}", { reason: message(error) }));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <FormModal
+      open={row != null}
+      onOpenChange={(open) => !open && onClose()}
+      title={tx("Adjust stock")}
+      description={row ? tx("{product}. This changes the stock the app sells from, now {count}. The warehouse figures are not changed. The reason is kept on a movement record.", { product: row.name, count: stock }) : undefined}
+      onSubmit={submit}
+      submitting={saving}
+      submitLabel={tx("Adjust stock")}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <SelectField
+          label={tx("How")}
+          value={mode}
+          onChange={(next) => {
+            setMode(next as AdjustMode);
+            setValue(null);
+          }}
+          options={[
+            { value: "change", label: tx("Add or remove pieces") },
+            { value: "set", label: tx("Set the new quantity") },
+          ]}
+        />
+        <NumberField
+          label={mode === "set" ? tx("New quantity") : tx("Pieces to add (negative to remove)")}
+          required
+          integer
+          min={mode === "set" ? 0 : undefined}
+          value={value}
+          onChange={setValue}
+          hint={preview != null && preview >= 0 ? tx("Stock will be {count}.", { count: preview }) : undefined}
+        />
+      </div>
+      <TextareaField label={tx("Reason")} required rows={3} maxLength={300} value={reason} onChange={setReason} placeholder={tx("Stock count, damaged piece removed, correction…")} />
+      {problem ? <p role="alert" className="text-[12px] text-destructive">{problem}</p> : null}
     </FormModal>
   );
 }
@@ -101,17 +179,17 @@ function CollectRequestDialog({ row, onClose }: { row: StockRow | null; onClose:
   }, [row?.id]);
 
   const pickupAddress = (profile?.designer_main_info as { designer_pickup_address?: Record<string, unknown> } | undefined)?.designer_pickup_address;
-  const addressGap = addressProblem(readAddress(pickupAddress), "Your pickup address");
+  const addressGap = addressProblem(readAddress(pickupAddress), tx("Your pickup address"));
 
   async function submit() {
     if (!row) return;
     const found = collectRequestProblem({ quantity, packageCount: packages });
     if (found || quantity == null || packages == null) {
-      setProblem(found ?? "Fill in the quantity and package count.");
+      setProblem(found ?? tx("Fill in the quantity and package count."));
       return;
     }
     if (addressGap || !pickupAddress) {
-      setProblem(`${addressGap ?? "Your pickup address is missing."} Add it on your profile, then raise the request again.`);
+      setProblem(tx("{problem} Add it on your profile, then raise the request again.", { problem: addressGap ?? tx("Your pickup address is missing.") }));
       return;
     }
     setSaving(true);
@@ -130,10 +208,10 @@ function CollectRequestDialog({ row, onClose }: { row: StockRow | null; onClose:
         weightUnit: unit,
         pickupAddress,
       });
-      toast.success("Restock request raised. Accept it with a ready date under Stock management.");
+      toast.success(tx("Restock request raised. Accept it with a ready date under Stock management."));
       onClose();
     } catch (error) {
-      toast.error(`The request was not raised: ${message(error)}`);
+      toast.error(tx("The request was not raised: {reason}", { reason: message(error) }));
     } finally {
       setSaving(false);
     }
@@ -143,17 +221,17 @@ function CollectRequestDialog({ row, onClose }: { row: StockRow | null; onClose:
     <FormModal
       open={row != null}
       onOpenChange={(open) => !open && onClose()}
-      title="Raise collect request"
-      description={row ? `${row.name} · in hand ${row.numbers.inHand} · alert threshold ${row.numbers.threshold}. The driver will collect from the pickup address on your profile.` : undefined}
+      title={tx("Raise collect request")}
+      description={row ? tx("{product} · in hand {inHand} · alert threshold {threshold}. The driver will collect from the pickup address on your profile.", { product: row.name, inHand: row.numbers.inHand, threshold: row.numbers.threshold }) : undefined}
       onSubmit={submit}
       submitting={saving}
-      submitLabel="Submit request"
+      submitLabel={tx("Submit request")}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <NumberField label="Quantity" required integer min={1} max={999} value={quantity} onChange={setQuantity} />
-        <NumberField label="Package count" required integer min={1} max={999} value={packages} onChange={setPackages} />
-        <NumberField label="Total weight" min={0} value={weight} onChange={setWeight} />
-        <SelectField label="Weight unit" value={unit} onChange={setUnit} options={[{ value: "gm", label: "gm" }, { value: "kg", label: "kg" }]} />
+        <NumberField label={tx("Quantity")} required integer min={1} max={999} value={quantity} onChange={setQuantity} />
+        <NumberField label={tx("Package count")} required integer min={1} max={999} value={packages} onChange={setPackages} />
+        <NumberField label={tx("Total weight")} min={0} value={weight} onChange={setWeight} />
+        <SelectField label={tx("Weight unit")} value={unit} onChange={setUnit} options={[{ value: "gm", label: "gm" }, { value: "kg", label: "kg" }]} />
       </div>
       {problem ? <p role="alert" className="text-[12px] text-destructive">{problem}</p> : null}
     </FormModal>
@@ -175,6 +253,7 @@ export function StockPage() {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<StockRow | null>(null);
   const [collecting, setCollecting] = useState<StockRow | null>(null);
+  const [adjusting, setAdjusting] = useState<StockRow | null>(null);
   const [busy, setBusy] = useState("");
 
   const all = useMemo<StockRow[]>(
@@ -198,38 +277,38 @@ export function StockPage() {
 
   const designerOptions = useMemo(() => {
     const uids = [...new Set(inventory.map((view) => view.designerUid).filter(Boolean))];
-    return [{ value: "all", label: "All designers" }, ...uids.map((uid) => ({ value: uid, label: designerNames.get(uid) ?? uid })).sort((a, b) => a.label.localeCompare(b.label))];
+    return [{ value: "all", label: tx("All designers") }, ...uids.map((uid) => ({ value: uid, label: designerNames.get(uid) ?? uid })).sort((a, b) => a.label.localeCompare(b.label))];
   }, [inventory, designerNames]);
 
   function exportCsv() {
     if (!rows.length) {
-      toast.error("There is nothing to export with these filters.");
+      toast.error(tx("There is nothing to export with these filters."));
       return;
     }
     const stamp = formatDate(new Date(), true).replace(/[-: ]/g, "");
     downloadCsv(`inventory_${stamp}.csv`, toCsv(STOCK_EXPORT_HEADERS, stockExportRows(rows.map((row) => row.view))));
-    toast.success(`Exported ${rows.length} ${rows.length === 1 ? "record" : "records"}.`);
+    toast.success(tx("Records exported: {count}.", { count: rows.length }));
   }
 
   async function runSync(kind: "warehouse" | "reserved") {
     const ok = await confirm(
       kind === "warehouse"
-        ? { title: "Refresh warehouse stock?", description: "Asks the warehouse for its current stored quantities and updates the warehouse columns. It reads the figures for the main warehouse account only.", confirmLabel: "Refresh" }
-        : { title: "Sync reserved orders?", description: "Goes through paid orders and reserves warehouse stock for any that were missed. Orders already reserved are skipped.", confirmLabel: "Sync" },
+        ? { title: tx("Refresh warehouse stock?"), description: tx("Asks the warehouse for its current stored quantities and updates the warehouse columns. It reads the figures for the main warehouse account only."), confirmLabel: tx("Refresh") }
+        : { title: tx("Sync reserved orders?"), description: tx("Goes through paid orders and reserves warehouse stock for any that were missed. Orders already reserved are skipped."), confirmLabel: tx("Sync") },
     );
     if (!ok) return;
     setBusy(kind);
     try {
       if (kind === "warehouse") {
         const result = await refreshWarehouseStock();
-        toast.success(`Warehouse stock refreshed (${result.upserted ?? 0} rows).`);
+        toast.success(tx("Warehouse stock refreshed ({count} rows).", { count: result.upserted ?? 0 }));
       } else {
         const summary = reservedSyncSummary(await syncReservedOrders());
         if (summary.failed) toast.error(summary.text);
         else toast.success(summary.text);
       }
     } catch (error) {
-      toast.error(`${kind === "warehouse" ? "Warehouse stock was not refreshed" : "Reserved orders were not synced"}: ${message(error)}`);
+      toast.error(kind === "warehouse" ? tx("Warehouse stock was not refreshed: {reason}", { reason: message(error) }) : tx("Reserved orders were not synced: {reason}", { reason: message(error) }));
     } finally {
       setBusy("");
     }
@@ -237,16 +316,16 @@ export function StockPage() {
 
   async function notify(row: StockRow) {
     const ok = await confirm({
-      title: "Notify the designer?",
-      description: `${row.name} has ${row.view.stock} in stock against a threshold of ${row.view.threshold}. The designer gets an in-app notice asking for fresh stock.`,
-      confirmLabel: "Notify designer",
+      title: tx("Notify the designer?"),
+      description: tx("{product} has {count} in stock against a threshold of {threshold}. The designer gets an in-app notice asking for fresh stock.", { product: row.name, count: row.view.stock, threshold: row.view.threshold }),
+      confirmLabel: tx("Notify designer"),
     });
     if (!ok) return;
     try {
       await notifyDesignerLowStock({ productName: row.product?.storedName || row.name, productId: row.view.productId, stock: row.view.stock, threshold: row.view.threshold, toUserRef: row.product?.designerRef ?? null });
-      toast.success("The designer was notified.");
+      toast.success(tx("The designer was notified."));
     } catch (error) {
-      toast.error(`The designer was not notified: ${message(error)}`);
+      toast.error(tx("The designer was not notified: {reason}", { reason: message(error) }));
     }
   }
 
@@ -262,7 +341,7 @@ export function StockPage() {
   const columns: Column<StockRow>[] = [
     {
       key: "product",
-      header: "Product",
+      header: txKey("Product"),
       cell: (row) => (
         <Link href={`/inventory-product-view?id=${row.id}`} className="flex min-w-48 max-w-72 items-center gap-2.5">
           {row.product?.image ? (
@@ -288,32 +367,32 @@ export function StockPage() {
       : [
           {
             key: "designer",
-            header: "Designer",
+            header: txKey("Designer"),
             cell: (row: StockRow) => <span className="block max-w-36 truncate">{designerNames.get(row.view.designerUid) ?? "—"}</span>,
             sortable: true,
             sortValue: (row: StockRow) => designerNames.get(row.view.designerUid) ?? "",
           } satisfies Column<StockRow>,
         ]),
-    numberColumn("available", "Available", (n) => n.available),
-    numberColumn("inHand", "In hand", (n) => n.inHand),
-    numberColumn("warehouseStored", "Warehouse stored", (n) => n.warehouseStored),
-    numberColumn("warehouseAvailable", "Available for order", (n) => n.warehouseAvailable),
-    numberColumn("reserved", "Reserved", (n) => n.reserved),
-    numberColumn("unavailable", "Unavailable", (n) => n.unavailable),
-    numberColumn("threshold", "Alert at", (n) => n.threshold),
+    numberColumn("available", txKey("Available"), (n) => n.available),
+    numberColumn("inHand", txKey("In hand"), (n) => n.inHand),
+    numberColumn("warehouseStored", txKey("Warehouse stored"), (n) => n.warehouseStored),
+    numberColumn("warehouseAvailable", txKey("Available for order"), (n) => n.warehouseAvailable),
+    numberColumn("reserved", txKey("Reserved"), (n) => n.reserved),
+    numberColumn("unavailable", txKey("Unavailable"), (n) => n.unavailable),
+    numberColumn("threshold", txKey("Alert at"), (n) => n.threshold),
     {
       key: "state",
-      header: "Status",
+      header: txKey("Status"),
       cell: (row) => (
         <span className="grid gap-0.5">
-          <StatusBadge value={row.numbers.low ? "Low stock" : "In stock"} tone={row.numbers.low ? "danger" : "success"} />
-          {row.view.status !== "active" ? <span className="text-[11px] text-muted-foreground">Inactive</span> : null}
+          <StatusBadge value={row.numbers.low ? txKey("Low stock") : txKey("In stock")} tone={row.numbers.low ? "danger" : "success"} />
+          {row.view.status !== "active" ? <span className="text-[11px] text-muted-foreground">{tx("Inactive")}</span> : null}
         </span>
       ),
       sortable: true,
       sortValue: (row) => (row.numbers.low ? 0 : 1),
     },
-    { key: "updated", header: "Updated", className: "whitespace-nowrap", cell: (row) => formatDate(row.view.updatedAt) || dash, sortable: true, sortValue: (row) => row.view.updatedAt?.getTime() ?? null },
+    { key: "updated", header: txKey("Updated"), className: "whitespace-nowrap", cell: (row) => formatDate(row.view.updatedAt) || dash, sortable: true, sortValue: (row) => row.view.updatedAt?.getTime() ?? null },
     {
       key: "actions",
       header: "",
@@ -326,22 +405,23 @@ export function StockPage() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.name}`}>
+              <Button variant="ghost" size="icon-sm" aria-label={tx("Actions for {name}", { name: row.name })}>
                 <EllipsisVertical />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-auto min-w-44">
               <DropdownMenuItem asChild>
-                <Link href={`/inventory-product-view?id=${row.id}`}>View stock record</Link>
+                <Link href={`/inventory-product-view?id=${row.id}`}>{tx("View stock record")}</Link>
               </DropdownMenuItem>
               {row.view.restockRequestId ? (
                 <DropdownMenuItem asChild>
-                  <Link href={`/inventory-sm?id=${row.view.restockRequestId}`}>Open restock request</Link>
+                  <Link href={`/inventory-sm?id=${row.view.restockRequestId}`}>{tx("Open restock request")}</Link>
                 </DropdownMenuItem>
               ) : null}
-              {canEdit ? <DropdownMenuItem onSelect={() => setEditing(row)}>Change alert threshold</DropdownMenuItem> : null}
-              {canNotify ? <DropdownMenuItem onSelect={() => void notify(row)}>Notify designer</DropdownMenuItem> : null}
-              {canCollect ? <DropdownMenuItem onSelect={() => setCollecting(row)}>Raise collect request</DropdownMenuItem> : null}
+              {scope.isSuperAdmin ? <DropdownMenuItem onSelect={() => setAdjusting(row)}>{tx("Adjust stock")}</DropdownMenuItem> : null}
+              {canEdit ? <DropdownMenuItem onSelect={() => setEditing(row)}>{tx("Change alert threshold")}</DropdownMenuItem> : null}
+              {canNotify ? <DropdownMenuItem onSelect={() => void notify(row)}>{tx("Notify designer")}</DropdownMenuItem> : null}
+              {canCollect ? <DropdownMenuItem onSelect={() => setCollecting(row)}>{tx("Raise collect request")}</DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -352,29 +432,29 @@ export function StockPage() {
   return (
     <div className="grid gap-3">
       <PageHeader
-        description="Stock of ready-made products. “Available” is what the app sells from; the warehouse columns are what the warehouse reports."
+        description={tx("Stock of ready-made products. “Available” is the number the app sells from: it goes down with each paid order and up when a completed restock is added to stock or a super admin adjusts it. The warehouse columns are what the warehouse reports and follow the warehouse.")}
         actions={
           <>
             {!scope.isDesigner ? (
               <>
                 <Button variant="outline" disabled={busy !== ""} onClick={() => void runSync("warehouse")}>
-                  <RefreshCw className={busy === "warehouse" ? "animate-spin" : undefined} /> Refresh warehouse
+                  <RefreshCw className={busy === "warehouse" ? "animate-spin" : undefined} /> {tx("Refresh warehouse")}
                 </Button>
                 <Button variant="outline" disabled={busy !== ""} onClick={() => void runSync("reserved")}>
-                  <RefreshCw className={busy === "reserved" ? "animate-spin" : undefined} /> Sync reserved orders
+                  <RefreshCw className={busy === "reserved" ? "animate-spin" : undefined} /> {tx("Sync reserved orders")}
                 </Button>
               </>
             ) : null}
             <Button variant="outline" onClick={exportCsv}>
-              <Download /> Export
+              <Download /> {tx("Export CSV")}
             </Button>
           </>
         }
       />
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Stock records" value={visible.length.toLocaleString("en-US")} loading={loading && !visible.length} />
-        <StatCard label="Low on stock" value={lowCount.toLocaleString("en-US")} positive={lowCount === 0} onClick={() => setFilter("Low stock")} loading={loading && !visible.length} hint="Active, managed by Azyaa, at or below the alert threshold" />
-        <StatCard label="With an open restock request" value={openRequests.toLocaleString("en-US")} loading={loading && !visible.length} />
+        <StatCard label={tx("Stock records")} value={visible.length.toLocaleString("en-US")} loading={loading && !visible.length} />
+        <StatCard label={tx("Low on stock")} value={lowCount.toLocaleString("en-US")} positive={lowCount === 0} onClick={() => setFilter("Low stock")} loading={loading && !visible.length} hint={tx("Active, managed by Azyaa, at or below the alert threshold")} />
+        <StatCard label={tx("With an open restock request")} value={openRequests.toLocaleString("en-US")} loading={loading && !visible.length} />
       </div>
       <DataTable
         rows={rows}
@@ -383,12 +463,12 @@ export function StockPage() {
         error={error || null}
         search={search}
         onSearch={setSearch}
-        searchPlaceholder="Search name, product ID or SKU"
+        searchPlaceholder={tx("Search name, product ID or SKU")}
         toolbar={
           <>
-            <FilterSelect ariaLabel="Stock status" value={filter} onChange={(value) => setFilter(value as StockFilter)} options={STOCK_FILTERS.map((value) => ({ value, label: value === "All" ? "All stock" : value }))} />
-            {!scope.isDesigner ? <FilterSelect ariaLabel="Designer" value={designer} onChange={setDesigner} options={designerOptions} /> : null}
-            <FilterSelect ariaLabel="Updated" value={dateFilter} onChange={(value) => setDateFilter(value as DateFilter)} options={DATE_FILTERS.map((value) => ({ value, label: value === "All" ? "Updated any time" : value === "Custom" ? "Custom range" : `Updated ${value.toLowerCase()}` }))} />
+            <FilterSelect ariaLabel={tx("Stock status")} value={filter} onChange={(value) => setFilter(value as StockFilter)} options={STOCK_FILTERS.map((value) => ({ value, label: value === "All" ? tx("All stock") : tx(value) }))} />
+            {!scope.isDesigner ? <FilterSelect ariaLabel={tx("Designer")} value={designer} onChange={setDesigner} options={designerOptions} /> : null}
+            <FilterSelect ariaLabel={tx("Updated")} value={dateFilter} onChange={(value) => setDateFilter(value as DateFilter)} options={DATE_FILTERS.map((value) => ({ value, label: tx(DATE_FILTER_LABELS[value]) }))} />
             {dateFilter === "Custom" ? (
               <>
                 <DateField className="w-36" value={range.start} onChange={(start) => setRange((current) => ({ ...current, start }))} />
@@ -401,17 +481,18 @@ export function StockPage() {
         pageSize={50}
         hasMore={hasMore}
         onLoadMore={loadMore}
-        noun="stock record"
+        noun={txKey("stock record")}
         emptyState={
           <EmptyState
-            title={filter === "Low stock" ? "Nothing is low on stock" : "No stock records match"}
-            description={filter === "All" && !search ? "Stock records are created when a ready-made product is added." : "Try another filter or search."}
+            title={filter === "Low stock" ? tx("Nothing is low on stock") : tx("No stock records match")}
+            description={filter === "All" && !search ? tx("Stock records are created when a ready-made product is added.") : tx("Try another filter or search.")}
             compact
           />
         }
       />
       <ThresholdDialog row={editing} onClose={() => setEditing(null)} />
       <CollectRequestDialog row={collecting} onClose={() => setCollecting(null)} />
+      <AdjustStockDialog row={adjusting} by={scope.displayName || scope.email} onClose={() => setAdjusting(null)} />
     </div>
   );
 }

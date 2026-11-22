@@ -1,4 +1,5 @@
 import { roundMoney, toNumber } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { lineInScope, type RoleScope } from "@/lib/role-scope";
 import { itemsFromJson, logisticsItemToJson } from "@/lib/store-valley/address";
 import { StoreValleyConfig } from "@/lib/store-valley/config";
@@ -11,7 +12,7 @@ import {
   type ShopperReturnLineInput,
   type ShopperReturnShipmentInput,
 } from "@/lib/store-valley/payloads";
-import { dict, dicts, isCompleteAddress, lineQty, lineSku, lineName, linePickup, readAddress, storeValleyAddress, text, type Address, type Dict } from "./model";
+import { dict, dicts, isCompleteAddress, lineQty, lineSku, lineDataName, linePickup, readAddress, storeValleyAddress, text, type Address, type Dict } from "./model";
 
 /*
  * Rules for `return_requests`. The customer app creates a request as "Pending"
@@ -31,11 +32,11 @@ export const hasOutcome = (ret: Dict) => Boolean(text(ret.outcome));
 export type ReturnTab = "pending" | "accepted" | "awaiting_outcome" | "rejected" | "all";
 
 export const RETURN_TABS: { value: ReturnTab; label: string }[] = [
-  { value: "pending", label: "Pending" },
-  { value: "accepted", label: "Accepted" },
-  { value: "awaiting_outcome", label: "Outcome to record" },
-  { value: "rejected", label: "Rejected" },
-  { value: "all", label: "All" },
+  { value: "pending", label: txKey("Pending") },
+  { value: "accepted", label: txKey("Accepted") },
+  { value: "awaiting_outcome", label: txKey("Outcome to record") },
+  { value: "rejected", label: txKey("Rejected") },
+  { value: "all", label: txKey("All") },
 ];
 
 export function inReturnTab(ret: Dict, tab: ReturnTab) {
@@ -89,8 +90,9 @@ export const canRecordOutcome = (scope: RoleScope, ret: Dict) => !scope.isDesign
 
 /* ---------- reject ---------- */
 
-export const REJECT_OTHER = "Others";
-export const REJECT_REASONS = ["No evidence of damage/defect", "Return window expired", "Missing original packaging or accessories", "Invalid reason for return", "Policy violation", REJECT_OTHER];
+/** Stored on the return as `reject_reason`, in English; shown with `tx(reason)`. */
+export const REJECT_OTHER: string = txKey("Others");
+export const REJECT_REASONS: string[] = [txKey("No evidence of damage/defect"), txKey("Return window expired"), txKey("Missing original packaging or accessories"), txKey("Invalid reason for return"), txKey("Policy violation"), REJECT_OTHER];
 
 export type Approver = { uid: string; name: string; email: string; role: string; ref: unknown };
 
@@ -99,25 +101,26 @@ const approverInfo = (who: Approver) => ({ user_email: who.email, user_ref: who.
 export function rejectPatch(input: { reason: string; message: string }, who: Approver, now: unknown): { patch: Dict } | { error: string } {
   const reason = input.reason.trim();
   const message = input.message.trim();
-  if (!REJECT_REASONS.includes(reason)) return { error: "Choose a reason for rejecting the return." };
-  if (reason === REJECT_OTHER && !message) return { error: "Add a message that explains the rejection." };
+  if (!REJECT_REASONS.includes(reason)) return { error: tx("Choose a reason for rejecting the return.") };
+  if (reason === REJECT_OTHER && !message) return { error: tx("Add a message that explains the rejection.") };
   return { patch: { updated_at: now, status: RETURN_STATUS.rejected, reject_reason: reason, reject_message: message, approver_info: approverInfo(who) } };
 }
 
 /* ---------- outcome (recorded by hand; no payment call) ---------- */
 
-export const OUTCOME_REFUNDED = "Refunded";
-export const OUTCOMES = [OUTCOME_REFUNDED, "Exchanged", "Closed without refund"];
+/** Stored on the return as `outcome`, in English; shown with `tx(outcome)`. */
+export const OUTCOME_REFUNDED: string = txKey("Refunded");
+export const OUTCOMES: string[] = [OUTCOME_REFUNDED, txKey("Exchanged"), txKey("Closed without refund")];
 
 export type OutcomeInput = { outcome: string; amount: string | number | null; method: string; note: string };
 
 export function outcomePatch(input: OutcomeInput, who: Approver, now: unknown): { patch: Dict } | { error: string; field: keyof OutcomeInput } {
-  if (!OUTCOMES.includes(input.outcome)) return { error: "Choose what happened.", field: "outcome" };
+  if (!OUTCOMES.includes(input.outcome)) return { error: tx("Choose what happened."), field: "outcome" };
   const amount = input.amount === "" || input.amount == null ? null : toNumber(input.amount);
   const refunded = input.outcome === OUTCOME_REFUNDED;
-  if (refunded && (amount == null || amount <= 0)) return { error: "Enter the amount that was refunded.", field: "amount" };
-  if (amount != null && amount < 0) return { error: "The amount cannot be negative.", field: "amount" };
-  if (refunded && !input.method.trim()) return { error: "Say how the refund was paid, for example bank transfer.", field: "method" };
+  if (refunded && (amount == null || amount <= 0)) return { error: tx("Enter the amount that was refunded."), field: "amount" };
+  if (amount != null && amount < 0) return { error: tx("The amount cannot be negative."), field: "amount" };
+  if (refunded && !input.method.trim()) return { error: tx("Say how the refund was paid, for example bank transfer."), field: "method" };
   return {
     patch: {
       outcome: input.outcome,
@@ -171,7 +174,7 @@ export function returnLineInputs(ret: Dict): ShopperReturnLineInput[] {
     return {
       productId: text(line.product_id),
       quantity: lineQty(line),
-      productName: lineName(line),
+      productName: lineDataName(line),
       productSku: lineSku(line),
       productMainType: text(line.product_main_type),
       isPreferredVendor: preferred === true || preferred === "true",
@@ -301,12 +304,12 @@ export function acceptPatch(result: { trackingIds: string[]; otp: string }, who:
 export async function bookReturnPickup(deps: BookingDeps, ret: { id: string; data: Dict }, who: Approver, now: unknown): Promise<BookingResult> {
   const fail = (message: string, booked: string[] = []): BookingResult => ({ ok: false, message, booked });
   const data = ret.data;
-  if (returnStatus(data) !== RETURN_STATUS.pending) return fail("Only a pending return can be approved.");
-  if (!returnLines(data).length) return fail("This return has no products.");
+  if (returnStatus(data) !== RETURN_STATUS.pending) return fail(tx("Only a pending return can be approved."));
+  if (!returnLines(data).length) return fail(tx("This return has no products."));
   const order = await deps.loadOrder();
-  if (!order) return fail("The order of this return was not found.");
+  if (!order) return fail(tx("The order of this return was not found."));
   const address = readAddress(order.data.shipping_address);
-  if (!isCompleteAddress(address)) return fail("The customer's address is missing a street, city, name or phone number, so a courier cannot be sent.");
+  if (!isCompleteAddress(address)) return fail(tx("The customer's address is missing a street, city, name or phone number, so a courier cannot be sent."));
 
   const lines = returnLineInputs(data);
   const grouped = groupShopperReturnLines({
@@ -314,8 +317,8 @@ export async function bookReturnPickup(deps: BookingDeps, ret: { id: string; dat
     lines,
     shipments: await shipmentsForReturn(order.data, lines, deps),
   });
-  if (grouped.unmatchedProductIds.length) return fail(`No delivery was found for ${grouped.unmatchedProductIds.join(", ")}, so there is nothing to collect it against.`);
-  if (!grouped.groups.length) return fail("No delivery was found for this return.");
+  if (grouped.unmatchedProductIds.length) return fail(tx("No delivery was found for {products}, so there is nothing to collect it against.", { products: grouped.unmatchedProductIds.join(", ") }));
+  if (!grouped.groups.length) return fail(tx("No delivery was found for this return."));
 
   const reason = shopperReturnReason({ reason: text(data.return_reason), additionalInfo: text(data.return_additional_info) });
   const notifyCustomer = returnNotify({ userId: text(dict(data.userRef).id), address });
@@ -324,7 +327,7 @@ export async function bookReturnPickup(deps: BookingDeps, ret: { id: string; dat
 
   for (const group of grouped.groups) {
     const originalSource = await resolveOriginalSource(group, text(order.data.order_id), deps);
-    if (!originalSource) return fail(`Store Valley does not say where ${group.sourceOrderId} was collected from, so it cannot be returned there.`, trackingIds);
+    if (!originalSource) return fail(tx("Store Valley does not say where {id} was collected from, so it cannot be returned there.", { id: group.sourceOrderId }), trackingIds);
     const designerId = await resolveDesignerId(group, deps);
 
     let response: SvResponse | null = null;
@@ -343,12 +346,12 @@ export async function bookReturnPickup(deps: BookingDeps, ret: { id: string; dat
           notifyCustomer,
         });
       } catch (error) {
-        return fail(error instanceof Error ? error.message : "Store Valley could not be reached.", trackingIds);
+        return fail(error instanceof Error ? error.message : tx("Store Valley could not be reached."), trackingIds);
       }
     }
-    if (!ok(response)) return fail(messageOf(response, "Store Valley refused the pickup request."), trackingIds);
+    if (!ok(response)) return fail(messageOf(response, tx("Store Valley refused the pickup request.")), trackingIds);
     const trackingId = trackingIdOf(response.body);
-    if (!trackingId) return fail("Store Valley accepted the request but returned no tracking number.", trackingIds);
+    if (!trackingId) return fail(tx("Store Valley accepted the request but returned no tracking number."), trackingIds);
     trackingIds.push(trackingId);
     otp ||= text(response.pickup_otp) || text(response.body.pickup_otp);
     await deps.saveReturnDelivery(trackingId);

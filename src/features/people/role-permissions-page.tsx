@@ -29,6 +29,7 @@ import {
   type Role,
 } from "./roles";
 import { errorText } from "./util";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * Permission switches for one role (`?role=<roles document id>`). Each switch
@@ -52,17 +53,17 @@ export function RolePermissionsPage() {
 
   if (staffOnly) return staffOnly;
   if (roleRows.error || permissionRows.error) {
-    return <EmptyState icon={ShieldCheck} title="Permissions could not be loaded" description={`${roleRows.error || permissionRows.error} Reload the page to try again.`} />;
+    return <EmptyState icon={ShieldCheck} title={tx("Permissions could not be loaded")} description={tx("{error} Reload the page to try again.", { error: roleRows.error || permissionRows.error })} />;
   }
-  if (roleRows.loading && roles.length === 0) return <PageLoading label="Loading roles…" />;
+  if (roleRows.loading && roles.length === 0) return <PageLoading label={tx("Loading roles…")} />;
 
   const picker = (
     <SelectField
-      label="Role"
+      label={tx("Role")}
       value={role?.id ?? ""}
       onChange={(id) => router.replace(`/role-permissions?role=${encodeURIComponent(id)}`)}
       options={roles.map((item) => ({ value: item.id, label: roleLabel(item) }))}
-      placeholder="Choose a role"
+      placeholder={tx("Choose a role")}
       className="w-full sm:max-w-xs"
     />
   );
@@ -70,10 +71,10 @@ export function RolePermissionsPage() {
   if (!role) {
     return (
       <div className="space-y-3">
-        <Section title={roleId ? "That role was not found" : "Choose a role"} description="Pick the role whose permissions you want to see or change.">
-          {roles.length > 0 ? picker : <p className="text-[13px] text-muted-foreground">There are no roles yet. Create one on the Roles screen.</p>}
+        <Section title={roleId ? tx("That role was not found") : tx("Choose a role")} description={tx("Pick the role whose permissions you want to see or change.")}>
+          {roles.length > 0 ? picker : <p className="text-[13px] text-muted-foreground">{tx("There are no roles yet. Create one on the Roles screen.")}</p>}
         </Section>
-        <BackLink href="/roles">All roles</BackLink>
+        <BackLink href="/roles">{tx("All roles")}</BackLink>
       </div>
     );
   }
@@ -90,11 +91,11 @@ export function RolePermissionsPage() {
         permissions_list: turnOn ? arrayUnion(permission.key) : arrayRemove(permission.key),
         updated_at: serverTimestamp(),
       });
-      toast.success(`${permissionLabel(permission)} switched ${turnOn ? "on" : "off"} for ${roleLabel(current)}.`);
+      toast.success(turnOn ? tx("{permission} switched on for {role}.", { permission: permissionLabel(permission), role: roleLabel(current) }) : tx("{permission} switched off for {role}.", { permission: permissionLabel(permission), role: roleLabel(current) }));
       // Changing the role you hold changes what you can open, so reload your own permissions.
       if (current.key && current.key === roleKey) await refreshPermissions();
     } catch (err) {
-      toast.error(`${permissionLabel(permission)} was not changed: ${errorText(err)}. The role is as it was.`);
+      toast.error(tx("{permission} was not changed: {reason}. The role is as it was.", { permission: permissionLabel(permission), reason: errorText(err) }));
     } finally {
       setBusyKey("");
     }
@@ -122,21 +123,21 @@ export function RolePermissionsPage() {
   return (
     <div className="space-y-3">
       <Section
-        title={`${roleLabel(role)} access`}
+        title={tx("{role} access", { role: roleLabel(role) })}
         description={
           roleLocked
-            ? "Only a super admin can change the super admin role."
+            ? tx("Only a super admin can change the super admin role.")
             : canEdit
-            ? `Each switch is saved as soon as you change it. ${role.permissions.length} of ${permissions.filter((item) => item.key).length} permissions are on.`
+            ? tx("Each switch is saved as soon as you change it. {on} of {all} permissions are on.", { on: role.permissions.length, all: permissions.filter((item) => item.key).length })
             : 'You can view this role. Changing it needs the "role edit" permission.'
         }
-        actions={<BackLink href="/roles">All roles</BackLink>}
+        actions={<BackLink href="/roles">{tx("All roles")}</BackLink>}
       >
         {picker}
       </Section>
 
-      {permissionRows.loading && permissions.length === 0 ? <PageLoading label="Loading permissions…" /> : null}
-      {!permissionRows.loading && groups.length === 0 ? <EmptyState icon={ShieldCheck} title="No permissions are set up" description="The permissions list is empty, so there is nothing to switch on." /> : null}
+      {permissionRows.loading && permissions.length === 0 ? <PageLoading label={tx("Loading permissions…")} /> : null}
+      {!permissionRows.loading && groups.length === 0 ? <EmptyState icon={ShieldCheck} title={tx("No permissions are set up")} description={tx("The permissions list is empty, so there is nothing to switch on.")} /> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {groups.map((group) => (
@@ -148,7 +149,7 @@ export function RolePermissionsPage() {
       </div>
 
       {extraKeys.length > 0 ? (
-        <Section title="Other keys on this role" description="These are on the role but have no permission record, so they have no switch. They stay as they are.">
+        <Section title={tx("Other keys on this role")} description={tx("These are on the role but have no permission record, so they have no switch. They stay as they are.")}>
           <p className="font-mono text-[12px] break-words text-muted-foreground" dir="ltr" lang="en">
             {extraKeys.join(", ")}
           </p>
@@ -183,7 +184,7 @@ function PermissionSwitch({
         </span>
         {note ? <span className="mt-0.5 block text-[11px] text-muted-foreground">{note}</span> : null}
       </label>
-      <Switch id={id} checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={`${permissionLabel(permission)}: ${checked ? "on" : "off"}`} />
+      <Switch id={id} checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={checked ? tx("{permission}: on", { permission: permissionLabel(permission) }) : tx("{permission}: off", { permission: permissionLabel(permission) })} />
     </div>
   );
 }

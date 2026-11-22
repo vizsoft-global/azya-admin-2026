@@ -1,5 +1,6 @@
 import type { Row } from "@/lib/firestore-ui";
 import { isEmail, text } from "./util";
+import { tx } from "@/lib/i18n/tx";
 
 /**
  * Delivery partners live in `delivery_login_creds`: `id` (the partner number as
@@ -74,13 +75,13 @@ export function partnerFormOf(partner: Partner): PartnerForm {
 export function validatePartner(form: PartnerForm, others: Pick<Partner, "id" | "email">[], editingId?: string): Partial<Record<keyof PartnerForm, string>> {
   const errors: Partial<Record<keyof PartnerForm, string>> = {};
   const name = form.name.trim();
-  if (!name) errors.name = "Enter the partner's name.";
-  else if (name.length > 60) errors.name = "Keep the name under 60 characters.";
+  if (!name) errors.name = tx("Enter the partner's name.");
+  else if (name.length > 60) errors.name = tx("Keep the name under 60 characters.");
   const email = form.email.trim().toLowerCase();
-  if (!email) errors.email = "Enter the partner's email.";
-  else if (!isEmail(email)) errors.email = "Enter a full email address.";
-  else if (others.some((other) => other.id !== editingId && other.email.toLowerCase() === email)) errors.email = "Another delivery partner already has this email.";
-  if (!PARTNER_STATUSES.includes(form.status as PartnerStatus)) errors.status = "Choose a status.";
+  if (!email) errors.email = tx("Enter the partner's email.");
+  else if (!isEmail(email)) errors.email = tx("Enter a full email address.");
+  else if (others.some((other) => other.id !== editingId && other.email.toLowerCase() === email)) errors.email = tx("Another delivery partner already has this email.");
+  if (!PARTNER_STATUSES.includes(form.status as PartnerStatus)) errors.status = tx("Choose a status.");
   return errors;
 }
 

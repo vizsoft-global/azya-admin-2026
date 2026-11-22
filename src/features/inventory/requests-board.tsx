@@ -21,9 +21,11 @@ import { readRequest, type RequestView } from "./model";
 import { useRequestActions } from "./request-actions";
 import { actionLabel, isDestructive, orderedActions, RequestDetailSheet } from "./request-detail";
 import { AddRequestDialog } from "./request-dialogs";
-import { fulfillLabel, inTab, isComplete, requestActions, requestTitle, STOCK_NOT_UPDATED_NOTE, tabsFor, type RequestTab } from "./requests";
+import { fulfillLabel, inTab, isComplete, requestActions, requestTitle, tabsFor, type RequestTab } from "./requests";
+import { awaitingStockNote, awaitsStock } from "./stock-moves";
 import { hasTracking, trackingIdOf } from "./tracking";
 import { useDesignerNames, useRequests } from "./use-inventory-data";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 export type BoardVariant = "all" | "raise" | "decide" | "pickup" | "returns" | "tracking";
 
@@ -38,42 +40,42 @@ type VariantConfig = {
 
 const VARIANTS: Record<BoardVariant, VariantConfig> = {
   all: {
-    description: "Restock and return requests between designers and the warehouse.",
+    description: txKey("Restock and return requests between designers and the warehouse."),
     tabs: ["Pending", "Accepted", "Declined", "Archived"],
     keep: () => true,
-    empty: "No requests here yet.",
+    empty: txKey("No requests here yet."),
   },
   raise: {
-    description: "Ask a designer to send stock to the warehouse. New requests wait under Pending.",
+    description: txKey("Ask a designer to send stock to the warehouse. New requests wait under Pending."),
     tabs: ["Pending", "Accepted", "Declined", "Archived"],
     keep: (view) => isRestock(view.requestType),
     presetType: InventoryRequestType.restock,
-    empty: "No restock requests here yet.",
+    empty: txKey("No restock requests here yet."),
   },
   decide: {
-    description: "Requests waiting for a decision: the designer accepts with a ready date, or a super admin approves or declines.",
+    description: txKey("Requests waiting for a decision: the designer accepts with a ready date, or a super admin approves or declines."),
     tabs: ["Pending"],
     keep: () => true,
-    empty: "Nothing is waiting for a decision.",
+    empty: txKey("Nothing is waiting for a decision."),
   },
   pickup: {
-    description: "Accepted restocks on their way to the warehouse: mark them ready, book the pickup, follow the driver.",
+    description: txKey("Accepted restocks on their way to the warehouse: mark them ready, book the pickup, follow the driver."),
     tabs: ["Accepted"],
     keep: (view) => isRestock(view.requestType) && !isComplete(view) && view.fulfillStatus !== "Cancelled",
-    empty: "No accepted restock is waiting for pickup.",
+    empty: txKey("No accepted restock is waiting for pickup."),
   },
   returns: {
-    description: "Warehouse stock going back to its designer.",
+    description: txKey("Warehouse stock going back to its designer."),
     tabs: ["Pending", "Accepted", "Declined", "Archived"],
     keep: (view) => isReturnToDesigner(view.requestType),
     presetType: InventoryRequestType.returnToDesigner,
-    empty: "No return to designer here yet.",
+    empty: txKey("No return to designer here yet."),
   },
   tracking: {
-    description: "Every request with a warehouse pickup or delivery. Open one to see its timeline and OTP.",
+    description: txKey("Every request with a warehouse pickup or delivery. Open one to see its timeline and OTP."),
     tabs: null,
     keep: hasTracking,
-    empty: "No pickup has been booked yet.",
+    empty: txKey("No pickup has been booked yet."),
   },
 };
 
@@ -117,16 +119,16 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
   const fetched = useDocRow(REQUESTS, openId && !listed && !loading ? openId : null);
   const fetchedView = fetched.row ? readRequest(fetched.row) : null;
   const opened = listed ?? (fetchedView && ownedInScope(scope, fetchedView.designerUid) ? fetchedView : null);
-  const showNote = rows.some((row) => isRestock(row.view.requestType) && isComplete(row.view));
+  const awaiting = kept.filter(awaitsStock).length;
   const accepted = tabs ? tab === "Accepted" : true;
 
   const columns: Column<RequestRow>[] = [
     {
       key: "product",
-      header: "Product",
+      header: txKey("Product"),
       cell: ({ view }) => (
         <span className="block min-w-40 max-w-64">
-          <span className="block truncate font-medium text-foreground">{view.productName || view.productId || "Unknown product"}</span>
+          <span className="block truncate font-medium text-foreground">{view.productName || view.productId || tx("Unknown product")}</span>
           <span dir="ltr" lang="en" className="block truncate font-mono text-[11px] text-muted-foreground">{view.productId}</span>
         </span>
       ),
@@ -134,36 +136,36 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
       sortValue: ({ view }) => view.productName || view.productId,
       exportValue: ({ view }) => `${view.productName} (${view.productId})`,
     },
-    { key: "request", header: "Request", cell: ({ view }) => <span className="font-mono text-[12px]">{requestTitle(view)}</span>, sortable: true, sortValue: ({ view }) => requestTitle(view) },
-    { key: "qty", header: "Qty", className: "text-end tabular-nums", cell: ({ view }) => view.quantity, sortable: true, sortValue: ({ view }) => view.quantity },
-    { key: "type", header: "Type", cell: ({ view }) => view.requestType || "—", sortable: true, sortValue: ({ view }) => view.requestType },
+    { key: "request", header: txKey("Request"), cell: ({ view }) => <span className="font-mono text-[12px]">{requestTitle(view)}</span>, sortable: true, sortValue: ({ view }) => requestTitle(view) },
+    { key: "qty", header: txKey("Qty"), className: "text-end tabular-nums", cell: ({ view }) => view.quantity, sortable: true, sortValue: ({ view }) => view.quantity },
+    { key: "type", header: txKey("Type"), cell: ({ view }) => (view.requestType ? tx(view.requestType) : "—"), sortable: true, sortValue: ({ view }) => view.requestType },
     ...(scope.isDesigner
       ? []
       : [
           {
             key: "designer",
-            header: "Designer",
+            header: txKey("Designer"),
             cell: ({ view }: RequestRow) => <span className="block max-w-40 truncate">{designerNames.get(view.designerUid) ?? "—"}</span>,
             sortable: true,
             sortValue: ({ view }: RequestRow) => designerNames.get(view.designerUid) ?? "",
           } satisfies Column<RequestRow>,
         ]),
-    { key: "requested", header: "Requested", className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.createdAt) || "—", sortable: true, sortValue: ({ view }) => view.createdAt?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.createdAt) },
-    { key: "status", header: "Status", cell: ({ view }) => <StatusBadge value={view.requestStatus} />, sortable: true, sortValue: ({ view }) => view.requestStatus },
-    { key: "wanted", header: "Wanted by", className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.adminPreferredDate) || "—", sortable: true, sortValue: ({ view }) => view.adminPreferredDate?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.adminPreferredDate) },
+    { key: "requested", header: txKey("Date requested"), className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.createdAt) || "—", sortable: true, sortValue: ({ view }) => view.createdAt?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.createdAt) },
+    { key: "status", header: txKey("Status"), cell: ({ view }) => <StatusBadge value={view.requestStatus} />, sortable: true, sortValue: ({ view }) => view.requestStatus },
+    { key: "wanted", header: txKey("Wanted by"), className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.adminPreferredDate) || "—", sortable: true, sortValue: ({ view }) => view.adminPreferredDate?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.adminPreferredDate) },
     ...(accepted
       ? ([
-          { key: "ready", header: "Ready date", className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.designerDate) || "—", sortable: true, sortValue: ({ view }) => view.designerDate?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.designerDate) },
+          { key: "ready", header: txKey("Ready date"), className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.designerDate) || "—", sortable: true, sortValue: ({ view }) => view.designerDate?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.designerDate) },
           {
             key: "fulfil",
-            header: "Fulfilment",
+            header: txKey("Fulfilment"),
             cell: ({ view }) => {
               const label = fulfillLabel(view);
               const otp = otpLabelOf(view);
               return (
                 <span className="grid gap-0.5">
                   {label ? <StatusBadge value={label} /> : "—"}
-                  {otp ? <span dir="ltr" lang="en" className="text-[11px] text-muted-foreground">{otp}</span> : null}
+                  {otp ? <span className="text-[11px] text-muted-foreground">{otp === "OTP verified" ? tx("OTP verified") : <span dir="ltr" lang="en">{otp}</span>}</span> : null}
                 </span>
               );
             },
@@ -173,7 +175,7 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
         ] satisfies Column<RequestRow>[])
       : []),
     ...(variant === "tracking"
-      ? ([{ key: "tracking", header: "Tracking ID", cell: ({ view }) => <span dir="ltr" lang="en" className="font-mono text-[12px]">{trackingIdOf(view)}</span>, sortable: true, sortValue: ({ view }) => trackingIdOf(view) }] satisfies Column<RequestRow>[])
+      ? ([{ key: "tracking", header: txKey("Tracking ID"), cell: ({ view }) => <span dir="ltr" lang="en" className="font-mono text-[12px]">{trackingIdOf(view)}</span>, sortable: true, sortValue: ({ view }) => trackingIdOf(view) }] satisfies Column<RequestRow>[])
       : []),
     {
       key: "actions",
@@ -185,7 +187,7 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${requestTitle(view)}`}>
+              <Button variant="ghost" size="icon-sm" aria-label={tx("Actions for {name}", { name: requestTitle(view) })}>
                 <EllipsisVertical />
               </Button>
             </DropdownMenuTrigger>
@@ -205,17 +207,17 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
   return (
     <div className="grid gap-3">
       <PageHeader
-        description={config.description}
+        description={tx(config.description)}
         actions={
           <>
             {scope.isDesigner && variant !== "returns" ? (
-              <Button variant="outline" onClick={actions.openPickup} disabled={actions.readyCount === 0} title={actions.readyCount === 0 ? "No restock is marked ready to pick up" : undefined}>
-                <Truck /> Create pickup request
+              <Button variant="outline" onClick={actions.openPickup} disabled={actions.readyCount === 0} title={actions.readyCount === 0 ? tx("No restock is marked ready to pick up") : undefined}>
+                <Truck /> {tx("Create pickup request")}
               </Button>
             ) : null}
             {variant !== "tracking" && variant !== "pickup" ? (
               <Button onClick={() => setAdding(true)}>
-                <Plus /> Add request
+                <Plus /> {tx("Add request")}
               </Button>
             ) : null}
           </>
@@ -226,30 +228,30 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
           <TabsList className="max-w-full overflow-x-auto">
             {tabs.map((name) => (
               <TabsTrigger key={name} value={name}>
-                {name} <span className="ms-1 text-muted-foreground tabular-nums">{counts[name] ?? 0}</span>
+                {tx(name)} <span className="ms-1 text-muted-foreground tabular-nums">{counts[name] ?? 0}</span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
       ) : null}
-      {showNote ? <p className="rounded-lg bg-tint-info px-3 py-2 text-[12px] text-foreground">{STOCK_NOT_UPDATED_NOTE}</p> : null}
+      {awaiting ? <p className="rounded-lg bg-tint-warning px-3 py-2 text-[12px] text-foreground">{awaitingStockNote(awaiting)}</p> : null}
       <DataTable
         rows={rows}
         columns={columns}
         loading={loading}
         error={error || null}
         searchText={({ view }) => `${view.productName} ${view.productId} ${requestTitle(view)} ${view.movementLogId} ${view.requestType} ${designerNames.get(view.designerUid) ?? ""} ${trackingIdOf(view)}`}
-        searchPlaceholder="Search product, request or tracking ID"
+        searchPlaceholder={tx("Search product, request or tracking ID")}
         toolbar={
           variant === "all" || variant === "decide" || variant === "tracking" ? (
             <FilterSelect
-              ariaLabel="Request type"
+              ariaLabel={tx("Request type")}
               value={typeFilter}
               onChange={setTypeFilter}
               options={[
-                { value: "all", label: "All types" },
-                { value: InventoryRequestType.restock, label: "Restock" },
-                { value: InventoryRequestType.returnToDesigner, label: "Return to designer" },
+                { value: "all", label: tx("All types") },
+                { value: InventoryRequestType.restock, label: tx("Restock") },
+                { value: InventoryRequestType.returnToDesigner, label: tx("Return to Designer") },
               ]}
             />
           ) : undefined
@@ -261,8 +263,8 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
         hasMore={hasMore}
         onLoadMore={loadMore}
         exportName={scope.isDesigner ? undefined : "restock-requests"}
-        noun="request"
-        emptyState={<EmptyState title={config.empty} description={tabs && tabs.length > 1 ? `Nothing under ${tab}.` : undefined} compact />}
+        noun={txKey("request")}
+        emptyState={<EmptyState title={tx(config.empty)} description={tabs && tabs.length > 1 ? tx("Nothing under {tab}.", { tab: tx(tab) }) : undefined} compact />}
       />
       <RequestDetailSheet
         view={opened}

@@ -8,8 +8,14 @@ import { DateField } from "@/components/shared/fields";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatMoney } from "@/lib/format";
+import { fill, tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
-import { PERIOD_LABEL, customRange, presetRange, rangeDays, type DateRange, type PeriodPreset } from "./finance";
+import { PERIOD_LABEL, customRange, percentChange, presetRange, rangeDays, type DateRange, type PeriodPreset } from "./finance";
+
+/** A whole number with Western digits and thousands separators, whatever the browser's locale. */
+export function num(value: number) {
+  return value.toLocaleString("en-US");
+}
 
 /** One plain line that states a rule or a limit of the figures on the screen. */
 export function Notice({ children, tone = "info", className }: { children: ReactNode; tone?: "info" | "warning"; className?: string }) {
@@ -22,9 +28,9 @@ export function Notice({ children, tone = "info", className }: { children: React
   );
 }
 
-/** Shown instead of a money screen to someone who may not see it. */
-export function NoAccess({ what }: { what: string }) {
-  return <EmptyState icon={ShieldAlert} title="You do not have access to this page" description={`${what} is for staff with the sales permission.`} />;
+/** Shown instead of a money screen to someone who may not see it. `description` is a whole, already translated sentence. */
+export function NoAccess({ description }: { description: string }) {
+  return <EmptyState icon={ShieldAlert} title={tx("You do not have access to this page")} description={description} />;
 }
 
 /** A titled white card. */
@@ -56,25 +62,41 @@ export function TableSection({ title, note, children }: { title: string; note?: 
   );
 }
 
-/** Amount in KWD, end-aligned and left-to-right inside an Arabic page. */
+/** Amount in KWD, kept left-to-right inside an Arabic page so the digits and "KWD" are not reordered. */
 export function Money({ value, muted, className }: { value: number; muted?: boolean; className?: string }) {
   return (
-    <span dir="ltr" lang="en" className={cn("tabular-nums whitespace-nowrap", muted && "text-muted-foreground", className)}>
+    <span dir="ltr" lang="en" className={cn("inline-block tabular-nums whitespace-nowrap", muted && "text-muted-foreground", className)}>
       {formatMoney(value)}
     </span>
   );
+}
+
+/** A code, id, email or date kept left-to-right inside Arabic text (and still lined up with the Arabic beside it). */
+export function Ltr({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <span dir="ltr" lang="en" className={cn("inline-block rtl:text-right", className)}>
+      {children}
+    </span>
+  );
+}
+
+/** "+12.5% vs previous 30 days", or "" when there is no earlier figure to compare with. */
+export function changeVsPrevious(current: number, previous: number, days: number) {
+  const change = percentChange(current, previous);
+  if (change == null) return "";
+  const signed = `${change > 0 ? "+" : ""}${change}`;
+  return days === 1 ? tx("{change}% vs the previous day", { change: signed }) : tx("{change}% vs previous {days} days", { change: signed, days });
 }
 
 /* ---------- Period ---------- */
 
 type PeriodChoice = PeriodPreset | "custom";
 
-const presetOptions = [...(Object.keys(PERIOD_LABEL) as PeriodPreset[]).map((value) => ({ value, label: PERIOD_LABEL[value] })), { value: "custom", label: "Custom dates" }];
-
 /** `2026-11-01 to 2026-11-22 (22 days)`. */
 export function rangeText(range: DateRange) {
   const days = rangeDays(range);
-  return `${formatDate(range.from)} to ${formatDate(range.to)} (${days} ${days === 1 ? "day" : "days"})`;
+  const vars = { from: formatDate(range.from), to: formatDate(range.to), days };
+  return days === 1 ? tx("{from} to {to} (1 day).", vars) : tx("{from} to {to} ({days} days).", vars);
 }
 
 /** The period a report covers: a preset or two picked days. The range is whole local days. */
@@ -90,10 +112,12 @@ export function usePeriod(initial: PeriodPreset = "30d") {
     return customRange(from ?? now, to ?? now);
   }, [choice, from, to, now]);
 
+  const options = [...(Object.keys(PERIOD_LABEL) as PeriodPreset[]).map((value) => ({ value, label: tx(PERIOD_LABEL[value]) })), { value: "custom", label: tx("Custom dates") }];
+
   const controls = (
     <div className="flex flex-wrap items-end gap-2">
       <FilterSelect
-        ariaLabel="Period"
+        ariaLabel={tx("Period")}
         value={choice}
         onChange={(value) => {
           const next = value as PeriodChoice;
@@ -103,19 +127,19 @@ export function usePeriod(initial: PeriodPreset = "30d") {
           }
           setChoice(next);
         }}
-        options={presetOptions}
+        options={options}
         className="border-foreground font-medium text-foreground"
       />
       {choice === "custom" ? (
         <>
-          <DateField label="From" value={from} onChange={setFrom} max={now} className="w-[150px]" />
-          <DateField label="To" value={to} onChange={setTo} max={now} className="w-[150px]" />
+          <DateField label={tx("From")} value={from} onChange={setFrom} max={now} className="w-[150px]" />
+          <DateField label={tx("To")} value={to} onChange={setTo} max={now} className="w-[150px]" />
         </>
       ) : null}
     </div>
   );
 
-  return { range, now, controls, label: choice === "custom" ? "the chosen dates" : PERIOD_LABEL[choice].toLowerCase() };
+  return { range, now, controls };
 }
 
 /* ---------- What was loaded ---------- */
@@ -123,7 +147,7 @@ export function usePeriod(initial: PeriodPreset = "30d") {
 /**
  * States the period, how many orders were read and the row limit. When the
  * limit was reached it says plainly that older orders are missing and offers
- * to read more.
+ * to read more. `kind` picks the wording: orders of a period, or every completed order.
  */
 export function LoadedLine({
   range,
@@ -135,7 +159,7 @@ export function LoadedLine({
   onMore,
   loading,
   error,
-  what = "orders",
+  kind = "orders",
 }: {
   range?: DateRange;
   count: number;
@@ -147,26 +171,33 @@ export function LoadedLine({
   loading?: boolean;
   /** A refresh that failed while older figures are still on screen. */
   error?: string;
-  what?: string;
+  kind?: "orders" | "completed";
 }) {
+  const vars = { count: num(count), cap: num(cap) };
+  const read =
+    kind === "completed"
+      ? capped
+        ? tx("Only the newest {cap} completed orders (all dates) were read (the limit), so older ones are missing from the figures.", vars)
+        : tx("{count} completed orders (all dates) read (limit {cap}).", vars)
+      : capped
+        ? tx("Only the newest {cap} orders were read (the limit), so older ones in this period are missing from the figures.", vars)
+        : tx("{count} orders read (limit {cap}).", vars);
   return (
     <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[14px] px-3 py-2 text-[12px]", capped || error ? "bg-tint-warning text-foreground" : "bg-card text-muted-foreground")}>
       <span className="min-w-0">
-        {range ? `${rangeText(range)}. ` : ""}
-        {capped
-          ? `Only the newest ${cap.toLocaleString()} ${what} were read (the limit), so older ones in this period are missing from the figures.`
-          : `${count.toLocaleString()} ${what} read (limit ${cap.toLocaleString()}).`}
-        {loadedAt ? ` As of ${formatDate(loadedAt, true)}.` : ""}
-        {error ? ` The last refresh failed (${error}); these are the earlier figures.` : ""}
+        {range ? `${rangeText(range)} ` : ""}
+        {read}
+        {loadedAt ? ` ${tx("As of {time}.", { time: formatDate(loadedAt, true) })}` : ""}
+        {error ? ` ${tx("The last refresh failed ({error}); these are the earlier figures.", { error })}` : ""}
       </span>
       <span className="ms-auto flex items-center gap-2">
         {capped && onMore ? (
           <Button variant="outline" size="sm" onClick={onMore} disabled={loading}>
-            Read more
+            {tx("Read more")}
           </Button>
         ) : null}
         <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
-          <RefreshCw className={cn(loading && "animate-spin")} /> Refresh
+          <RefreshCw className={cn(loading && "animate-spin")} /> {tx("Refresh")}
         </Button>
       </span>
     </div>
@@ -178,11 +209,11 @@ export function LoadError({ message, onRetry }: { message: string; onRetry: () =
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="The figures could not be loaded"
-      description={`${message} Nothing was changed. Check the connection and try again.`}
+      title={tx("The figures could not be loaded")}
+      description={tx("{message} Nothing was changed. Check the connection and try again.", { message })}
       action={
         <Button variant="outline" onClick={onRetry}>
-          Try again
+          {tx("Try again")}
         </Button>
       }
     />
@@ -191,24 +222,61 @@ export function LoadError({ message, onRetry }: { message: string; onRetry: () =
 
 /* ---------- Table columns over plain objects ---------- */
 
-type Col<T> = Column<T>;
+/**
+ * Column builders. `header` is the English title, marked with `txKey` at the
+ * call site: the shared table shows its Arabic when the panel is in Arabic and
+ * keeps the English in the CSV export. The value functions return plain
+ * English or raw values (used for sorting and the CSV); pass `render` to show
+ * something translated in the cell.
+ */
+export type FinanceColumn<T> = Column<T>;
 
 /** Amount column: end-aligned, sortable, exported as a plain number. */
-export function moneyCol<T>(key: string, header: string, value: (row: T) => number, options: { muted?: boolean } = {}): Col<T> {
-  return { key, header, className: "text-end", cell: (row) => <Money value={value(row)} muted={options.muted} />, sortable: true, sortValue: value, exportValue: value };
+export function moneyCol<T>(key: string, header: string, value: (row: T) => number, options: { muted?: boolean; strong?: boolean } = {}): FinanceColumn<T> {
+  return {
+    key,
+    header,
+    className: "text-end",
+    cell: (row) => <Money value={value(row)} muted={options.muted} className={options.strong ? "font-semibold text-foreground" : undefined} />,
+    sortable: true,
+    sortValue: value,
+    exportValue: value,
+  };
 }
 
 /** Whole-number column: end-aligned, sortable. */
-export function numberCol<T>(key: string, header: string, value: (row: T) => number): Col<T> {
-  return { key, header, className: "text-end", cell: (row) => <span className="tabular-nums">{value(row).toLocaleString()}</span>, sortable: true, sortValue: value, exportValue: value };
+export function numberCol<T>(key: string, header: string, value: (row: T) => number): FinanceColumn<T> {
+  return { key, header, className: "text-end", cell: (row) => <span className="tabular-nums">{num(value(row))}</span>, sortable: true, sortValue: value, exportValue: value };
 }
 
 /** Text column; `render` replaces the plain text in the cell (the export keeps the text). */
-export function textCol<T>(key: string, header: string, value: (row: T) => string, render?: (row: T) => ReactNode): Col<T> {
+export function textCol<T>(key: string, header: string, value: (row: T) => string, render?: (row: T) => ReactNode): FinanceColumn<T> {
   return { key, header, cell: (row) => (render ? render(row) : value(row) || <span className="text-subtle">—</span>), sortable: true, sortValue: value, exportValue: value };
 }
 
 /** Date column, sorted chronologically, exported as `yyyy-MM-dd HH:mm`. */
-export function dateCol<T>(key: string, header: string, value: (row: T) => Date | null, withTime = false): Col<T> {
-  return { key, header, cell: (row) => <span className="whitespace-nowrap">{formatDate(value(row), withTime) || "—"}</span>, sortable: true, sortValue: (row) => value(row)?.getTime() ?? 0, exportValue: (row) => formatDate(value(row), withTime) };
+export function dateCol<T>(key: string, header: string, value: (row: T) => Date | null, withTime = false): FinanceColumn<T> {
+  return {
+    key,
+    header,
+    cell: (row) => <Ltr className="whitespace-nowrap">{formatDate(value(row), withTime) || "—"}</Ltr>,
+    sortable: true,
+    sortValue: (row) => value(row)?.getTime() ?? 0,
+    exportValue: (row) => formatDate(value(row), withTime),
+  };
+}
+
+/**
+ * A short text needed twice: in English for the CSV and in the panel's
+ * language for the screen. Mark the text with `txKey` at the call site.
+ */
+export function phrase(text: string, vars?: Record<string, string | number>) {
+  return { en: fill(text, vars), shown: tx(text, vars) };
+}
+
+/** `ready` / `custom` as stored on an order line, in the panel's language. Anything else is shown as stored. */
+export function productTypeLabel(mainType: string) {
+  if (mainType === "ready") return tx("ready");
+  if (mainType === "custom") return tx("custom");
+  return mainType;
 }

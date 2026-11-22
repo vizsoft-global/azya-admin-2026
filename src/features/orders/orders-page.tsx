@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
 import { useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, formatMoney, toDate, toNumber } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import type { RoleScope } from "@/lib/role-scope";
 import { useRoleScope } from "@/lib/use-role-scope";
 import {
@@ -67,10 +68,10 @@ export function OrdersPage() {
   const orders = useMemo(() => rows.map((row) => row.data), [rows]);
   const designerOptions = useMemo(() => {
     const names = new Map(designers.rows.map((row) => [text(row.data.uid), text(row.data.name)]));
-    const found = designerIdsIn(orders).map((uid) => ({ value: uid, label: names.get(uid) || `Designer ${uid.slice(0, 6)}` }));
-    return [{ value: ALL, label: "All designers" }, ...found.sort((a, b) => a.label.localeCompare(b.label))];
+    const found = designerIdsIn(orders).map((uid) => ({ value: uid, label: names.get(uid) || tx("Designer {id}", { id: uid.slice(0, 6) }) }));
+    return [{ value: ALL, label: tx("All designers") }, ...found.sort((a, b) => a.label.localeCompare(b.label))];
   }, [designers.rows, orders]);
-  const products = useMemo(() => [{ value: ALL, label: "All products" }, ...productOptions(orders, designer === ALL ? "" : designer)], [orders, designer]);
+  const products = useMemo(() => [{ value: ALL, label: tx("All products") }, ...productOptions(orders, designer === ALL ? "" : designer)], [orders, designer]);
 
   const shown = useMemo(() => {
     const now = new Date();
@@ -84,18 +85,18 @@ export function OrdersPage() {
 
   const columns = useMemo<Column<Row>[]>(() => {
     const list: Column<Row>[] = [
-      { key: "order_id", header: "Order", cell: (row) => <span className="font-medium" dir="ltr" lang="en">{text(row.data.order_id) || row.id.slice(0, 8)}</span>, sortable: true, sortValue: (row) => text(row.data.order_id) },
-      { key: "created_at", header: "Placed", className: "whitespace-nowrap", cell: (row) => formatDate(row.data.created_at, true) || "—", sortable: true, sortValue: (row) => toDate(row.data.created_at)?.getTime() ?? null, exportValue: (row) => formatDate(row.data.created_at, true) },
+      { key: "order_id", header: tx("Order"), cell: (row) => <span className="font-medium" dir="ltr" lang="en">{text(row.data.order_id) || row.id.slice(0, 8)}</span>, sortable: true, sortValue: (row) => text(row.data.order_id) },
+      { key: "created_at", header: tx("Placed"), className: "whitespace-nowrap", cell: (row) => formatDate(row.data.created_at, true) || "—", sortable: true, sortValue: (row) => toDate(row.data.created_at)?.getTime() ?? null, exportValue: (row) => formatDate(row.data.created_at, true) },
     ];
-    if (staff) list.push({ key: "customer", header: "Customer", cell: (row) => <span className="block max-w-48 truncate">{readAddress(row.data.shipping_address).name || "—"}</span>, sortable: true, sortValue: (row) => readAddress(row.data.shipping_address).name });
-    list.push({ key: "items", header: staff ? "Items" : "Your items", className: "text-end tabular-nums", cell: (row) => orderLines(row.data).length, sortable: true, sortValue: (row) => orderLines(row.data).length });
-    if (staff) list.push({ key: "total", header: "Total (KWD)", className: "text-end whitespace-nowrap tabular-nums", cell: (row) => formatMoney(row.data.total_price) || "—", sortable: true, sortValue: (row) => toNumber(row.data.total_price) });
+    if (staff) list.push({ key: "customer", header: tx("Customer"), cell: (row) => <span className="block max-w-48 truncate">{readAddress(row.data.shipping_address).name || "—"}</span>, sortable: true, sortValue: (row) => readAddress(row.data.shipping_address).name });
+    list.push({ key: "items", header: staff ? tx("Items") : tx("Your items"), className: "text-end tabular-nums", cell: (row) => orderLines(row.data).length, sortable: true, sortValue: (row) => orderLines(row.data).length });
+    if (staff) list.push({ key: "total", header: tx("Total (KWD)"), className: "text-end whitespace-nowrap tabular-nums", cell: (row) => formatMoney(row.data.total_price) || "—", sortable: true, sortValue: (row) => toNumber(row.data.total_price) });
     list.push(
-      { key: "payment", header: "Payment", cell: (row) => <PaymentBadge status={row.data.payment_status} />, sortable: true, sortValue: (row) => paymentLabel(row.data.payment_status) },
+      { key: "payment", header: tx("Payment status"), cell: (row) => <PaymentBadge status={row.data.payment_status} />, sortable: true, sortValue: (row) => paymentLabel(row.data.payment_status) },
       {
         key: "fulfilment",
-        header: "Fulfilment",
-        cell: (row) => <span className="text-muted-foreground">{orderBuckets(scope, row.data).map((bucket) => bucketLabel[bucket]).join(", ") || "—"}</span>,
+        header: tx("Fulfilment"),
+        cell: (row) => <span className="text-muted-foreground">{orderBuckets(scope, row.data).map((bucket) => tx(bucketLabel[bucket])).join(tx(", ")) || "—"}</span>,
         exportValue: (row) => orderBuckets(scope, row.data).map((bucket) => bucketLabel[bucket]).join(", "),
       },
     );
@@ -106,10 +107,10 @@ export function OrdersPage() {
 
   return (
     <div className="space-y-3">
-      <PageHeader description={staff ? "The newest orders. Open one to see its items, deliveries and return." : "Orders that include your products. You see only your own items."} />
+      <PageHeader description={staff ? tx("The newest orders. Open one to see its items, deliveries and return.") : tx("Orders that include your products. You see only your own items.")} />
       <FilterBar
         active={filtered}
-        summary={`${shown.length.toLocaleString()} of ${rows.length.toLocaleString()}${hasMore ? "+" : ""}`}
+        summary={tx("{shown} of {total}", { shown: shown.length.toLocaleString("en-US"), total: `${rows.length.toLocaleString("en-US")}${hasMore ? "+" : ""}` })}
         onClear={() => {
           setStatus("all");
           setDate("all");
@@ -119,17 +120,17 @@ export function OrdersPage() {
           setProduct(ALL);
         }}
       >
-        <FilterSelect ariaLabel="Status" value={status} onChange={(value) => setStatus(value as StatusChoice)} options={statusChoices(scope)} />
-        <FilterSelect ariaLabel="Date placed" value={date} onChange={(value) => setDate(value as DateChoice)} options={DATE_CHOICES} />
+        <FilterSelect ariaLabel={tx("Status")} value={status} onChange={(value) => setStatus(value as StatusChoice)} options={statusChoices(scope)} />
+        <FilterSelect ariaLabel={tx("Date placed")} value={date} onChange={(value) => setDate(value as DateChoice)} options={DATE_CHOICES.map((item) => ({ ...item, label: tx(item.label) }))} />
         {date === "custom" ? (
           <>
-            <Input type="date" aria-label="From" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="h-8 w-auto bg-card text-[13px]" />
-            <Input type="date" aria-label="To" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="h-8 w-auto bg-card text-[13px]" />
+            <Input type="date" aria-label={tx("From")} value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="h-8 w-auto bg-card text-[13px]" />
+            <Input type="date" aria-label={tx("To")} value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="h-8 w-auto bg-card text-[13px]" />
           </>
         ) : null}
         {staff ? (
           <FilterSelect
-            ariaLabel="Designer"
+            ariaLabel={tx("Designer")}
             value={designer}
             onChange={(value) => {
               setDesigner(value);
@@ -138,23 +139,24 @@ export function OrdersPage() {
             options={designerOptions}
           />
         ) : null}
-        <FilterSelect ariaLabel="Product" value={product} onChange={setProduct} options={products} className="max-w-56" />
+        <FilterSelect ariaLabel={tx("Product")} value={product} onChange={setProduct} options={products} className="max-w-56" />
       </FilterBar>
       <DataTable
         rows={shown}
         columns={columns}
         loading={loading}
-        error={error ? `Orders could not be loaded: ${error}` : null}
-        emptyMessage={filtered ? "No order matches these filters." : staff ? "No orders yet." : "No order includes your products yet."}
+        error={error ? tx("Orders could not be loaded: {error}", { error }) : null}
+        emptyMessage={filtered ? tx("No order matches these filters.") : staff ? tx("No orders yet.") : tx("No order includes your products yet.")}
         searchText={(row) => orderSearchText(row.data)}
-        searchPlaceholder={staff ? "Search order, customer or product" : "Search order or product"}
+        searchPlaceholder={staff ? tx("Search order, customer or product") : tx("Search order or product")}
         onRowClick={(row) => router.push(`/order-details?id=${encodeURIComponent(row.id)}`)}
         rowChevron
         pageSize={50}
         hasMore={hasMore}
         onLoadMore={loadMore}
         exportName="orders"
-        noun="order"
+        noun={tx("order")}
+        nounPlural={tx("orders")}
       />
     </div>
   );

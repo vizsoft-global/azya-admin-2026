@@ -1,3 +1,4 @@
+import { txKey } from "@/lib/i18n/tx";
 /**
  * Sign-in buttons the customer app can show. Each one is an on/off field inside
  * `settings_social_login` on the Company settings record, which the app reads
@@ -13,18 +14,18 @@ export type LoginOption = {
 };
 
 export const LOGIN_OPTIONS: LoginOption[] = [
-  { field: "google_login", label: "Google", hint: "iPhone and Android.", available: true },
-  { field: "apple_login", label: "Apple on iPhone", hint: "iPhone only.", available: true },
+  { field: "google_login", label: "Google", hint: txKey("iPhone and Android."), available: true },
+  { field: "apple_login", label: txKey("Apple on iPhone"), hint: txKey("iPhone only."), available: true },
   {
     field: "apple_login_android",
-    label: "Apple on Android",
-    hint: "Turn on only after the Apple Services ID and key are added to the Apple provider in Firebase. Needs an app version that includes this option.",
+    label: txKey("Apple on Android"),
+    hint: txKey("Turn on only after the Apple Services ID and key are added to the Apple provider in Firebase. Needs an app version that includes this option."),
     available: true,
   },
   {
     field: "facebook_login",
     label: "Facebook",
-    hint: "The button appears only in app versions built with the real Facebook (Meta) app ID. Until then this switch has no effect.",
+    hint: txKey("The button appears only in app versions built with the real Facebook (Meta) app ID. Until then this switch has no effect."),
     available: true,
   },
 ];

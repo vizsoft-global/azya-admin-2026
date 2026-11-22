@@ -2,13 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { DataTable, type Column } from "@/components/shared/data-table";
+import { DataTable } from "@/components/shared/data-table";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { StatCard } from "@/components/shared/stat-card";
 import { UserCell } from "@/components/shared/user-cell";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate, formatMoney } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { BALANCE_ORDER_CAP, PAYOUT_CAP, useAllPayouts, useFinanceAccess, useOrders, usePartners } from "./data";
 import {
   COMMISSION_RULE_TEXT,
@@ -26,16 +27,11 @@ import {
   type PayoutFacts,
 } from "./finance";
 import { designerRecordLimit } from "./payouts";
-import { LoadError, LoadedLine, Money, NoAccess, Notice, dateCol, moneyCol, textCol } from "./parts";
+import { LoadError, LoadedLine, Ltr, Money, NoAccess, Notice, dateCol, moneyCol, num, phrase, textCol, type FinanceColumn } from "./parts";
 import { RecordPaymentDialog, type PaymentTarget } from "./record-payment";
 
 type CreatorRow = { id: string; partner: Partner; summary: CreatorSummary; register: number; last: PayoutFacts | null };
 type DesignerRow = { id: string; partner: Partner; summary: DesignerSummary; recorded: number; limit: number; last: PayoutFacts | null };
-
-const balanceOptions = [
-  { value: "all", label: "Everyone" },
-  { value: "due", label: "With a balance to pay" },
-];
 
 /**
  * Balances per creator and designer, and the form that records a payment made
@@ -44,7 +40,7 @@ const balanceOptions = [
  */
 export function CreatePayoutPage() {
   const { staff } = useFinanceAccess();
-  if (!staff) return <NoAccess what="Recording payouts" />;
+  if (!staff) return <NoAccess description={tx("Recording payouts is for staff with the sales permission.")} />;
   return <Balances />;
 }
 
@@ -102,9 +98,9 @@ function Balances() {
 
   // Recording is refused when a list was cut short: a balance worked out from part of the orders could be wrong.
   const blocked = completed.capped
-    ? `There are more than ${BALANCE_ORDER_CAP.toLocaleString()} completed orders, so balances cannot be worked out in the browser. Payments cannot be recorded here until that is moved to the server.`
+    ? tx("There are more than {cap} completed orders, so balances cannot be worked out in the browser. Payments cannot be recorded here until that is moved to the server.", { cap: num(BALANCE_ORDER_CAP) })
     : people.capped
-      ? `There are more than ${people.partners.length.toLocaleString()} creators and designers; the list is cut short.`
+      ? tx("There are more than {count} creators and designers; the list is cut short.", { count: num(people.partners.length) })
       : "";
 
   const activeId = picked ?? (dismissedLink ? "" : linked);
@@ -140,28 +136,44 @@ function Balances() {
   );
 
   const person = (partner: Partner) => <UserCell name={partner.name} email={partner.email} photo={partner.photo} subtitle={partner.code} fallbackId={partner.docId} />;
+  const code = (partner: Partner) => (partner.code ? <Ltr className="font-mono text-[12px]">{partner.code}</Ltr> : <span className="text-subtle">—</span>);
   const lastText = (last: PayoutFacts | null) => (last ? `${formatDate(last.paidAt)} · ${formatMoney(last.amount)}` : "");
+  const recordButton = (id: string, primary: boolean) => (
+    <Button
+      size="sm"
+      variant={primary ? "default" : "outline"}
+      onClick={(event) => {
+        event.stopPropagation();
+        setPicked(id);
+      }}
+    >
+      {tx("Record payment")}
+    </Button>
+  );
 
-  const creatorColumns: Column<CreatorRow>[] = [
-    textCol("creator", "Creator", (row) => row.partner.name || row.partner.email, (row) => person(row.partner)),
-    textCol("code", "Creator ID", (row) => row.partner.code),
-    moneyCol("sales", "Completed sales", (row) => row.summary.sales, { muted: true }),
-    moneyCol("earned", "Commission earned", (row) => row.summary.earned),
-    moneyCol("withdrawn", "Paid out", (row) => row.summary.withdrawn),
-    { ...moneyCol<CreatorRow>("payable", "Payable balance", (row) => row.summary.payable), cell: (row) => <Money value={row.summary.payable} className="font-semibold text-foreground" /> },
-    moneyCol("pending", "Pending commission", (row) => row.summary.pending, { muted: true }),
-    dateCol("last", "Last payment", (row) => row.last?.paidAt ?? null),
+  const creatorColumns: FinanceColumn<CreatorRow>[] = [
+    textCol("creator", txKey("Creator"), (row) => row.partner.name || row.partner.email, (row) => person(row.partner)),
+    textCol("code", txKey("Creator ID"), (row) => row.partner.code, (row) => code(row.partner)),
+    moneyCol("sales", txKey("Completed sales"), (row) => row.summary.sales, { muted: true }),
+    moneyCol("earned", txKey("Commission earned"), (row) => row.summary.earned),
+    moneyCol("withdrawn", txKey("Paid out"), (row) => row.summary.withdrawn),
+    moneyCol("payable", txKey("Payable balance"), (row) => row.summary.payable, { strong: true }),
+    moneyCol("pending", txKey("Pending commission"), (row) => row.summary.pending, { muted: true }),
+    dateCol("last", txKey("Last payment"), (row) => row.last?.paidAt ?? null),
     textCol(
       "notes",
-      "Notes",
-      (row) => creatorNotes(row).join("; "),
+      txKey("Notes"),
+      (row) =>
+        creatorNotes(row)
+          .map((note) => note.en)
+          .join("; "),
       (row) => {
         const notes = creatorNotes(row);
         return notes.length ? (
           <span className="block max-w-[240px] text-[12px] text-destructive">
             {notes.map((note) => (
-              <span key={note} className="block">
-                {note}
+              <span key={note.en} className="block">
+                {note.shown}
               </span>
             ))}
           </span>
@@ -170,38 +182,32 @@ function Balances() {
         );
       },
     ),
-    {
-      key: "action",
-      header: "",
-      cell: (row) => (
-        <Button size="sm" variant={row.summary.payable > 0 ? "default" : "outline"} onClick={(event) => { event.stopPropagation(); setPicked(row.id); }}>
-          Record payment
-        </Button>
-      ),
-    },
+    { key: "action", header: "", cell: (row) => recordButton(row.id, row.summary.payable > 0) },
   ];
 
-  const designerColumns: Column<DesignerRow>[] = [
-    textCol("designer", "Designer", (row) => row.partner.name || row.partner.email, (row) => person(row.partner)),
-    textCol("code", "Designer ID", (row) => row.partner.code),
-    moneyCol("completed", "Delivered sales (gross)", (row) => row.summary.completedSales),
-    moneyCol("pending", "Paid, not completed (gross)", (row) => row.summary.pendingSales, { muted: true }),
-    moneyCol("recorded", "Recorded as paid", (row) => row.recorded),
-    textCol("last", "Last payment", (row) => lastText(row.last)),
-    {
-      key: "action",
-      header: "",
-      cell: (row) => (
-        <Button size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setPicked(row.id); }}>
-          Record payment
-        </Button>
-      ),
-    },
+  const designerColumns: FinanceColumn<DesignerRow>[] = [
+    textCol("designer", txKey("Designer"), (row) => row.partner.name || row.partner.email, (row) => person(row.partner)),
+    textCol("code", txKey("Designer ID"), (row) => row.partner.code, (row) => code(row.partner)),
+    moneyCol("completed", txKey("Delivered sales (gross)"), (row) => row.summary.completedSales),
+    moneyCol("pending", txKey("Paid, not completed (gross)"), (row) => row.summary.pendingSales, { muted: true }),
+    moneyCol("recorded", txKey("Recorded as paid"), (row) => row.recorded),
+    textCol("last", txKey("Last payment"), (row) => lastText(row.last), (row) => (row.last ? <Ltr className="whitespace-nowrap">{lastText(row.last)}</Ltr> : <span className="text-subtle">—</span>)),
+    { key: "action", header: "", cell: (row) => recordButton(row.id, false) },
   ];
 
   const shownCreators = filter === "due" ? creators.filter((row) => row.summary.payable > 0) : creators;
   const shownDesigners = filter === "due" ? designers.filter((row) => row.limit > 0) : designers;
-  const toolbar = <FilterSelect ariaLabel="Show" value={filter} onChange={setFilter} options={view === "creator" ? balanceOptions : [balanceOptions[0], { value: "due", label: "With delivered sales not recorded as paid" }]} />;
+  const toolbar = (
+    <FilterSelect
+      ariaLabel={tx("Show")}
+      value={filter}
+      onChange={setFilter}
+      options={[
+        { value: "all", label: tx("Everyone") },
+        { value: "due", label: view === "creator" ? tx("With a balance to pay") : tx("With delivered sales not recorded as paid") },
+      ]}
+    />
+  );
 
   if (error && !people.partners.length) return <LoadError message={error} onRetry={refresh} />;
 
@@ -210,60 +216,93 @@ function Balances() {
       <div className="flex flex-wrap items-center gap-3 rounded-[14px] bg-card px-3 py-2.5">
         <Tabs value={view} onValueChange={(value) => setTab(value as "creator" | "designer")}>
           <TabsList>
-            <TabsTrigger value="creator">Creators</TabsTrigger>
-            <TabsTrigger value="designer">Designers</TabsTrigger>
+            <TabsTrigger value="creator">{tx("Creators")}</TabsTrigger>
+            <TabsTrigger value="designer">{tx("Designers")}</TabsTrigger>
           </TabsList>
         </Tabs>
-        <p className="min-w-0 flex-1 text-[12px] text-muted-foreground">Record a payment after you have made it outside the admin. Nothing is sent from here.</p>
+        <p className="min-w-0 flex-1 text-[12px] text-muted-foreground">{tx("Record a payment after you have made it outside the admin. Nothing is sent from here.")}</p>
       </div>
 
       {blocked ? <Notice tone="warning">{blocked}</Notice> : null}
-      {linkMissing ? <Notice tone="warning">No creator or designer was found for this link. Pick the person from the list.</Notice> : null}
-      {paid.error ? <Notice tone="warning">Paid orders could not be read ({paid.error}), so pending figures are missing. Payable balances are not affected.</Notice> : null}
-      {paid.capped ? <Notice tone="warning">Only {BALANCE_ORDER_CAP.toLocaleString()} paid orders were read (the limit), so pending figures are incomplete. Payable balances are not affected.</Notice> : null}
-      {records.capped ? <Notice tone="warning">Only {PAYOUT_CAP.toLocaleString()} payout records were read (the limit), so recorded totals and last payments may be incomplete.</Notice> : null}
+      {linkMissing ? <Notice tone="warning">{tx("No creator or designer was found for this link. Pick the person from the list.")}</Notice> : null}
+      {paid.error ? <Notice tone="warning">{tx("Paid orders could not be read ({error}), so pending figures are missing. Payable balances are not affected.", { error: paid.error })}</Notice> : null}
+      {paid.capped ? <Notice tone="warning">{tx("Only {cap} paid orders were read (the limit), so pending figures are incomplete. Payable balances are not affected.", { cap: num(BALANCE_ORDER_CAP) })}</Notice> : null}
+      {records.capped ? <Notice tone="warning">{tx("Only {cap} payout records were read (the limit), so recorded totals and last payments may be incomplete.", { cap: num(PAYOUT_CAP) })}</Notice> : null}
 
       {view === "creator" ? (
         <>
           <div className="grid gap-3 sm:grid-cols-3">
-            <StatCard label="Payable to creators now" value={<Money value={totals.payable} />} hint="Commission on completed orders, less what was paid out" loading={first} />
-            <StatCard label="Pending commission" value={<Money value={totals.pending} />} hint="Orders paid but not completed: not payable yet" loading={first} />
-            <StatCard label="Paid out to creators" value={<Money value={totals.withdrawn} />} hint="As the creators' app shows it" loading={first} />
+            <StatCard label={tx("Payable to creators now")} value={<Money value={totals.payable} />} hint={tx("Commission on completed orders, less what was paid out")} loading={first} />
+            <StatCard label={tx("Pending commission")} value={<Money value={totals.pending} />} hint={tx("Orders paid but not completed: not payable yet")} loading={first} />
+            <StatCard label={tx("Paid out to creators")} value={<Money value={totals.withdrawn} />} hint={tx("As the creators' app shows it")} loading={first} />
           </div>
           <Notice>
-            {COMMISSION_RULE_TEXT} The payable balance is the one the creator sees in the app: commission earned less what has been paid out. A commission rate above 100% pays nothing, as in the app.
-            {oddOrders ? ` ${oddOrders} completed ${oddOrders === 1 ? "order has" : "orders have"} no captured payment; the app counts them, so they are counted here too.` : ""}
+            {tx(COMMISSION_RULE_TEXT)} {tx("The payable balance is the one the creator sees in the app: commission earned less what has been paid out. A commission rate above 100% pays nothing, as in the app.")}
+            {oddOrders === 1 ? ` ${tx("1 completed order has no captured payment; the app counts it, so it is counted here too.")}` : ""}
+            {oddOrders > 1 ? ` ${tx("{count} completed orders have no captured payment; the app counts them, so they are counted here too.", { count: oddOrders })}` : ""}
           </Notice>
-          <DataTable rows={shownCreators} columns={creatorColumns} loading={first} emptyMessage={filter === "due" ? "No creator has a balance to pay." : "No creators yet."} searchText={(row) => `${row.partner.name} ${row.partner.email} ${row.partner.code}`} searchPlaceholder="Search creators" toolbar={toolbar} defaultSort={{ key: "payable", dir: "desc" }} pageSize={25} exportName="creator-balances" noun="creator" />
+          <DataTable
+            rows={shownCreators}
+            columns={creatorColumns}
+            loading={first}
+            emptyMessage={filter === "due" ? tx("No creator has a balance to pay.") : tx("No creators yet.")}
+            searchText={(row) => `${row.partner.name} ${row.partner.email} ${row.partner.code}`}
+            searchPlaceholder={tx("Search creators")}
+            toolbar={toolbar}
+            defaultSort={{ key: "payable", dir: "desc" }}
+            pageSize={25}
+            exportName="creator-balances"
+            noun={txKey("creator")}
+            nounPlural={txKey("creators")}
+          />
         </>
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2">
-            <StatCard label="Delivered designer sales (gross)" value={<Money value={totals.designerSales} />} hint="What customers paid for designers' items on completed orders" loading={first} />
-            <StatCard label="Recorded as paid to designers" value={<Money value={totals.designerRecorded} />} hint="Payout records marked paid" loading={first} />
+            <StatCard label={tx("Delivered designer sales (gross)")} value={<Money value={totals.designerSales} />} hint={tx("What customers paid for designers' items on completed orders")} loading={first} />
+            <StatCard label={tx("Recorded as paid to designers")} value={<Money value={totals.designerRecorded} />} hint={tx("Payout records marked paid")} loading={first} />
           </div>
-          <Notice tone="warning">{DESIGNER_RULE_TEXT} Sales are gross, by order line. You can still record a payment you made, up to the designer&apos;s delivered sales not yet recorded as paid.</Notice>
-          <DataTable rows={shownDesigners} columns={designerColumns} loading={first} emptyMessage={filter === "due" ? "No designer has delivered sales that are not recorded as paid." : "No designers yet."} searchText={(row) => `${row.partner.name} ${row.partner.email} ${row.partner.code}`} searchPlaceholder="Search designers" toolbar={toolbar} defaultSort={{ key: "completed", dir: "desc" }} pageSize={25} exportName="designer-sales-and-payments" noun="designer" />
+          <Notice tone="warning">
+            {tx(DESIGNER_RULE_TEXT)} {tx("Sales are gross, by order line. You can still record a payment you made, up to the designer's delivered sales not yet recorded as paid.")}
+          </Notice>
+          <DataTable
+            rows={shownDesigners}
+            columns={designerColumns}
+            loading={first}
+            emptyMessage={filter === "due" ? tx("No designer has delivered sales that are not recorded as paid.") : tx("No designers yet.")}
+            searchText={(row) => `${row.partner.name} ${row.partner.email} ${row.partner.code}`}
+            searchPlaceholder={tx("Search designers")}
+            toolbar={toolbar}
+            defaultSort={{ key: "completed", dir: "desc" }}
+            pageSize={25}
+            exportName="designer-sales-and-payments"
+            noun={txKey("designer")}
+            nounPlural={txKey("designers")}
+          />
         </>
       )}
 
-      <LoadedLine error={error} count={completed.orders.length} cap={BALANCE_ORDER_CAP} capped={completed.capped} loadedAt={completed.loadedAt} onRefresh={refresh} loading={loading} what="completed orders (all dates)" />
+      <LoadedLine error={error} count={completed.orders.length} cap={BALANCE_ORDER_CAP} capped={completed.capped} loadedAt={completed.loadedAt} onRefresh={refresh} loading={loading} kind="completed" />
 
       {target ? <RecordPaymentDialog key={target.partner.docId} target={target} recorder={scope} blocked={blocked} onClose={close} onRecorded={refresh} /> : null}
     </div>
   );
 }
 
-/** What staff should know about a creator's figures before paying. */
-function creatorNotes(row: CreatorRow): string[] {
-  const notes: string[] = [];
+/** What staff should know about a creator's figures before paying: English for the CSV, the panel's language for the screen. */
+function creatorNotes(row: CreatorRow) {
+  const notes: { en: string; shown: string }[] = [];
   const { summary } = row;
-  if (summary.linesAbove100) notes.push(`${summary.linesAbove100} sale ${summary.linesAbove100 === 1 ? "line has" : "lines have"} a rate above 100% and pay nothing`);
-  if (summary.linesWithoutRate) notes.push(`${summary.linesWithoutRate} sale ${summary.linesWithoutRate === 1 ? "line has" : "lines have"} no commission rate`);
-  if (summary.unmatched > 0) notes.push(`${formatMoney(summary.unmatched)} earned on promotions not on this creator's record`);
-  if (summary.payable < summary.appBalance) notes.push(`The app shows ${formatMoney(summary.appBalance)}; only ${formatMoney(summary.payable)} can be recorded`);
-  if (row.register !== summary.withdrawn) notes.push(`Payout records total ${formatMoney(row.register)}, the app shows ${formatMoney(summary.withdrawn)} paid out`);
+  if (summary.linesAbove100 === 1) notes.push(phrase(txKey("1 sale line has a rate above 100% and pays nothing")));
+  if (summary.linesAbove100 > 1) notes.push(phrase(txKey("{count} sale lines have a rate above 100% and pay nothing"), { count: summary.linesAbove100 }));
+  if (summary.linesWithoutRate === 1) notes.push(phrase(txKey("1 sale line has no commission rate")));
+  if (summary.linesWithoutRate > 1) notes.push(phrase(txKey("{count} sale lines have no commission rate"), { count: summary.linesWithoutRate }));
+  if (summary.unmatched > 0) notes.push(phrase(txKey("{amount} earned on promotions not on this creator's record"), { amount: formatMoney(summary.unmatched) }));
+  if (summary.payable < summary.appBalance) notes.push(phrase(txKey("The app shows {shown}; only {payable} can be recorded"), { shown: formatMoney(summary.appBalance), payable: formatMoney(summary.payable) }));
+  if (row.register !== summary.withdrawn) notes.push(phrase(txKey("Payout records total {records}, the app shows {app} paid out"), { records: formatMoney(row.register), app: formatMoney(summary.withdrawn) }));
   const { legacy } = row.partner;
-  if (legacy.completed > 0 || legacy.pending > 0) notes.push(`Old admin figures on the record: ${formatMoney(legacy.completed)} completed, ${formatMoney(legacy.pending)} pending (not used here)`);
+  if (legacy.completed > 0 || legacy.pending > 0) {
+    notes.push(phrase(txKey("Old admin figures on the record: {completed} completed, {pending} pending (not used here)"), { completed: formatMoney(legacy.completed), pending: formatMoney(legacy.pending) }));
+  }
   return notes;
 }

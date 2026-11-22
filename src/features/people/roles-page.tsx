@@ -43,6 +43,7 @@ import {
   type StaffMember,
 } from "./roles";
 import { errorText, isEmail, USERS_COLLECTION } from "./util";
+import { tx } from "@/lib/i18n/tx";
 
 type View = "roles" | "staff";
 
@@ -78,9 +79,9 @@ export function RolesPage() {
       return;
     }
     const ok = await confirm({
-      title: `Delete the role "${roleLabel(role)}"?`,
-      description: "The role and its permission list are removed for good. This cannot be undone.",
-      confirmLabel: "Delete role",
+      title: tx("Delete the role \"{name}\"?", { name: roleLabel(role) }),
+      description: tx("The role and its permission list are removed for good. This cannot be undone."),
+      confirmLabel: tx("Delete role"),
       destructive: true,
     });
     if (!ok) return;
@@ -88,12 +89,12 @@ export function RolesPage() {
       // Checked again on the server: the staff list on screen may not hold every account.
       if (role.key) {
         const holders = await getDocs(query(collection(getFirebase().db, USERS_COLLECTION), where("role_unique_key", "==", role.key), limit(1)));
-        if (!holders.empty) throw new Error("someone still holds this role. Move them to another role first");
+        if (!holders.empty) throw new Error(tx("someone still holds this role. Move them to another role first"));
       }
       await removeDoc(ROLES_COLLECTION, role.id);
-      toast.success(`The role "${roleLabel(role)}" was deleted.`);
+      toast.success(tx("The role \"{name}\" was deleted.", { name: roleLabel(role) }));
     } catch (err) {
-      toast.error(`The role was not deleted: ${errorText(err)}.`);
+      toast.error(tx("The role was not deleted: {reason}.", { reason: errorText(err) }));
     }
   }
 
@@ -103,28 +104,28 @@ export function RolesPage() {
       toast.error(blocked);
       return;
     }
-    const who = member.name || member.email || "this person";
+    const who = member.name || member.email || tx("this person");
     const ok = await confirm({
-      title: `Remove admin access for ${who}?`,
-      description: "Their role is taken off their account and they can no longer sign in to the admin panel. You can give them a role again later.",
-      confirmLabel: "Remove access",
+      title: tx("Remove admin access for {who}?", { who }),
+      description: tx("Their role is taken off their account and they can no longer sign in to the admin panel. You can give them a role again later."),
+      confirmLabel: tx("Remove access"),
       destructive: true,
     });
     if (!ok) return;
     try {
       await updateDoc(doc(getFirebase().db, USERS_COLLECTION, member.id), removeRoleUpdate(deleteField()));
-      toast.success(`${who} no longer has admin access.`);
+      toast.success(tx("{who} no longer has admin access.", { who }));
     } catch (err) {
-      toast.error(`Access was not removed: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("Access was not removed: {reason}. Nothing was changed.", { reason: errorText(err) }));
     }
   }
 
   const roleColumns: Column<Role>[] = [
-    { key: "id", header: "ID", className: "w-16 tabular-nums", cell: (role) => role.roleId || "—", sortable: true, sortValue: (role) => role.roleId },
-    { key: "name", header: "Name", cell: (role) => <span className="font-medium text-foreground">{roleLabel(role)}</span>, sortable: true, sortValue: roleLabel },
-    { key: "key", header: "Key", cell: (role) => <span className="font-mono text-[12px] text-muted-foreground" dir="ltr">{role.key || "—"}</span>, sortable: true, sortValue: (role) => role.key },
-    { key: "permissions", header: "Permissions", className: "text-end tabular-nums", cell: (role) => role.permissions.length, sortable: true, sortValue: (role) => role.permissions.length },
-    { key: "staff", header: "Staff", className: "text-end tabular-nums", cell: (role) => counts[role.key] ?? 0, sortable: true, sortValue: (role) => counts[role.key] ?? 0 },
+    { key: "id", header: tx("ID"), className: "w-16 tabular-nums", cell: (role) => role.roleId || "—", sortable: true, sortValue: (role) => role.roleId },
+    { key: "name", header: tx("Name"), cell: (role) => <span className="font-medium text-foreground">{roleLabel(role)}</span>, sortable: true, sortValue: roleLabel },
+    { key: "key", header: tx("Key"), cell: (role) => <span className="font-mono text-[12px] text-muted-foreground" dir="ltr">{role.key || "—"}</span>, sortable: true, sortValue: (role) => role.key },
+    { key: "permissions", header: tx("Permissions"), className: "text-end tabular-nums", cell: (role) => role.permissions.length, sortable: true, sortValue: (role) => role.permissions.length },
+    { key: "staff", header: tx("Staff"), className: "text-end tabular-nums", cell: (role) => counts[role.key] ?? 0, sortable: true, sortValue: (role) => counts[role.key] ?? 0 },
     {
       key: "actions",
       header: "",
@@ -134,7 +135,7 @@ export function RolesPage() {
         return (
           <span className="flex flex-wrap justify-end gap-1.5">
             <Link href={`/role-permissions?role=${encodeURIComponent(role.id)}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-              Permissions
+              {tx("Permissions")}
             </Link>
             {canEdit ? (
               <>
@@ -145,10 +146,10 @@ export function RolesPage() {
                   title={renameRoleBlockedReason(role, scope.isSuperAdmin) || undefined}
                   onClick={() => setRenaming(role)}
                 >
-                  Rename
+                  {tx("Rename")}
                 </Button>
                 <Button variant="ghost" size="sm" className="text-destructive" disabled={Boolean(blocked)} title={blocked || undefined} onClick={() => void deleteRole(role)}>
-                  Delete
+                  {tx("Delete")}
                 </Button>
               </>
             ) : null}
@@ -161,30 +162,30 @@ export function RolesPage() {
   const staffColumns: Column<StaffMember>[] = [
     {
       key: "person",
-      header: "Person",
+      header: tx("Person"),
       cell: (member) => <UserCell name={member.name} email={member.email} photo={member.photo} subtitle={member.email} fallbackId={member.id} />,
       sortable: true,
       sortValue: (member) => member.name || member.email,
     },
     {
       key: "role",
-      header: "Role",
+      header: tx("Role"),
       cell: (member) => {
-        if (!member.roleKey) return <span className="text-subtle">No role yet</span>;
+        if (!member.roleKey) return <span className="text-subtle">{tx("No role yet")}</span>;
         const role = roleByKey.get(member.roleKey);
-        return role ? roleLabel(role) : <span className="text-destructive">{member.roleKey} (role not found)</span>;
+        return role ? roleLabel(role) : <span className="text-destructive">{tx("{key} (role not found)", { key: member.roleKey })}</span>;
       },
       sortable: true,
       sortValue: (member) => member.roleKey,
     },
     {
       key: "signin",
-      header: "Admin sign-in",
+      header: tx("Admin sign-in"),
       cell: (member) =>
         canSignIn(member, roleKeys) ? (
-          <StatusBadge value="active" label="Can sign in" />
+          <StatusBadge value="active" label={tx("Can sign in")} />
         ) : (
-          <StatusBadge value="inactive" label={!member.roleKey ? "Waiting for a role" : member.status !== "Published" ? "Account not published" : "Role not found"} tone={member.roleKey ? "warning" : "neutral"} />
+          <StatusBadge value="inactive" label={!member.roleKey ? tx("Waiting for a role") : member.status !== "Published" ? tx("Account not published") : tx("Role not found")} tone={member.roleKey ? "warning" : "neutral"} />
         ),
       sortable: true,
       sortValue: (member) => (canSignIn(member, roleKeys) ? 0 : 1),
@@ -199,11 +200,11 @@ export function RolesPage() {
         return (
           <span className="flex flex-wrap justify-end gap-1.5">
             <Button variant="outline" size="sm" disabled={Boolean(blocked)} title={blocked || undefined} onClick={() => setAssigning(member)}>
-              {member.roleKey ? "Change role" : "Give a role"}
+              {member.roleKey ? tx("Change role") : tx("Give a role")}
             </Button>
             {member.roleKey ? (
               <Button variant="ghost" size="sm" className="text-destructive" disabled={Boolean(blocked)} title={blocked || undefined} onClick={() => void removeAccess(member)}>
-                Remove access
+                {tx("Remove access")}
               </Button>
             ) : null}
           </span>
@@ -220,37 +221,37 @@ export function RolesPage() {
             view === "roles" ? (
               <Button onClick={() => setCreating(true)}>
                 <Plus aria-hidden />
-                New role
+                {tx("New role")}
               </Button>
             ) : (
               <Button onClick={() => setAdding(true)}>
                 <UserPlus aria-hidden />
-                Add staff member
+                {tx("Add staff member")}
               </Button>
             )
           ) : null
         }
       />
       <StatusTabs<View>
-        label="Roles and staff"
+        label={tx("Roles and staff")}
         value={view}
         onChange={setView}
         tabs={[
-          { value: "roles", label: "Roles", count: roleRows.loading && roles.length === 0 ? "…" : String(roles.length) },
-          { value: "staff", label: "Staff", count: withRole.loading && staff.length === 0 ? "…" : `${staff.length}${withRole.hasMore ? "+" : ""}` },
+          { value: "roles", label: tx("Roles"), count: roleRows.loading && roles.length === 0 ? "…" : String(roles.length) },
+          { value: "staff", label: tx("Staff"), count: withRole.loading && staff.length === 0 ? "…" : `${staff.length}${withRole.hasMore ? "+" : ""}` },
         ]}
       />
-      {!canEdit ? <p className="text-[12px] text-muted-foreground">You can view roles and staff. Changing them needs the role edit permission.</p> : null}
+      {!canEdit ? <p className="text-[12px] text-muted-foreground">{tx("You can view roles and staff. Changing them needs the role edit permission.")}</p> : null}
 
       {view === "roles" ? (
         <DataTable
           rows={roles}
           columns={roleColumns}
           loading={roleRows.loading}
-          error={roleRows.error ? `Roles could not be loaded: ${roleRows.error}` : null}
-          emptyMessage="No roles yet. Create the first one to give staff access."
+          error={roleRows.error ? tx("Roles could not be loaded: {error}", { error: roleRows.error }) : null}
+          emptyMessage={tx("No roles yet. Create the first one to give staff access.")}
           searchText={(role) => `${role.name} ${role.key}`}
-          searchPlaceholder="Search roles"
+          searchPlaceholder={tx("Search roles")}
           noun="role"
         />
       ) : (
@@ -258,10 +259,10 @@ export function RolesPage() {
           rows={staff}
           columns={staffColumns}
           loading={withRole.loading}
-          error={withRole.error || signedUp.error ? `Staff could not be loaded: ${withRole.error || signedUp.error}` : null}
-          emptyMessage="Nobody holds a role yet."
+          error={withRole.error || signedUp.error ? tx("Staff could not be loaded: {error}", { error: withRole.error || signedUp.error }) : null}
+          emptyMessage={tx("Nobody holds a role yet.")}
           searchText={(member) => `${member.name} ${member.email} ${member.roleKey}`}
-          searchPlaceholder="Search staff by name, email or role"
+          searchPlaceholder={tx("Search staff by name, email or role")}
           pageSize={25}
           hasMore={withRole.hasMore}
           onLoadMore={withRole.loadMore}
@@ -314,20 +315,20 @@ function RoleDialog({ roles, editing, actorIsSuperAdmin, onClose }: { roles: Rol
         const blocked = renameRoleBlockedReason(editing, actorIsSuperAdmin);
         if (blocked) throw new Error(blocked);
         await updateDoc(doc(db, ROLES_COLLECTION, editing.id), renameRoleUpdate(form.name, serverTimestamp()));
-        toast.success(`The role is now called "${form.name.trim()}".`);
+        toast.success(tx("The role is now called \"{name}\".", { name: form.name.trim() }));
       } else {
         const key = form.key.trim();
         const taken = await getDocs(query(collection(db, ROLES_COLLECTION), where("role_unique_key", "==", key), limit(1)));
         if (!taken.empty) {
-          setErrors({ key: "Another role already uses this key." });
+          setErrors({ key: tx("Another role already uses this key.") });
           return;
         }
         await addDoc(collection(db, ROLES_COLLECTION), roleRecord({ name: form.name, key, roleId: nextRoleId(roles), now: serverTimestamp() }));
-        toast.success(`The role "${form.name.trim()}" was created with no permissions. Open Permissions to switch some on.`);
+        toast.success(tx("The role \"{name}\" was created with no permissions. Open Permissions to switch some on.", { name: form.name.trim() }));
       }
       onClose();
     } catch (err) {
-      toast.error(`The role was not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("The role was not saved: {reason}. Nothing was changed.", { reason: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -337,24 +338,24 @@ function RoleDialog({ roles, editing, actorIsSuperAdmin, onClose }: { roles: Rol
     <FormModal
       open
       onOpenChange={(open) => !open && onClose()}
-      title={editing ? "Rename role" : "New role"}
-      description={editing ? "Only the name changes. The key and the permissions stay as they are." : "A role is a named set of permissions. It starts with none."}
+      title={editing ? tx("Rename role") : tx("New role")}
+      description={editing ? tx("Only the name changes. The key and the permissions stay as they are.") : tx("A role is a named set of permissions. It starts with none.")}
       onSubmit={save}
       submitting={saving}
-      submitLabel={editing ? "Save name" : "Create role"}
+      submitLabel={editing ? tx("Save name") : tx("Create role")}
       size="sm"
     >
       <TextField
-        label="Name"
+        label={tx("Name")}
         required
         value={form.name}
         maxLength={40}
         onChange={(name) => setForm((cur) => ({ name, key: editing || keyTouched ? cur.key : roleKeyFrom(name) }))}
-        placeholder="Store manager"
+        placeholder={tx("Store manager")}
         error={errors.name}
       />
       <TextField
-        label="Key"
+        label={tx("Key")}
         required
         dir="ltr"
         value={form.key}
@@ -366,7 +367,7 @@ function RoleDialog({ roles, editing, actorIsSuperAdmin, onClose }: { roles: Rol
         }}
         placeholder="store_manager"
         error={errors.key}
-        hint={editing ? "The key cannot be changed: staff accounts point at it." : "Stored on each staff account. It cannot be changed later."}
+        hint={editing ? tx("The key cannot be changed: staff accounts point at it.") : tx("Stored on each staff account. It cannot be changed later.")}
       />
     </FormModal>
   );
@@ -377,12 +378,12 @@ function AssignRoleDialog({ member, roles, actorIsSuperAdmin, onClose, onSaved }
   const [picked, setPicked] = useState(roles.some((role) => role.key === member.roleKey) ? member.roleKey : "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const who = member.name || member.email || "this person";
+  const who = member.name || member.email || tx("this person");
   const publishes = assignAlsoPublishes(member);
 
   async function save() {
     if (!picked) {
-      setError("Choose a role.");
+      setError(tx("Choose a role."));
       return;
     }
     if (picked === member.roleKey && !publishes) {
@@ -393,11 +394,11 @@ function AssignRoleDialog({ member, roles, actorIsSuperAdmin, onClose, onSaved }
     try {
       await updateDoc(doc(getFirebase().db, USERS_COLLECTION, member.id), assignRoleUpdate(member, picked, actorIsSuperAdmin));
       const role = roles.find((item) => item.key === picked);
-      toast.success(`${who} now has the role "${role ? roleLabel(role) : picked}".`);
+      toast.success(tx("{who} now has the role \"{role}\".", { who, role: role ? roleLabel(role) : picked }));
       onSaved();
       onClose();
     } catch (err) {
-      toast.error(`The role was not changed: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("The role was not changed: {reason}. Nothing was changed.", { reason: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -407,15 +408,15 @@ function AssignRoleDialog({ member, roles, actorIsSuperAdmin, onClose, onSaved }
     <FormModal
       open
       onOpenChange={(open) => !open && onClose()}
-      title={member.roleKey ? "Change role" : "Give a role"}
-      description={`${who}${member.email && member.email !== who ? ` (${member.email})` : ""} will be able to open every screen this role allows.`}
+      title={member.roleKey ? tx("Change role") : tx("Give a role")}
+      description={tx("{who} will be able to open every screen this role allows.", { who: member.email && member.email !== who ? `${who} (${member.email})` : who })}
       onSubmit={save}
       submitting={saving}
-      submitLabel="Save role"
+      submitLabel={tx("Save role")}
       size="sm"
     >
       <SelectField
-        label="Role"
+        label={tx("Role")}
         required
         value={picked}
         onChange={(value) => {
@@ -423,18 +424,18 @@ function AssignRoleDialog({ member, roles, actorIsSuperAdmin, onClose, onSaved }
           setError("");
         }}
         options={roles.map((role) => ({ value: role.key, label: roleLabel(role) }))}
-        placeholder="Choose a role"
+        placeholder={tx("Choose a role")}
         error={error}
-        hint={roles.length === 0 ? "There are no roles to give yet. Create one first." : undefined}
+        hint={roles.length === 0 ? tx("There are no roles to give yet. Create one first.") : undefined}
       />
       {publishes ? (
         <p className="rounded-lg bg-muted p-3 text-[12px] text-muted-foreground">
-          This account signed up on the admin page and is still waiting. Saving also marks it Published so the person can sign in.
+          {tx("This account signed up on the admin page and is still waiting. Saving also marks it Published so the person can sign in.")}
         </p>
       ) : null}
       {!publishes && member.status !== "Published" ? (
         <p className="rounded-lg bg-muted p-3 text-[12px] text-muted-foreground">
-          This account is not Published (its status is {member.status || "empty"}), so the person still cannot sign in after this.
+          {tx("This account is not Published (its status is {status}), so the person still cannot sign in after this.", { status: member.status || tx("empty") })}
         </p>
       ) : null}
     </FormModal>
@@ -450,7 +451,7 @@ function AddStaffDialog({ onClose, onFound }: { onClose: () => void; onFound: (m
   async function find() {
     const typed = email.trim();
     if (!isEmail(typed)) {
-      setError("Enter the full email address of the account.");
+      setError(tx("Enter the full email address of the account."));
       return;
     }
     setSearching(true);
@@ -465,9 +466,9 @@ function AddStaffDialog({ onClose, onFound }: { onClose: () => void; onFound: (m
           return;
         }
       }
-      setError("No account has this email. Ask the person to sign up on the admin sign-up page first, then add them here.");
+      setError(tx("No account has this email. Ask the person to sign up on the admin sign-up page first, then add them here."));
     } catch (err) {
-      setError(`The account could not be looked up: ${errorText(err)}.`);
+      setError(tx("The account could not be looked up: {reason}.", { reason: errorText(err) }));
     } finally {
       setSearching(false);
     }
@@ -477,14 +478,14 @@ function AddStaffDialog({ onClose, onFound }: { onClose: () => void; onFound: (m
     <FormModal
       open
       onOpenChange={(open) => !open && onClose()}
-      title="Add staff member"
-      description="Find the person's account by email, then choose their role."
+      title={tx("Add staff member")}
+      description={tx("Find the person's account by email, then choose their role.")}
       onSubmit={find}
       submitting={searching}
-      submitLabel="Find account"
+      submitLabel={tx("Find account")}
       size="sm"
     >
-      <TextField label="Email" required type="email" dir="ltr" value={email} onChange={setEmail} placeholder="name@azyaa.ai" autoComplete="off" error={error} />
+      <TextField label={tx("Email")} required type="email" dir="ltr" value={email} onChange={setEmail} placeholder="name@azyaa.ai" autoComplete="off" error={error} />
     </FormModal>
   );
 }

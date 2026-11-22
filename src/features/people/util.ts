@@ -1,4 +1,5 @@
 import { toDate } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 
 /** Small readers shared by the people screens. Firestore records are untyped, so every read goes through one of these. */
 export const USERS_COLLECTION = "users";
@@ -47,5 +48,5 @@ export function isEmail(value: string): boolean {
 }
 
 export function errorText(err: unknown): string {
-  return err instanceof Error && err.message ? err.message : "something went wrong";
+  return err instanceof Error && err.message ? err.message : tx("something went wrong");
 }

@@ -1,8 +1,9 @@
 import { Spinner } from "@/components/ui/spinner";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 
 /** Centred spinner for a page (or the whole screen with `fullScreen`) that is still loading. */
-export function PageLoading({ label = "Loading…", fullScreen, className }: { label?: string; fullScreen?: boolean; className?: string }) {
+export function PageLoading({ label = tx("Loading…"), fullScreen, className }: { label?: string; fullScreen?: boolean; className?: string }) {
   return (
     <div
       className={cn(

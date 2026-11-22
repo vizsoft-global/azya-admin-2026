@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useConfirm } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { setPayoutStatus } from "./data";
 import type { PayoutFacts } from "./finance";
 import { nextPayoutStatus, payoutStatusLabel, type PayoutAction } from "./payouts";
@@ -19,20 +20,26 @@ export function usePayoutStatusChange() {
 
   const change = useCallback(async (record: PayoutFacts, action: PayoutAction) => {
     const paid = action === "mark-paid";
-    const number = record.transactionId == null ? "" : ` #${record.transactionId}`;
+    const number = record.transactionId;
+    const vars = { amount: formatMoney(record.amount), name: record.name || record.email || "—" };
+    const title =
+      number == null ? (paid ? tx("Mark this payout as paid?") : tx("Skip this payout?")) : paid ? tx("Mark payout #{number} as paid?", { number }) : tx("Skip payout #{number}?", { number });
     const ok = await confirm({
-      title: paid ? `Mark payout${number} as paid?` : `Skip payout${number}?`,
-      description: `This only changes the status of this record (${formatMoney(record.amount)} to ${record.name || "this person"}) to "${paid ? "Paid" : "Skipped"}". It does not change any balance or what the person sees in the app, and it cannot be changed back from here.`,
-      confirmLabel: paid ? "Mark as paid" : "Skip",
+      title,
+      description: paid
+        ? tx("This only changes the status of this record ({amount} to {name}) to “Paid”. It does not change any balance or what the person sees in the app, and it cannot be changed back from here.", vars)
+        : tx("This only changes the status of this record ({amount} to {name}) to “Skipped”. It does not change any balance or what the person sees in the app, and it cannot be changed back from here.", vars),
+      confirmLabel: paid ? tx("Mark as paid") : tx("Skip"),
       destructive: !paid,
     });
     if (!ok) return;
     setBusyId(record.id);
     try {
       const next = await setPayoutStatus(record.id, action);
-      toast.success(`Payout${number} is now "${payoutStatusLabel(next)}".`);
+      const status = tx(payoutStatusLabel(next));
+      toast.success(number == null ? tx("The payout is now “{status}”.", { status }) : tx("Payout #{number} is now “{status}”.", { number, status }));
     } catch (err) {
-      toast.error(`The status was not changed: ${err instanceof Error ? err.message : "try again."}`);
+      toast.error(err instanceof Error ? tx("The status was not changed: {reason}", { reason: err.message }) : tx("The status was not changed. Try again."));
     } finally {
       setBusyId("");
     }
@@ -55,7 +62,7 @@ export function PayoutStatusButtons({ record, busy, onChange }: { record: Payout
           onChange(record, "skip");
         }}
       >
-        Skip
+        {tx("Skip")}
       </Button>
       <Button
         size="sm"
@@ -65,7 +72,7 @@ export function PayoutStatusButtons({ record, busy, onChange }: { record: Payout
           onChange(record, "mark-paid");
         }}
       >
-        Mark as paid
+        {tx("Mark as paid")}
       </Button>
     </span>
   );

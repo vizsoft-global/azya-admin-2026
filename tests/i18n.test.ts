@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { dictionary, dictionaryParts } from "@/lib/i18n/dictionary";
-import { fill, translate } from "@/lib/i18n/tx";
+import { englishFor, fill, translate } from "@/lib/i18n/tx";
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -35,6 +35,18 @@ describe("translation helper", () => {
   it("returns English in English and when no Arabic exists", () => {
     expect(translate("en", "Some text nobody translated")).toBe("Some text nobody translated");
     expect(translate("ar", "Some text nobody translated")).toBe("Some text nobody translated");
+  });
+});
+
+describe("export headers", () => {
+  it("turns a translated label back into its English text", () => {
+    const [english, arabic] = Object.entries(dictionary).find(([text, ar]) => !/^[a-z-]+:/.test(text) && englishFor(ar) === text) ?? ["", ""];
+    expect(english).not.toBe("");
+    expect(englishFor(arabic)).toBe(english);
+  });
+  it("leaves English and unknown text alone", () => {
+    expect(englishFor("Order ID")).toBe("Order ID");
+    expect(englishFor("نص غير معروف في القاموس")).toBe("نص غير معروف في القاموس");
   });
 });
 

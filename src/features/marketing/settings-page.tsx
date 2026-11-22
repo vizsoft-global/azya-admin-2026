@@ -21,7 +21,7 @@ import { formatDate } from "@/lib/format";
 import { getPath } from "@/lib/object-path";
 import { useUnsavedChanges } from "@/lib/unsaved";
 import { cn } from "@/lib/utils";
-import { Section, errorText } from "./parts";
+import { Section, errorText, txOptions } from "./parts";
 import {
   ACCESS_CODES,
   ACCESS_CODE_TARGET,
@@ -41,6 +41,7 @@ import {
   gatewayList,
   gatewayName,
   latLngError,
+  latLngErrorField,
   mapsLink,
   maskSecret,
   paymentDraftChanges,
@@ -59,6 +60,7 @@ import {
   type SettingsDraft,
   type SettingsSection,
 } from "./settings-rules";
+import { tx } from "@/lib/i18n/tx";
 
 const settingsRef = (id: string) => doc(getFirebase().db, "settings", id);
 
@@ -76,9 +78,9 @@ export function SettingsPage({ focus }: { focus?: string }) {
     document.getElementById(`settings-${focus}`)?.scrollIntoView({ block: "start" });
   }, [focus, settings]);
 
-  if (error) return <EmptyState icon={Settings2} title="The settings could not be loaded" description={`${error} Reload the page to try again.`} />;
-  if (loading && !settings) return <PageLoading label="Loading settings…" />;
-  if (!settings) return <EmptyState icon={Settings2} title="No Company settings record was found" description="The app reads its settings from one record. It is missing, so there is nothing to edit here." />;
+  if (error) return <EmptyState icon={Settings2} title={tx("The settings could not be loaded")} description={tx("{error} Reload the page to try again.", { error })} />;
+  if (loading && !settings) return <PageLoading label={tx("Loading settings…")} />;
+  if (!settings) return <EmptyState icon={Settings2} title={tx("No Company settings record was found")} description={tx("The app reads its settings from one record. It is missing, so there is nothing to edit here.")} />;
 
   const sections = SETTINGS_SECTIONS.filter((section) => section.permissions.every((key) => allowed(key)));
   const maySeeAccess = allowed("settings_userapp_waiter") && allowed("settings_app_secret_key");
@@ -108,18 +110,18 @@ function SaveBar({ dirty, saving, onSave, onReset }: { dirty: boolean; saving: b
   return (
     <>
       <Button variant="outline" size="sm" disabled={saving} onClick={onReset}>
-        Discard
+        {tx("Discard")}
       </Button>
       <Button size="sm" disabled={saving} onClick={onSave}>
         {saving ? <Spinner size="sm" className="text-current" /> : null}
-        Save changes
+        {tx("Save changes")}
       </Button>
     </>
   );
 }
 
 function SettingControl({ field, value, error, disabled, onChange }: { field: SettingField; value: SettingValue; error?: string; disabled: boolean; onChange: (value: SettingValue) => void }) {
-  const common = { label: field.label, hint: field.hint, error, disabled, required: field.required, className: field.wide || field.kind === "switch" || field.kind === "textarea" ? "sm:col-span-2" : undefined };
+  const common = { label: tx(field.label), hint: field.hint ? tx(field.hint) : undefined, error, disabled, required: field.required, className: field.wide || field.kind === "switch" || field.kind === "textarea" ? "sm:col-span-2" : undefined };
   switch (field.kind) {
     case "switch":
       return <SwitchField {...common} checked={value === true} onChange={onChange} />;
@@ -128,7 +130,7 @@ function SettingControl({ field, value, error, disabled, onChange }: { field: Se
     case "money":
       return <MoneyField {...common} value={typeof value === "number" ? value : null} onChange={onChange} />;
     case "select":
-      return <SelectField {...common} value={String(value ?? "")} onChange={onChange} options={field.options ?? []} />;
+      return <SelectField {...common} value={String(value ?? "")} onChange={onChange} options={txOptions(field.options ?? [])} />;
     case "textarea":
       return <TextareaField {...common} rows={4} value={String(value ?? "")} onChange={onChange} dir="auto" />;
     default:
@@ -148,16 +150,16 @@ function SettingControl({ field, value, error, disabled, onChange }: { field: Se
 /** Read-only facts shown under a card's fields. */
 function SectionFootnote({ section, data }: { section: SettingsSection; data: Record<string, unknown> }) {
   if (section.key === "app-update") {
-    const android = String(getPath(data, "settings_app_version_info.android_version_string") ?? "") || "not recorded";
-    const ios = String(getPath(data, "settings_app_version_info.ios_version_string") ?? "") || "not recorded";
-    return <p className="mt-3 text-[12px] text-subtle">Version names on record: Android {android}, iPhone {ios}.</p>;
+    const android = String(getPath(data, "settings_app_version_info.android_version_string") ?? "") || tx("not recorded");
+    const ios = String(getPath(data, "settings_app_version_info.ios_version_string") ?? "") || tx("not recorded");
+    return <p className="mt-3 text-[12px] text-subtle">{tx("Version names on record: Android {android}, iPhone {ios}.", { android, ios })}</p>;
   }
   if (section.key === "catalogue" && catalogueModeUnrecorded(data)) {
-    return <p className="mt-3 text-[12px] text-destructive">This switch has never been saved on the settings record. The app treats that as on, so customers cannot order right now; turn it off and save to let them.</p>;
+    return <p className="mt-3 text-[12px] text-destructive">{tx("This switch has never been saved on the settings record. The app treats that as on, so customers cannot order right now; turn it off and save to let them.")}</p>;
   }
   if (section.key === "phone") {
     const channel = String(getPath(data, "settings_company_info.phone_otp_type") ?? "");
-    return channel ? <p className="mt-3 text-[12px] text-subtle">With OTPless, codes go out by {channel}.</p> : null;
+    return channel ? <p className="mt-3 text-[12px] text-subtle">{tx("With OTPless, codes go out by {channel}.", { channel })}</p> : null;
   }
   return null;
 }
@@ -180,7 +182,7 @@ function SettingsCard({ section, settings }: { section: SettingsSection; setting
     const found = validateDraft(changedFields, edits);
     setErrors(found);
     if (Object.keys(found).length) {
-      toast.error(`${section.title} was not saved. Check the highlighted fields.`);
+      toast.error(tx("{section} was not saved. Check the highlighted fields.", { section: tx(section.title) }));
       return;
     }
     const question = saveConfirmation(changes);
@@ -188,10 +190,10 @@ function SettingsCard({ section, settings }: { section: SettingsSection; setting
     setSaving(true);
     try {
       await updateDoc(settingsRef(settings.id), { ...changes, ...followOnChanges(changes, serverTimestamp()) });
-      toast.success(`${section.title} saved: ${changedLabels(section.fields, changes).join(", ")}.`);
+      toast.success(tx("{section} saved: {fields}.", { section: tx(section.title), fields: changedLabels(section.fields, changes).map((label) => tx(label)).join(tx(", ")) }));
       setEdits({});
     } catch (err) {
-      toast.error(`${section.title} was not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("{section} was not saved: {error}. Nothing was changed.", { section: tx(section.title), error: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -200,8 +202,8 @@ function SettingsCard({ section, settings }: { section: SettingsSection; setting
   return (
     <Section
       id={`settings-${section.key}`}
-      title={section.title}
-      description={section.description}
+      title={tx(section.title)}
+      description={tx(section.description)}
       actions={<SaveBar dirty={dirty} saving={saving} onSave={() => void save()} onReset={() => { setEdits({}); setErrors({}); }} />}
     >
       <div className="grid gap-4 sm:grid-cols-2">
@@ -232,20 +234,21 @@ function WarehouseLocationCard({ settings }: { settings: Row }) {
   const lng = edit ? edit.lng : stored?.lng ?? null;
   const dirty = Boolean(edit) && (lat !== (stored?.lat ?? null) || lng !== (stored?.lng ?? null));
   const problem = dirty ? latLngError(lat, lng) : "";
+  const problemField = dirty ? latLngErrorField(lat, lng) : "";
   useUnsavedChanges(dirty);
 
   async function save() {
     if (problem || lat == null || lng == null) {
-      toast.error(problem || "Enter both latitude and longitude. Clearing a saved location is not supported.");
+      toast.error(problem || tx("Enter both latitude and longitude. Clearing a saved location is not supported."));
       return;
     }
     setSaving(true);
     try {
       await updateDoc(settingsRef(settings.id), { [`${WAREHOUSE}.lat_long`]: new GeoPoint(lat, lng) });
-      toast.success("Warehouse map location saved.");
+      toast.success(tx("Warehouse map location saved."));
       setEdit(null);
     } catch (err) {
-      toast.error(`The map location was not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("The map location was not saved: {error}. Nothing was changed.", { error: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -254,20 +257,20 @@ function WarehouseLocationCard({ settings }: { settings: Row }) {
   return (
     <Section
       id="settings-warehouse-location"
-      title="Warehouse map location"
-      description="The pin couriers are sent to. Copy the two numbers from a map: right-click the place in Google Maps and choose the coordinates."
+      title={tx("Warehouse map location")}
+      description={tx("The pin couriers are sent to. Copy the two numbers from a map: right-click the place in Google Maps and choose the coordinates.")}
       actions={<SaveBar dirty={dirty} saving={saving} onSave={() => void save()} onReset={() => setEdit(null)} />}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <NumberField label="Latitude" value={lat} min={-90} max={90} onChange={(value) => setEdit({ lat: value, lng })} disabled={saving} error={problem && /Latitude|both/.test(problem) ? problem : undefined} placeholder="29.3759" />
-        <NumberField label="Longitude" value={lng} min={-180} max={180} onChange={(value) => setEdit({ lat, lng: value })} disabled={saving} error={problem && /Longitude/.test(problem) ? problem : undefined} placeholder="47.9774" />
+        <NumberField label={tx("Latitude")} value={lat} min={-90} max={90} onChange={(value) => setEdit({ lat: value, lng })} disabled={saving} error={problemField === "lat" ? problem : undefined} placeholder="29.3759" />
+        <NumberField label={tx("Longitude")} value={lng} min={-180} max={180} onChange={(value) => setEdit({ lat, lng: value })} disabled={saving} error={problemField === "lng" ? problem : undefined} placeholder="47.9774" />
       </div>
       {lat != null && lng != null && !latLngError(lat, lng) ? (
         <a href={mapsLink({ lat, lng })} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-3")}>
-          <ExternalLink /> Check this place on Google Maps
+          <ExternalLink /> {tx("Check this place on Google Maps")}
         </a>
       ) : (
-        <p className="mt-3 text-[12px] text-subtle">No map location is saved yet.</p>
+        <p className="mt-3 text-[12px] text-subtle">{tx("No map location is saved yet.")}</p>
       )}
     </Section>
   );
@@ -279,13 +282,13 @@ function SecretField({ label, stored, edit, disabled, onChange }: { label: strin
   const current = typeof stored === "string" ? stored : "";
   const value = edit !== undefined ? edit : shown ? current : "";
   return (
-    <Field label={label} hint={edit !== undefined ? "Changed. Save to keep the new key; clear the box to keep the saved one." : current ? "A key is saved. Type to replace it." : "No key is saved."}>
+    <Field label={label} hint={edit !== undefined ? tx("Changed. Save to keep the new key; clear the box to keep the saved one.") : current ? tx("A key is saved. Type to replace it.") : tx("No key is saved.")}>
       <div className="flex gap-2">
         <Input
           type={shown ? "text" : "password"}
           dir="ltr"
           value={value}
-          placeholder={current ? maskSecret(current) : "Not set"}
+          placeholder={current ? maskSecret(current) : tx("Not set")}
           autoComplete="new-password"
           spellCheck={false}
           disabled={disabled}
@@ -293,7 +296,7 @@ function SecretField({ label, stored, edit, disabled, onChange }: { label: strin
           onChange={(event) => onChange(event.target.value)}
           className="min-w-0 flex-1 font-mono"
         />
-        <Button type="button" variant="outline" size="icon" disabled={disabled} aria-label={shown ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`} aria-pressed={shown} onClick={() => setShown((on) => !on)}>
+        <Button type="button" variant="outline" size="icon" disabled={disabled} aria-label={shown ? tx("Hide: {label}", { label }) : tx("Show: {label}", { label })} aria-pressed={shown} onClick={() => setShown((on) => !on)}>
           {shown ? <EyeOff /> : <Eye />}
         </Button>
       </div>
@@ -331,25 +334,27 @@ function PaymentCard({ settings }: { settings: Row }) {
 
   async function save() {
     const ok = await confirm({
-      title: "Change how customers pay?",
-      description: `From the moment you save, checkout in the app uses ${gatewayLabel(primary)} in ${live ? "live" : "test"} mode${live ? "" : " (no real money is taken)"}. A wrong key stops every payment until it is corrected.`,
-      confirmLabel: "Save payment settings",
+      title: tx("Change how customers pay?"),
+      description: live
+        ? tx("From the moment you save, checkout in the app uses {gateway} in live mode. A wrong key stops every payment until it is corrected.", { gateway: gatewayLabel(primary) })
+        : tx("From the moment you save, checkout in the app uses {gateway} in test mode (no real money is taken). A wrong key stops every payment until it is corrected.", { gateway: gatewayLabel(primary) }),
+      confirmLabel: tx("Save payment settings"),
     });
     if (!ok) return;
     setSaving(true);
     try {
       const { db } = getFirebase();
       const ref = settingsRef(settings.id);
-      await runTransaction(db, async (tx) => {
-        const snap = await tx.get(ref);
+      await runTransaction(db, async (trx) => {
+        const snap = await trx.get(ref);
         const current = gatewayList(snap.data());
-        if (!current.some((item) => gatewayName(item) === draft.primary)) throw new Error(`${gatewayLabel(draft.primary)} is no longer in the gateway list`);
-        tx.update(ref, { settings_payment_info: applyPaymentDraft(current, draft) });
+        if (!current.some((item) => gatewayName(item) === draft.primary)) throw new Error(tx("{gateway} is no longer in the gateway list", { gateway: gatewayLabel(draft.primary) }));
+        trx.update(ref, { settings_payment_info: applyPaymentDraft(current, draft) });
       });
-      toast.success(`Payment settings saved. Customers now pay through ${gatewayLabel(primary)} in ${live ? "live" : "test"} mode.`);
+      toast.success(live ? tx("Payment settings saved. Customers now pay through {gateway} in live mode.", { gateway: gatewayLabel(primary) }) : tx("Payment settings saved. Customers now pay through {gateway} in test mode.", { gateway: gatewayLabel(primary) }));
       reset();
     } catch (err) {
-      toast.error(`The payment settings were not saved: ${errorText(err)}. Nothing was changed.`);
+      toast.error(tx("The payment settings were not saved: {error}. Nothing was changed.", { error: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -358,32 +363,32 @@ function PaymentCard({ settings }: { settings: Row }) {
   return (
     <Section
       id="settings-payment"
-      title="Payment gateway"
-      description="Which payment company the app charges through, and its keys."
+      title={tx("Payment gateway")}
+      description={tx("Which payment company the app charges through, and its keys.")}
       actions={<SaveBar dirty={dirty} saving={saving} onSave={() => void save()} onReset={reset} />}
     >
       {!list.length ? (
-        <p className="text-[13px] text-muted-foreground">No payment gateway is on record, so there is nothing to choose here.</p>
+        <p className="text-[13px] text-muted-foreground">{tx("No payment gateway is on record, so there is nothing to choose here.")}</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           <SelectField
-            label="Customers pay through"
+            label={tx("Customers pay through")}
             value={primary}
             onChange={(value) => setPrimaryEdit(value)}
             options={list.map((item) => ({ value: gatewayName(item), label: gatewayLabel(gatewayName(item)) })).filter((option) => option.value)}
             disabled={saving}
-            placeholder="No gateway chosen"
+            placeholder={tx("No gateway chosen")}
           />
           {gateway ? (
-            <SwitchField label="Live mode" hint="On: real payments with the live key. Off: test payments with the test key." checked={live} onChange={(checked) => setPatch({ is_production_status: checked })} disabled={saving} className="sm:self-end" />
+            <SwitchField label={tx("Live mode")} hint={tx("On: real payments with the live key. Off: test payments with the test key.")} checked={live} onChange={(checked) => setPatch({ is_production_status: checked })} disabled={saving} className="sm:self-end" />
           ) : null}
           {gateway && maySeeKeys ? (
             <>
-              <SecretField key={`${primary}-test`} label="Test key" stored={gateway.test_secret_key} edit={patch.test_secret_key} disabled={saving} onChange={(value) => setSecret("test_secret_key", value)} />
-              <SecretField key={`${primary}-live`} label="Live key" stored={gateway.production_secret_key} edit={patch.production_secret_key} disabled={saving} onChange={(value) => setSecret("production_secret_key", value)} />
+              <SecretField key={`${primary}-test`} label={tx("Test key")} stored={gateway.test_secret_key} edit={patch.test_secret_key} disabled={saving} onChange={(value) => setSecret("test_secret_key", value)} />
+              <SecretField key={`${primary}-live`} label={tx("Live key")} stored={gateway.production_secret_key} edit={patch.production_secret_key} disabled={saving} onChange={(value) => setSecret("production_secret_key", value)} />
             </>
           ) : null}
-          {gateway && !maySeeKeys ? <p className="text-[12px] text-subtle sm:col-span-2">The gateway keys are only shown to people with the secret key permission.</p> : null}
+          {gateway && !maySeeKeys ? <p className="text-[12px] text-subtle sm:col-span-2">{tx("The gateway keys are only shown to people with the secret key permission.")}</p> : null}
         </div>
       )}
     </Section>
@@ -402,18 +407,18 @@ function AccessCard({ settings }: { settings: Row }) {
   async function save() {
     const target = ACCESS_MODES.find((item) => item.value === mode)!;
     const ok = await confirm({
-      title: `Switch the app to “${target.label}”?`,
-      description: `${target.hint} This applies to every customer as soon as you save.`,
-      confirmLabel: "Switch",
+      title: tx("Switch the app to “{mode}”?", { mode: tx(target.label) }),
+      description: `${tx(target.hint)} ${tx("This applies to every customer as soon as you save.")}`,
+      confirmLabel: tx("Switch"),
     });
     if (!ok) return;
     setSaving(true);
     try {
       await updateDoc(settingsRef(settings.id), accessModeUpdate(mode));
-      toast.success(`The app is now set to “${target.label}”.`);
+      toast.success(tx("The app is now set to “{mode}”.", { mode: tx(target.label) }));
       setEdit(null);
     } catch (err) {
-      toast.error(`Access to the app was not changed: ${errorText(err)}.`);
+      toast.error(tx("Access to the app was not changed: {error}.", { error: errorText(err) }));
     } finally {
       setSaving(false);
     }
@@ -422,11 +427,11 @@ function AccessCard({ settings }: { settings: Row }) {
   return (
     <Section
       id="settings-access"
-      title="Who can get into the app"
-      description={<>Waitlist requests are handled on the <Link href="/customer-waitlist" className="underline underline-offset-2">customer waitlist</Link> page. In secret code mode, the codes to hand out are listed here.</>}
+      title={tx("Who can get into the app")}
+      description={<>{tx("Waitlist requests are handled on the customer waitlist page. In secret code mode, the codes to hand out are listed here.")} <Link href="/customer-waitlist" className="underline underline-offset-2">{tx("Open the customer waitlist")}</Link></>}
       actions={<SaveBar dirty={dirty} saving={saving} onSave={() => void save()} onReset={() => setEdit(null)} />}
     >
-      <div role="radiogroup" aria-label="Who can get into the app" className="grid gap-2 sm:grid-cols-3">
+      <div role="radiogroup" aria-label={tx("Who can get into the app")} className="grid gap-2 sm:grid-cols-3">
         {ACCESS_MODES.map((item) => {
           const on = item.value === mode;
           return (
@@ -439,8 +444,8 @@ function AccessCard({ settings }: { settings: Row }) {
               onClick={() => setEdit(item.value)}
               className={cn("rounded-lg border p-3 text-start outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50", on ? "border-primary bg-muted" : "border-border hover:bg-muted/60")}
             >
-              <span className="block text-[13px] font-medium text-foreground">{item.label}</span>
-              <span className="mt-0.5 block text-[12px] text-muted-foreground">{item.hint}</span>
+              <span className="block text-[13px] font-medium text-foreground">{tx(item.label)}</span>
+              <span className="mt-0.5 block text-[12px] text-muted-foreground">{tx(item.hint)}</span>
             </button>
           );
         })}
@@ -448,6 +453,16 @@ function AccessCard({ settings }: { settings: Row }) {
       {stored === "secret" ? <AccessCodes settings={settings} /> : null}
     </Section>
   );
+}
+
+/** The result of "Generate codes" as one whole sentence per case. */
+function codesToast(added: number, removed: number) {
+  if (!added && !removed) return tx("There are already {target} codes that work. No new code was needed.", { target: ACCESS_CODE_TARGET });
+  if (!removed) return added === 1 ? tx("1 new code added.") : tx("{count} new codes added.", { count: added });
+  if (added === 1 && removed === 1) return tx("1 new code added; 1 that no longer worked was removed.");
+  if (added === 1) return tx("1 new code added; {removed} that no longer worked were removed.", { removed });
+  if (removed === 1) return tx("{added} new codes added; 1 that no longer worked was removed.", { added });
+  return tx("{added} new codes added; {removed} that no longer worked were removed.", { added, removed });
 }
 
 /** A random number in [0, 1) from the browser's secure generator. */
@@ -472,17 +487,16 @@ function AccessCodes({ settings }: { settings: Row }) {
       const { db } = getFirebase();
       const ref = settingsRef(settings.id);
       const createdBy = scope.userDocId ? doc(db, "users", scope.userDocId) : null;
-      const result = await runTransaction(db, async (tx) => {
-        const snap = await tx.get(ref);
+      const result = await runTransaction(db, async (trx) => {
+        const snap = await trx.get(ref);
         const next = topUpAccessCodes(accessCodes(snap.data()), { now: new Date(), createdBy, random: secureRandom });
-        if (next.added.length || next.removed) tx.update(ref, { [ACCESS_CODES]: next.list });
+        if (next.added.length || next.removed) trx.update(ref, { [ACCESS_CODES]: next.list });
         return next;
       });
-      if (!result.added.length && !result.removed) toast.success(`There are already ${ACCESS_CODE_TARGET} codes that work. No new code was needed.`);
-      else toast.success(`${result.added.length} new ${result.added.length === 1 ? "code" : "codes"} added${result.removed ? `; ${result.removed} that no longer worked ${result.removed === 1 ? "was" : "were"} removed` : ""}.`);
+      toast.success(codesToast(result.added.length, result.removed));
       setShown(true);
     } catch (err) {
-      toast.error(`No codes were generated: ${errorText(err)}. The list is unchanged.`);
+      toast.error(tx("No codes were generated: {error}. The list is unchanged.", { error: errorText(err) }));
     } finally {
       setBusy(false);
     }
@@ -492,17 +506,17 @@ function AccessCodes({ settings }: { settings: Row }) {
     <div className="mt-4 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[13px] font-medium text-foreground">Access codes</p>
+          <p className="text-[13px] font-medium text-foreground">{tx("Access codes")}</p>
           <p className="text-[12px] text-muted-foreground">
-            {usable.length} of {ACCESS_CODE_TARGET} codes work right now. Each code lets one person in and is then used up.
+            {tx("{usable} of {target} codes work right now. Each code lets one person in and is then used up.", { usable: usable.length, target: ACCESS_CODE_TARGET })}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" disabled={!usable.length} aria-pressed={shown} onClick={() => setShown((on) => !on)}>
-            {shown ? <EyeOff /> : <Eye />} {shown ? "Hide codes" : "Show codes"}
+            {shown ? <EyeOff /> : <Eye />} {shown ? tx("Hide codes") : tx("Show codes")}
           </Button>
           <Button size="sm" disabled={busy || usable.length >= ACCESS_CODE_TARGET} onClick={() => void generate()}>
-            {busy ? <Spinner size="sm" className="text-current" /> : <KeyRound />} Generate codes
+            {busy ? <Spinner size="sm" className="text-current" /> : <KeyRound />} {tx("Generate codes")}
           </Button>
         </div>
       </div>
@@ -511,7 +525,7 @@ function AccessCodes({ settings }: { settings: Row }) {
           {usable.map((code) => (
             <li key={String(code.code)} className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2">
               <span className="font-mono text-[13px] font-medium tracking-widest text-foreground" dir="ltr" lang="en">{String(code.code)}</span>
-              <span className="text-[11px] text-subtle">until {formatDate(accessCodeExpiry(code))}</span>
+              <span className="text-[11px] text-subtle">{tx("until {date}", { date: formatDate(accessCodeExpiry(code)) })}</span>
             </li>
           ))}
         </ul>

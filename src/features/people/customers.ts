@@ -1,6 +1,7 @@
 import type { Row, WhereClause } from "@/lib/firestore-ui";
 import { roundMoney, toDate, toNumber } from "@/lib/format";
 import { list, matchesAny, rawText, record, text } from "./util";
+import { txKey } from "@/lib/i18n/tx";
 
 /**
  * Customers are `users` records. The app writes `user_role: "Customer"` at
@@ -41,12 +42,13 @@ export function customerMatchesSearch(customer: Customer, search: string): boole
 
 /* ---------- Joined-date filter ---------- */
 
+/** Labels are English keys: translate with `tx(item.label)` where they are shown. */
 export const DATE_FILTERS = [
-  { value: "all", label: "Joined any time" },
-  { value: "today", label: "Joined today" },
-  { value: "week", label: "Joined this week" },
-  { value: "month", label: "Joined this month" },
-  { value: "custom", label: "Custom dates" },
+  { value: "all", label: txKey("Joined any time") },
+  { value: "today", label: txKey("Joined today") },
+  { value: "week", label: txKey("Joined this week") },
+  { value: "month", label: txKey("Joined this month") },
+  { value: "custom", label: txKey("Custom dates") },
 ] as const;
 export type DateFilter = (typeof DATE_FILTERS)[number]["value"];
 

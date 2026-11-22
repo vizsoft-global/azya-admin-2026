@@ -4,29 +4,30 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { DataTable, type Column } from "@/components/shared/data-table";
+import { DataTable } from "@/components/shared/data-table";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { buttonVariants } from "@/components/ui/button";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { useFinanceAccess, usePayouts } from "./data";
 import { PAYOUT_COMPLETED, round3, type PayoutFacts } from "./finance";
 import { payoutStatusLabel } from "./payouts";
-import { LoadError, Money, NoAccess, Notice, dateCol, moneyCol, textCol } from "./parts";
+import { LoadError, Ltr, Money, NoAccess, Notice, dateCol, moneyCol, num, textCol, type FinanceColumn } from "./parts";
 import { PayoutStatusButtons, usePayoutStatusChange } from "./payout-status";
 
 const typeOptions = [
-  { value: "all", label: "Creators and designers" },
-  { value: "creator", label: "Creators" },
-  { value: "designer", label: "Designers" },
+  { value: "all", label: txKey("Creators and designers") },
+  { value: "creator", label: txKey("Creators") },
+  { value: "designer", label: txKey("Designers") },
 ];
 
 const statusOptions = [
-  { value: "all", label: "All statuses" },
-  { value: "completed", label: "Paid" },
-  { value: "pending", label: "Yet to pay" },
-  { value: "skipped", label: "Skipped" },
+  { value: "all", label: txKey("All statuses") },
+  { value: "completed", label: txKey("Paid") },
+  { value: "pending", label: txKey("Yet to pay") },
+  { value: "skipped", label: txKey("Skipped") },
 ];
 
 /** Tone of a payout record's status pill. */
@@ -34,11 +35,18 @@ export function payoutTone(status: string) {
   return status === PAYOUT_COMPLETED ? "success" : status === "pending" ? "warning" : "neutral";
 }
 
+/** `creator` / `designer` as stored on a payout record, in the panel's language. Anything else is shown as stored. */
+export function partnerTypeLabel(partnerType: string) {
+  if (partnerType === "creator") return tx("Creator");
+  if (partnerType === "designer") return tx("Designer");
+  return partnerType;
+}
+
 /** The register of recorded payouts (the Flutter page showed sample rows). A designer sees only their own. */
 export function PayoutsPage() {
   const { staff, designerOnly, scope } = useFinanceAccess();
-  if (!staff && !designerOnly) return <NoAccess what="The payout register" />;
-  if (designerOnly && !scope.userDocId) return <LoadError message="Your user record was not found, so your payouts cannot be listed." onRetry={() => window.location.reload()} />;
+  if (!staff && !designerOnly) return <NoAccess description={tx("The payout register is for staff with the sales permission.")} />;
+  if (designerOnly && !scope.userDocId) return <LoadError message={tx("Your user record was not found, so your payouts cannot be listed.")} onRetry={() => window.location.reload()} />;
   return <PayoutRegister staff={staff} onlyUserDocId={designerOnly ? scope.userDocId : ""} />;
 }
 
@@ -59,35 +67,35 @@ function PayoutRegister({ staff, onlyUserDocId }: { staff: boolean; onlyUserDocI
     [shown],
   );
 
-  const columns = useMemo<Column<PayoutFacts>[]>(() => {
-    const list: Column<PayoutFacts>[] = [
-      textCol("number", "Payout", (item) => (item.transactionId == null ? "" : String(item.transactionId)), (item) => <span className="font-mono text-[12px]">{item.transactionId == null ? "—" : `#${item.transactionId}`}</span>),
-      dateCol("date", "Date paid", (item) => item.paidAt),
+  const columns = useMemo<FinanceColumn<PayoutFacts>[]>(() => {
+    const list: FinanceColumn<PayoutFacts>[] = [
+      textCol("number", txKey("Payout"), (item) => (item.transactionId == null ? "" : String(item.transactionId)), (item) => <Ltr className="font-mono text-[12px]">{item.transactionId == null ? "—" : `#${item.transactionId}`}</Ltr>),
+      dateCol("date", txKey("Date paid"), (item) => item.paidAt),
     ];
     if (staff) {
       list.push(
         textCol(
           "person",
-          "Paid to",
+          txKey("Paid to"),
           (item) => item.name || item.email,
           (item) => (
             <span className="block min-w-0 max-w-[220px]">
-              <span className="block truncate font-medium text-foreground">{item.name || "No name"}</span>
-              <span className="block truncate text-[11px] text-subtle" dir="ltr" lang="en">{item.email}</span>
+              <span className="block truncate font-medium text-foreground">{item.name || tx("No name")}</span>
+              <Ltr className="block truncate text-[11px] text-subtle">{item.email}</Ltr>
             </span>
           ),
         ),
-        textCol("type", "Type", (item) => item.partnerType, (item) => <span className="capitalize">{item.partnerType || "—"}</span>),
+        textCol("type", txKey("Type"), (item) => item.partnerType, (item) => partnerTypeLabel(item.partnerType) || <span className="text-subtle">—</span>),
       );
     }
     list.push(
-      moneyCol("amount", "Amount", (item) => item.amount),
-      textCol("method", "Method", (item) => item.method),
-      textCol("reference", "Reference", (item) => item.reference, (item) => (item.reference ? <span className="font-mono text-[12px]" dir="ltr" lang="en">{item.reference}</span> : <span className="text-subtle">—</span>)),
-      textCol("status", "Status", (item) => payoutStatusLabel(item.status), (item) => <StatusBadge value={item.status} label={payoutStatusLabel(item.status)} tone={payoutTone(item.status)} />),
+      moneyCol("amount", txKey("Amount"), (item) => item.amount),
+      textCol("method", txKey("Method"), (item) => item.method, (item) => (item.method ? tx(item.method) : <span className="text-subtle">—</span>)),
+      textCol("reference", txKey("Reference"), (item) => item.reference, (item) => (item.reference ? <Ltr className="font-mono text-[12px]">{item.reference}</Ltr> : <span className="text-subtle">—</span>)),
+      textCol("status", txKey("Status"), (item) => payoutStatusLabel(item.status), (item) => <StatusBadge value={item.status} label={tx(payoutStatusLabel(item.status))} tone={payoutTone(item.status)} />),
     );
     if (staff) {
-      list.push(textCol("by", "Recorded by", (item) => item.doneByName), {
+      list.push(textCol("by", txKey("Recorded by"), (item) => item.doneByName), {
         key: "action",
         header: "",
         cell: (item) => <PayoutStatusButtons record={item} busy={busyId === item.id} onChange={(record, action) => void change(record, action)} />,
@@ -98,6 +106,8 @@ function PayoutRegister({ staff, onlyUserDocId }: { staff: boolean; onlyUserDocI
 
   if (loaded.error && !loaded.payouts.length) return <LoadError message={loaded.error} onRetry={() => window.location.reload()} />;
   const first = loaded.loading && !loaded.payouts.length;
+  const audience = staff ? tx("Each record is a payment made outside the admin and noted here.") : tx("Payments the Azyaa team has recorded as made to you.");
+  const coverage = loaded.more ? tx("Totals cover the records loaded: the newest {count} so far.", { count: num(loaded.pageSize) }) : tx("Totals cover the records loaded.");
 
   return (
     <div className="space-y-4">
@@ -105,31 +115,36 @@ function PayoutRegister({ staff, onlyUserDocId }: { staff: boolean; onlyUserDocI
         <PageHeader
           actions={
             <Link href="/create-payout" className={buttonVariants({ size: "sm" })}>
-              <Plus /> Record a payment
+              <Plus /> {tx("Record a payment")}
             </Link>
           }
         />
       ) : null}
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label={staff ? "Paid out" : "Paid to you"} value={<Money value={totals.paid} />} hint={`${totals.paidCount} ${totals.paidCount === 1 ? "payment" : "payments"} in the list below`} loading={first} />
-        <StatCard label="Records" value={shown.length.toLocaleString()} hint={loaded.more ? "More exist: load more below" : "Every record is loaded"} loading={first} />
-        <StatCard label="Yet to pay" value={totals.waiting.toLocaleString()} hint="Records not marked paid or skipped" loading={first} />
+        <StatCard
+          label={staff ? tx("Paid out") : tx("Paid to you")}
+          value={<Money value={totals.paid} />}
+          hint={totals.paidCount === 1 ? tx("1 payment in the list below") : tx("{count} payments in the list below", { count: num(totals.paidCount) })}
+          loading={first}
+        />
+        <StatCard label={tx("Records")} value={num(shown.length)} hint={loaded.more ? tx("More exist: load more below") : tx("Every record is loaded")} loading={first} />
+        <StatCard label={tx("Yet to pay")} value={num(totals.waiting)} hint={tx("Records not marked paid or skipped")} loading={first} />
       </div>
       <Notice>
-        {staff ? "Each record is a payment made outside the admin and noted here." : "Payments the Azyaa team has recorded as made to you."} Totals cover the records loaded{loaded.more ? `: the newest ${loaded.pageSize.toLocaleString()} so far` : ""}.
+        {audience} {coverage}
       </Notice>
       <DataTable
         rows={shown}
         columns={columns}
         loading={first}
         error={loaded.error || null}
-        emptyMessage={staff ? "No payouts have been recorded yet." : "No payments to you have been recorded yet."}
+        emptyMessage={staff ? tx("No payouts have been recorded yet.") : tx("No payments to you have been recorded yet.")}
         searchText={(item) => `${item.transactionId ?? ""} ${item.name} ${item.email} ${item.reference} ${item.method}`}
-        searchPlaceholder="Search number, person or reference"
+        searchPlaceholder={tx("Search number, person or reference")}
         toolbar={
           <>
-            {staff ? <FilterSelect ariaLabel="Type" value={type} onChange={setType} options={typeOptions} /> : null}
-            <FilterSelect ariaLabel="Status" value={status} onChange={setStatus} options={statusOptions} />
+            {staff ? <FilterSelect ariaLabel={tx("Type")} value={type} onChange={setType} options={typeOptions.map((item) => ({ value: item.value, label: tx(item.label) }))} /> : null}
+            <FilterSelect ariaLabel={tx("Status")} value={status} onChange={setStatus} options={statusOptions.map((item) => ({ value: item.value, label: tx(item.label) }))} />
           </>
         }
         defaultSort={{ key: "date", dir: "desc" }}
@@ -140,7 +155,8 @@ function PayoutRegister({ staff, onlyUserDocId }: { staff: boolean; onlyUserDocI
         onRowClick={(item) => router.push(`/payout-details?id=${item.id}`)}
         rowChevron
         exportName="payouts"
-        noun="payout"
+        noun={txKey("payout")}
+        nounPlural={txKey("payouts")}
       />
     </div>
   );

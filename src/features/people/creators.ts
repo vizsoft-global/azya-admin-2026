@@ -2,6 +2,7 @@ import type { WhereClause } from "@/lib/firestore-ui";
 import { isImageFile, safeUrl, SUPPORT_MAIL, SUPPORT_PHONE, type UploadedFile } from "@/lib/designer-enrollment";
 import type { MailInput } from "@/lib/mail";
 import { list, matchesAny, numberOr, rawText, record, text, textList } from "./util";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 /**
  * Creator applications, matching the Flutter admin (Creators, Creator-Pending,
@@ -24,7 +25,8 @@ export const CREATOR_COUNTERS = ["creator_id", "sale_history_id"] as const;
 export const CREATOR_REJECT_REASONS_FIELD = "settings_creator_reject_reasons";
 export const OTHER_REASON = "Others";
 
-export const CREATOR_TABS = ["Pending", "Active", "Rejected", "Archived"] as const;
+/** The tab names are also the labels: translate with `tx(tab)` where they are shown. */
+export const CREATOR_TABS = [txKey("Pending"), txKey("Active"), txKey("Rejected"), txKey("Archived")] as const;
 export type CreatorTab = (typeof CREATOR_TABS)[number];
 
 /** The request status behind each tab: an active creator is an approved application. */
@@ -131,13 +133,13 @@ export function readCreator(data: Record<string, unknown>): Creator {
       social("TikTok", form.tiktok_handle, form.tiktok_profile_followers),
       social("YouTube", form.youtube_channel, form.youtube_profile_followers),
       social("Facebook", form.facebook_profile, form.facebook_profile_followers),
-      social("Other", form.other_profile, ""),
+      social(txKey("Other"), form.other_profile, ""),
     ].filter((item): item is SocialLink => item !== null),
     gallery: list(form.brand_gallery)
-      .map((item, index) => uploaded(item, `Picture ${index + 1}`))
+      .map((item, index) => uploaded(item, tx("Picture {number}", { number: index + 1 })))
       .filter((item): item is UploadedFile => item !== null),
-    idDocument: uploaded(form.document_url, "ID document"),
-    selfie: uploaded(selfie, "Selfie"),
+    idDocument: uploaded(form.document_url, tx("ID document")),
+    selfie: uploaded(selfie, tx("Selfie")),
     rejectReason: text(request.reject_reason),
     rejectMessage: text(request.reject_message),
     creatorId: text(main.creator_main_id),
@@ -147,7 +149,7 @@ export function readCreator(data: Record<string, unknown>): Creator {
 }
 
 export function creatorLabel(creator: Pick<Creator, "name" | "email" | "accountEmail">): string {
-  return creator.name || creator.email || creator.accountEmail || "this applicant";
+  return creator.name || creator.email || creator.accountEmail || tx("this applicant");
 }
 
 export function creatorMatchesSearch(creator: Creator, search: string): boolean {
@@ -158,9 +160,9 @@ export function creatorMatchesSearch(creator: Creator, search: string): boolean 
 
 /** Why this record cannot be approved, or "" when it can. Checked again inside the transaction. */
 export function approveBlockedReason(data: Record<string, unknown> | undefined): string {
-  if (!data) return "this person's record no longer exists";
-  if (text(record(data.creator_requests).status) !== "Pending") return "the application has already been approved, rejected or archived";
-  if (text(record(data.creator_main_info).creator_main_id)) return "this person already has a creator ID";
+  if (!data) return tx("this person's record no longer exists");
+  if (text(record(data.creator_requests).status) !== "Pending") return tx("the application has already been approved, rejected or archived");
+  if (text(record(data.creator_main_info).creator_main_id)) return tx("this person already has a creator ID");
   return "";
 }
 
@@ -274,7 +276,7 @@ export function canRejectCreator(status: string): boolean {
 
 /** `request_type` is set to `Rejected` as well, as the Flutter admin does. */
 export function creatorRejectUpdate(input: { reason: string; message: string; now: unknown }): Record<string, unknown> {
-  if (!canSubmitRejection(input.reason, input.message)) throw new Error("Give a reason for rejecting the application.");
+  if (!canSubmitRejection(input.reason, input.message)) throw new Error(tx("Give a reason for rejecting the application."));
   return {
     "creator_requests.status": "Rejected",
     "creator_requests.request_type": "Rejected",

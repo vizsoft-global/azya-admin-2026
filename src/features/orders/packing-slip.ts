@@ -1,3 +1,4 @@
+import { tx, txKey } from "@/lib/i18n/tx";
 import type { RoleScope } from "@/lib/role-scope";
 import { orderLinesInScope } from "@/lib/role-scope";
 import {
@@ -87,8 +88,8 @@ export function lineOptionRefs(line: Dict): { attributeId: unknown; termId: unkn
 
 function lineOptions(line: Dict, names: OptionNames) {
   return lineOptionRefs(line).map(({ attributeId, termId }) => {
-    const label = names.attributes[text(attributeId)] || "Option";
-    const value = names.terms[text(termId)] || text(termId) || "not chosen";
+    const label = names.attributes[text(attributeId)] || tx("Option");
+    const value = names.terms[text(termId)] || text(termId) || tx("not chosen");
     return `${label}: ${value}`;
   });
 }
@@ -103,11 +104,11 @@ export function optionName(record: Dict, prefix: "attribute" | "brand", lang: "e
 }
 
 function addressParts(address: Address) {
-  return [address.line1, address.line2, address.block && `Block ${address.block}`, address.building && `Building ${address.building}`, [address.city, address.state].filter(Boolean).join(", "), [address.country, address.postalCode].filter(Boolean).join(" ")].filter(Boolean) as string[];
+  return [address.line1, address.line2, address.block && tx("Block {block}", { block: address.block }), address.building && tx("Building {building}", { building: address.building }), [address.city, address.state].filter(Boolean).join(tx(", ")), [address.country, address.postalCode].filter(Boolean).join(" ")].filter(Boolean) as string[];
 }
 
 function missingParts(address: Address) {
-  return [!address.name && "name", !address.phone && "phone number", !address.line1 && "street", !address.city && "city"].filter(Boolean) as string[];
+  return [!address.name && tx("name"), !address.phone && tx("phone number"), !address.line1 && tx("street"), !address.city && tx("city")].filter(Boolean) as string[];
 }
 
 function customerDestination(order: Dict): SlipDestination {
@@ -115,12 +116,12 @@ function customerDestination(order: Dict): SlipDestination {
   const missing = missingParts(address);
   return {
     kind: "customer",
-    heading: "Ship to",
+    heading: tx("Ship to"),
     name: address.name,
     phone: address.phone,
     address: addressParts(address),
     missing,
-    note: missing.length ? `The order has no ${missing.join(", ")} for delivery. Check with the customer before sending.` : "",
+    note: missing.length ? tx("The order has no {parts} for delivery. Check with the customer before sending.", { parts: missing.join(tx(", ")) }) : "",
   };
 }
 
@@ -129,16 +130,16 @@ function courierDestination(lines: Dict[], tracking: string[]): SlipDestination 
   const marked = Boolean(pickup.line1);
   return {
     kind: "courier",
-    heading: "Hand to the Store Valley courier",
+    heading: tx("Hand to the Store Valley courier"),
     name: marked ? pickup.name : "",
     phone: "",
     address: marked ? addressParts(pickup) : [],
     missing: [],
     note: !marked
-      ? "The courier is booked when you mark the item ready for pickup. Write the order number on the parcel."
+      ? tx("The courier is booked when you mark the item ready for pickup. Write the order number on the parcel.")
       : tracking.length
-        ? "Collected from your pickup address above. Write the order number and the tracking number on the parcel; the courier holds the delivery address."
-        : "Collected from your pickup address above once the pickup is booked. Write the order number on the parcel; the courier holds the delivery address.",
+        ? tx("Collected from your pickup address above. Write the order number and the tracking number on the parcel; the courier holds the delivery address.")
+        : tx("Collected from your pickup address above once the pickup is booked. Write the order number on the parcel; the courier holds the delivery address."),
   };
 }
 
@@ -167,7 +168,7 @@ export function packingSlip(order: Dict | null | undefined, scope: RoleScope, na
     key: lineKey(line),
     name: lineName(line),
     sku: lineSku(line),
-    kind: text(line.product_main_type).toLowerCase() === "custom" ? "Custom-made" : "Ready-made",
+    kind: text(line.product_main_type).toLowerCase() === "custom" ? txKey("Custom-made") : txKey("Ready-made"),
     options: lineOptions(line, names),
     measurements: lineMeasurements(line),
     quantity: lineQty(line) || 1,

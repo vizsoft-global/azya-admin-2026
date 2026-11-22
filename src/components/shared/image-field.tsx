@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 import { Field, type FieldProps } from "./fields";
 
@@ -49,11 +50,11 @@ export function ImageField({
   async function handle(file: File | undefined) {
     if (!file || disabled) return;
     if (!file.type.startsWith("image/")) {
-      toast.error("Choose an image file.");
+      toast.error(tx("Choose an image file."));
       return;
     }
     if (file.size > maxSizeMb * 1024 * 1024) {
-      toast.error(`That image is larger than ${maxSizeMb} MB. Choose a smaller one.`);
+      toast.error(tx("That image is larger than {size} MB. Choose a smaller one.", { size: maxSizeMb }));
       return;
     }
     setBusy(true);
@@ -62,7 +63,7 @@ export function ImageField({
     try {
       onChange(await upload(file, folder));
     } catch (err) {
-      toast.error(`The image was not uploaded: ${err instanceof Error ? err.message : "the upload failed"}.`);
+      toast.error(tx("The image was not uploaded: {reason}.", { reason: err instanceof Error ? err.message : tx("the upload failed") }));
     } finally {
       URL.revokeObjectURL(preview);
       setLocalPreview(null);
@@ -80,7 +81,7 @@ export function ImageField({
           role="button"
           tabIndex={disabled ? -1 : 0}
           aria-disabled={disabled || undefined}
-          aria-label={shown ? "Replace image" : "Choose an image"}
+          aria-label={shown ? tx("Replace image") : tx("Choose an image")}
           onClick={() => !disabled && picker.current?.click()}
           onKeyDown={(e) => {
             if (!disabled && (e.key === "Enter" || e.key === " ")) {
@@ -111,7 +112,7 @@ export function ImageField({
           ) : (
             <div className="flex flex-col items-center gap-1 text-subtle">
               <ImagePlus className="size-5" />
-              <span className="text-[11px]">Drop an image or click to browse</span>
+              <span className="text-[11px]">{tx("Drop an image or click to browse")}</span>
             </div>
           )}
           {busy ? (
@@ -122,7 +123,7 @@ export function ImageField({
         </div>
         {value && !disabled ? (
           <Button type="button" size="sm" variant="ghost" className="h-7 text-[11px] text-muted-foreground" onClick={() => onChange("")}>
-            <X className="size-3" /> Remove
+            <X className="size-3" /> {tx("Remove")}
           </Button>
         ) : null}
         <input

@@ -11,6 +11,7 @@
  */
 
 import { toNumber } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { localisedText, rec, str, strList, type Data } from "./product-model";
 
 export type TaxonomyKind = "category" | "tag" | "attribute" | "term";
@@ -109,6 +110,69 @@ export const TAXONOMY: Record<TaxonomyKind, TaxonomyConfig> = {
   },
 };
 
+/**
+ * What the list page says about each kind, as whole phrases and sentences so each can be
+ * translated as one (a sentence put together from "the" + a noun does not survive Arabic).
+ * Marked with `txKey`; shown with `tx(...)` when rendered.
+ */
+export const TAXONOMY_TEXT: Record<
+  TaxonomyKind,
+  { noun: string; nounPlural: string; add: string; edit: string; search: string; noneMatch: string; noneYet: string; saved: string; added: string; notSaved: string; archiveNote: string }
+> = {
+  category: {
+    noun: txKey("category"),
+    nounPlural: txKey("categories"),
+    add: txKey("Add category"),
+    edit: txKey("Edit category"),
+    search: txKey("Search categories"),
+    noneMatch: txKey("No categories match"),
+    noneYet: txKey("No categories yet"),
+    saved: txKey("Category saved."),
+    added: txKey("Category {id} was added."),
+    notSaved: txKey("The category was not saved; nothing was changed. {error}"),
+    archiveNote: txKey("The category is marked archived and is no longer offered when editing products. Nothing is deleted; it can be set back to active later."),
+  },
+  tag: {
+    noun: txKey("tag"),
+    nounPlural: txKey("tags"),
+    add: txKey("Add tag"),
+    edit: txKey("Edit tag"),
+    search: txKey("Search tags"),
+    noneMatch: txKey("No tags match"),
+    noneYet: txKey("No tags yet"),
+    saved: txKey("Tag saved."),
+    added: txKey("Tag {id} was added."),
+    notSaved: txKey("The tag was not saved; nothing was changed. {error}"),
+    archiveNote: txKey("The tag is marked archived and is no longer offered when editing products. Nothing is deleted; it can be set back to active later."),
+  },
+  attribute: {
+    noun: txKey("attribute"),
+    nounPlural: txKey("attributes"),
+    add: txKey("Add attribute"),
+    edit: txKey("Edit attribute"),
+    search: txKey("Search attributes"),
+    noneMatch: txKey("No attributes match"),
+    noneYet: txKey("No attributes yet"),
+    saved: txKey("Attribute saved."),
+    added: txKey("Attribute {id} was added."),
+    notSaved: txKey("The attribute was not saved; nothing was changed. {error}"),
+    archiveNote: txKey("The attribute is marked archived and is no longer offered when editing products. Nothing is deleted; it can be set back to active later."),
+  },
+  term: {
+    noun: txKey("term"),
+    nounPlural: txKey("terms"),
+    add: txKey("Add term"),
+    edit: txKey("Edit term"),
+    search: txKey("Search terms"),
+    noneMatch: txKey("No terms match"),
+    noneYet: txKey("No terms yet"),
+    saved: txKey("Term saved."),
+    added: txKey("Term {id} was added."),
+    notSaved: txKey("The term was not saved; nothing was changed. {error}"),
+    archiveNote: txKey("The term is marked archived and is no longer offered when editing products. Nothing is deleted; it can be set back to active later."),
+  },
+};
+
 /** The statuses these records use. They are stored in English whatever language the admin is shown in. */
 export const TAXONOMY_STATUSES = ["active", "inactive", "draft", "archived"] as const;
 
@@ -193,13 +257,13 @@ const HEX = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
 export function validateTaxonomyForm(form: TaxonomyForm, kind: TaxonomyKind): TaxonomyErrors {
   const errors: TaxonomyErrors = {};
   const name = form.name.trim();
-  if (!name) errors.name = "Enter a name.";
-  else if (name.length > 50) errors.name = "Keep the name under 50 characters.";
-  if (!form.description.trim()) errors.description = "Enter a short description.";
-  if (form.serialNo == null) errors.serialNo = "Enter the order number.";
-  else if (!Number.isInteger(form.serialNo) || form.serialNo < 0 || form.serialNo > 99999) errors.serialNo = "The order number is a whole number from 0 to 99999.";
-  if (!(TAXONOMY_STATUSES as readonly string[]).includes(form.status)) errors.status = "Choose a status.";
-  if (TAXONOMY[kind].hasColor && form.color && !HEX.test(form.color)) errors.color = "Choose a colour.";
+  if (!name) errors.name = tx("Enter a name.");
+  else if (name.length > 50) errors.name = tx("Keep the name under 50 characters.");
+  if (!form.description.trim()) errors.description = tx("Enter a short description.");
+  if (form.serialNo == null) errors.serialNo = tx("Enter the sort order.");
+  else if (!Number.isInteger(form.serialNo) || form.serialNo < 0 || form.serialNo > 99999) errors.serialNo = tx("The sort order is a whole number from 0 to 99999.");
+  if (!(TAXONOMY_STATUSES as readonly string[]).includes(form.status)) errors.status = tx("Choose a status.");
+  if (TAXONOMY[kind].hasColor && form.color && !HEX.test(form.color)) errors.color = tx("Choose a colour.");
   return errors;
 }
 

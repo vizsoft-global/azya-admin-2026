@@ -3,7 +3,7 @@
 import { ShieldAlert } from "lucide-react";
 import { useAuth } from "./auth-provider";
 import type { AdminRoute } from "@/lib/routes";
-import { t } from "@/lib/i18n";
+import { tx } from "@/lib/i18n/tx";
 import { featurePages } from "@/features/registry";
 import { RecordPanel } from "./record-panel";
 import { WaitlistPage } from "./waitlist-page";
@@ -17,9 +17,9 @@ import { EmptyState } from "./shared/empty-state";
  * generic read-only record page (only for a route that names a collection).
  */
 export function RouteScreen({ route }: { route: AdminRoute }) {
-  const { allowed, lang } = useAuth();
+  const { allowed } = useAuth();
   if (route.path === "error404" || (route.permission && !allowed(route.permission))) {
-    return <EmptyState icon={ShieldAlert} title={t(lang, "forbidden")} />;
+    return <EmptyState icon={ShieldAlert} title={tx("You do not have permission for this page.")} />;
   }
 
   const FeaturePage = featurePages[route.path];

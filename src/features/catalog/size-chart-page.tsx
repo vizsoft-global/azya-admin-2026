@@ -16,6 +16,7 @@ import { PageLoading } from "@/components/shared/page-loading";
 import { Button } from "@/components/ui/button";
 import { getFirebase } from "@/lib/firebase";
 import { useQueryRows, type Row } from "@/lib/firestore-ui";
+import { tx } from "@/lib/i18n/tx";
 import { idMapRef, takeIds } from "@/lib/id-map";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { designerName } from "./product-list";
@@ -67,30 +68,34 @@ export function SizeChartPage() {
     if (!stored) return;
     const used = chartUseCount(productData, chart.chart_image);
     const ok = await confirm({
-      title: `Remove ${chart.chart_name || "this chart"}?`,
-      description: `The chart leaves this designer's list and can no longer be chosen for a product. ${used ? `${used} ${used === 1 ? "product shows" : "products show"} it now and will keep showing it until changed.` : "No product uses it."} This cannot be undone.`,
-      confirmLabel: "Remove",
+      title: chart.chart_name ? tx("Remove {name}?", { name: chart.chart_name }) : tx("Remove this chart?"),
+      description: [
+        tx("The chart leaves this designer's list and can no longer be chosen for a product."),
+        used ? tx("Products showing it now: {count}. They keep showing it until changed.", { count: used }) : tx("No product uses it."),
+        tx("This cannot be undone."),
+      ].join(" "),
+      confirmLabel: tx("Remove"),
       destructive: true,
     });
     if (!ok) return;
     try {
       await updateDoc(doc(getFirebase().db, "users", designer.id), { [SIZE_CHART_LIST_FIELD]: arrayRemove(stored) });
-      toast.success(`${chart.chart_name || "The chart"} was removed.`);
+      toast.success(chart.chart_name ? tx("{name} was removed.", { name: chart.chart_name }) : tx("The chart was removed."));
     } catch (err) {
-      toast.error(`The chart was not removed; nothing was changed. ${message(err)}`);
+      toast.error(tx("The chart was not removed; nothing was changed. {error}", { error: message(err) }));
     }
   }
 
-  if (designers.loading && !designers.rows.length) return <PageLoading label="Loading designers…" />;
+  if (designers.loading && !designers.rows.length) return <PageLoading label={tx("Loading designers…")} />;
 
   return (
     <div className="space-y-3">
       <PageHeader
-        description="A size chart is a picture with a name. Each designer has their own list; a product shows one UK and one US chart."
+        description={tx("A size chart is a picture with a name. Each designer has their own list; a product shows one UK and one US chart.")}
         actions={
           designer && mayChange ? (
             <Button type="button" onClick={() => setAdding(true)}>
-              <Plus /> Add size chart
+              <Plus /> {tx("Add size chart")}
             </Button>
           ) : undefined
         }
@@ -98,7 +103,7 @@ export function SizeChartPage() {
 
       {scope.isDesigner ? null : (
         <div className="rounded-[14px] bg-card p-4">
-          <SelectField label="Designer" value={chosenUid} onChange={(uid) => router.replace(`/size-chart?designer=${encodeURIComponent(uid)}`)} options={options} placeholder="Choose a designer" className="max-w-sm" />
+          <SelectField label={tx("Designer")} value={chosenUid} onChange={(uid) => router.replace(`/size-chart?designer=${encodeURIComponent(uid)}`)} options={options} placeholder={tx("Choose a designer")} className="max-w-sm" />
         </div>
       )}
 
@@ -107,18 +112,18 @@ export function SizeChartPage() {
           {designers.error}
         </p>
       ) : !chosenUid ? (
-        <EmptyState icon={Ruler} title="Choose a designer" description="Size charts belong to a designer." />
+        <EmptyState icon={Ruler} title={tx("Choose a designer")} description={tx("Size charts belong to a designer.")} />
       ) : !designer ? (
-        <EmptyState icon={Ruler} title="Designer not found" description="No designer account matches this link." />
+        <EmptyState icon={Ruler} title={tx("Designer not found")} description={tx("No designer account matches this link.")} />
       ) : charts.length === 0 ? (
         <EmptyState
           icon={Ruler}
-          title="No size charts yet"
-          description="Add a chart, then choose it on the designer's products."
+          title={tx("No size charts yet")}
+          description={tx("Add a chart, then choose it on the designer's products.")}
           action={
             mayChange ? (
               <Button type="button" variant="outline" onClick={() => setAdding(true)}>
-                Add size chart
+                {tx("Add size chart")}
               </Button>
             ) : undefined
           }
@@ -127,22 +132,23 @@ export function SizeChartPage() {
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {charts.map((chart, index) => {
             const used = chartUseCount(productData, chart.chart_image);
+            const chartName = chart.chart_name || tx("Chart {id}", { id: chart.chart_id });
             return (
               <li key={`${chart.chart_id}-${index}`} className="overflow-hidden rounded-[14px] bg-card">
-                <a href={chart.chart_image} target="_blank" rel="noreferrer" className="block bg-muted" aria-label={`Open ${chart.chart_name || "chart"} full size`}>
+                <a href={chart.chart_image} target="_blank" rel="noreferrer" className="block bg-muted" aria-label={tx("Open {name} full size", { name: chartName })}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={chart.chart_image} alt="" loading="lazy" className="h-44 w-full object-contain" />
                 </a>
                 <div className="flex items-start gap-2 p-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-medium text-foreground">{chart.chart_name || `Chart ${chart.chart_id}`}</p>
+                    <p className="truncate text-[13px] font-medium text-foreground">{chartName}</p>
                     <p className="text-[12px] text-muted-foreground">
-                      {[chart.chart_type, chart.chart_metrics === "Inch" ? "inches" : chart.chart_metrics === "CM" ? "centimetres" : chart.chart_metrics].filter(Boolean).join(" · ") || "No details"}
+                      {[chart.chart_type, chart.chart_metrics === "Inch" ? tx("inches") : chart.chart_metrics === "CM" ? tx("centimetres") : chart.chart_metrics].filter(Boolean).join(" · ") || tx("No details")}
                     </p>
-                    <p className="text-[12px] text-muted-foreground">{products.loading ? "Counting products…" : used ? `Shown on ${used} ${used === 1 ? "product" : "products"}` : "Not used yet"}</p>
+                    <p className="text-[12px] text-muted-foreground">{products.loading ? tx("Counting products…") : used ? tx("Products showing it: {count}", { count: used }) : tx("Not used yet")}</p>
                   </div>
                   {mayChange ? (
-                    <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${chart.chart_name || "chart"}`} onClick={() => void remove(chart)}>
+                    <Button type="button" variant="ghost" size="icon-sm" aria-label={tx("Remove {name}", { name: chartName })} onClick={() => void remove(chart)}>
                       <Trash2 />
                     </Button>
                   ) : null}
@@ -174,14 +180,14 @@ function AddChartDialog({ designer, onClose }: { designer: Row; onClose: () => v
     try {
       const { db } = getFirebase();
       const counters = await idMapRef();
-      await runTransaction(db, async (tx) => {
-        const ids = await takeIds(tx, counters, ["sizechart_id"] as const);
-        tx.update(doc(db, "users", designer.id), { [SIZE_CHART_LIST_FIELD]: arrayUnion(chartRecord(form, ids.sizechart_id)) });
+      await runTransaction(db, async (txn) => {
+        const ids = await takeIds(txn, counters, ["sizechart_id"] as const);
+        txn.update(doc(db, "users", designer.id), { [SIZE_CHART_LIST_FIELD]: arrayUnion(chartRecord(form, ids.sizechart_id)) });
       });
-      toast.success(`${form.name.trim()} was added.`);
+      toast.success(tx("{name} was added.", { name: form.name.trim() }));
       onClose();
     } catch (err) {
-      toast.error(`The size chart was not added; nothing was changed. ${message(err)}`);
+      toast.error(tx("The size chart was not added; nothing was changed. {error}", { error: message(err) }));
     } finally {
       setSaving(false);
     }
@@ -192,24 +198,24 @@ function AddChartDialog({ designer, onClose }: { designer: Row; onClose: () => v
       <FormModal
         open
         onOpenChange={(next) => !next && onClose()}
-        title="Add size chart"
-        description={`For ${designerName(designer.data) || "this designer"}.`}
+        title={tx("Add size chart")}
+        description={designerName(designer.data) ? tx("For {name}.", { name: designerName(designer.data) }) : tx("For this designer.")}
         onSubmit={submit}
         submitting={saving}
-        submitLabel="Add size chart"
+        submitLabel={tx("Add size chart")}
       >
-        <TextField label="Chart name" required value={form.name} onChange={(name) => setForm((current) => ({ ...current, name }))} maxLength={30} error={errors.name} />
+        <TextField label={tx("Chart name")} required value={form.name} onChange={(name) => setForm((current) => ({ ...current, name }))} maxLength={30} error={errors.name} />
         <div className="grid gap-4 sm:grid-cols-2">
-          <SelectField label="Sizing" required value={form.type} onChange={(type) => setForm((current) => ({ ...current, type: type as ChartType }))} options={CHART_TYPES.map((value) => ({ value, label: value }))} />
+          <SelectField label={tx("Sizing")} required value={form.type} onChange={(type) => setForm((current) => ({ ...current, type: type as ChartType }))} options={CHART_TYPES.map((value) => ({ value, label: value }))} />
           <SelectField
-            label="Measured in"
+            label={tx("Measured in")}
             required
             value={form.metrics}
             onChange={(metrics) => setForm((current) => ({ ...current, metrics: metrics as ChartMetric }))}
-            options={CHART_METRICS.map((value) => ({ value, label: value === "Inch" ? "Inches" : "Centimetres" }))}
+            options={CHART_METRICS.map((value) => ({ value, label: value === "Inch" ? tx("Inches") : tx("Centimetres") }))}
           />
         </div>
-        <Field label="Picture of the chart" required error={errors.image}>
+        <Field label={tx("Picture of the chart")} required error={errors.image}>
           <div className="flex items-center gap-3">
             {form.image ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -218,7 +224,7 @@ function AddChartDialog({ designer, onClose }: { designer: Row; onClose: () => v
               <span className="block h-24 w-32 rounded-lg border border-dashed border-border bg-muted" />
             )}
             <Button type="button" variant="outline" size="sm" onClick={() => setPicking(true)}>
-              <ImagePlus /> {form.image ? "Change picture" : "Choose picture"}
+              <ImagePlus /> {form.image ? tx("Change picture") : tx("Choose picture")}
             </Button>
           </div>
         </Field>
@@ -226,7 +232,7 @@ function AddChartDialog({ designer, onClose }: { designer: Row; onClose: () => v
       <MediaPicker
         open={picking}
         onOpenChange={setPicking}
-        title="Choose the chart picture"
+        title={tx("Choose the chart picture")}
         onPick={(items) => {
           const picked = items[0];
           if (picked) setForm((current) => ({ ...current, image: picked.url }));

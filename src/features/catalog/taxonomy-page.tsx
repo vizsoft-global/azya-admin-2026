@@ -22,6 +22,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { getFirebase } from "@/lib/firebase";
 import { useDocRow, useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, toDate } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { idMapRef, takeIds } from "@/lib/id-map";
 import { rec, str, strList } from "./product-model";
 import {
@@ -33,6 +34,7 @@ import {
   firstFreeId,
   matchesStatusFilter,
   TAXONOMY,
+  TAXONOMY_TEXT,
   taxonomyFormFrom,
   taxonomyId,
   taxonomyName,
@@ -49,11 +51,11 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 const STATUS_FILTERS = [
-  { value: "all", label: "All but archived" },
-  { value: "active", label: "Active" },
-  { value: "inactive", label: "Inactive" },
-  { value: "draft", label: "Draft" },
-  { value: "archived", label: "Archived" },
+  { value: "all", label: txKey("All but archived") },
+  { value: "active", label: txKey("Active") },
+  { value: "inactive", label: txKey("Inactive") },
+  { value: "draft", label: txKey("Draft") },
+  { value: "archived", label: txKey("Archived") },
 ];
 
 export function CategoriesPage() {
@@ -81,34 +83,34 @@ export function TermsPage() {
       .filter((row) => row.data.status !== "archived")
       .map((row) => ({ value: row.id, label: taxonomyName(row.data, "attribute", lang) || taxonomyId(row.data, "attribute") || row.id }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    if (attributes.loading && !options.length) return <PageLoading label="Loading attributes…" />;
+    if (attributes.loading && !options.length) return <PageLoading label={tx("Loading attributes…")} />;
     return (
       <EmptyState
         icon={ListTree}
-        title="Choose an attribute"
-        description={options.length ? "Terms are the values of an attribute: the sizes of Size, the colours of Color." : "There are no attributes yet. Add one under Attributes first."}
+        title={tx("Choose an attribute")}
+        description={options.length ? tx("Terms are the values of an attribute: the sizes of Size, the colours of Color.") : tx("There are no attributes yet. Add one under Attributes first.")}
         action={
           options.length ? (
-            <SelectField value="" onChange={(id) => router.push(`/terms?attribute=${encodeURIComponent(id)}`)} options={options} placeholder="Choose an attribute" className="w-64 text-start" />
+            <SelectField value="" onChange={(id) => router.push(`/terms?attribute=${encodeURIComponent(id)}`)} options={options} placeholder={tx("Choose an attribute")} className="w-64 text-start" />
           ) : (
             <Link href="/attributes" className={buttonVariants({ variant: "outline" })}>
-              Go to attributes
+              {tx("Go to attributes")}
             </Link>
           )
         }
       />
     );
   }
-  if (attribute.loading) return <PageLoading label="Loading attribute…" />;
+  if (attribute.loading) return <PageLoading label={tx("Loading attribute…")} />;
   if (!attribute.row) {
     return (
       <EmptyState
         icon={AlertTriangle}
-        title="Attribute not found"
-        description={attribute.error || "It may have been removed, or the link is wrong."}
+        title={tx("Attribute not found")}
+        description={attribute.error || tx("It may have been removed, or the link is wrong.")}
         action={
           <Link href="/attributes" className={buttonVariants({ variant: "outline" })}>
-            Go to attributes
+            {tx("Go to attributes")}
           </Link>
         }
       />
@@ -121,6 +123,7 @@ type Editing = { row: Row | null } | null;
 
 function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row }) {
   const cfg = TAXONOMY[kind];
+  const text = TAXONOMY_TEXT[kind];
   const { allowed, lang } = useAuth();
   const confirm = useConfirm();
   const all = useQueryRows(cfg.collection, { limit: 1000 });
@@ -153,17 +156,17 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
     const name = taxonomyName(row.data, kind, lang) || taxonomyId(row.data, kind);
     const products = kind === "category" ? strList(row.data.category_product_list).length : kind === "tag" ? strList(row.data.tag_product_id).length : 0;
     const ok = await confirm({
-      title: `Archive ${name}?`,
-      description: `The ${cfg.singular} is marked archived and is no longer offered when editing products. Nothing is deleted${products ? `, and the ${products} ${products === 1 ? "product" : "products"} in it keep it` : ""}; it can be set back to active later.`,
-      confirmLabel: "Archive",
+      title: tx("Archive {name}?", { name }),
+      description: products ? `${tx(text.archiveNote)} ${tx("Products that keep it: {count}.", { count: products })}` : tx(text.archiveNote),
+      confirmLabel: tx("Archive"),
       destructive: true,
     });
     if (!ok) return;
     try {
       await updateDoc(doc(getFirebase().db, cfg.collection, row.id), archiveTaxonomyPatch(serverTimestamp()));
-      toast.success(`${name} was archived.`);
+      toast.success(tx("{name} was archived.", { name }));
     } catch (err) {
-      toast.error(`${name} was not archived; nothing was changed. ${message(err)}`);
+      toast.error(tx("{name} was not archived; nothing was changed. {error}", { name, error: message(err) }));
     }
   }
 
@@ -172,7 +175,7 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
       ? [
           {
             key: "serial",
-            header: "Order",
+            header: tx("Sort order"),
             className: "w-20 tabular-nums",
             cell: (row: Row) => taxonomySerial(row.data, kind) ?? <span className="text-subtle">—</span>,
             sortable: true,
@@ -194,7 +197,7 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
     },
     {
       key: "name",
-      header: "Name",
+      header: tx("Name"),
       cell: (row) => {
         const info = rec(row.data[cfg.infoField]);
         const en = taxonomyName(row.data, kind, "en");
@@ -211,7 +214,7 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
             ) : null}
             {cfg.hasColor && str(info.color) ? <span className="size-4 shrink-0 rounded-full border border-border" style={{ backgroundColor: str(info.color) }} aria-hidden /> : null}
             <span className="min-w-0">
-              <span className="block max-w-64 truncate font-medium text-foreground">{en || "No name"}</span>
+              <span className="block max-w-64 truncate font-medium text-foreground">{en || tx("No name")}</span>
               {ar && ar !== en ? (
                 <span className="block max-w-64 truncate text-[12px] text-muted-foreground" dir="rtl" lang="ar">
                   {ar}
@@ -228,10 +231,10 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
       ? [
           {
             key: "terms",
-            header: "Terms",
+            header: tx("Terms"),
             cell: (row: Row) => (
               <Link href={`/terms?attribute=${encodeURIComponent(row.id)}`} className={buttonVariants({ variant: "outline", size: "sm" })} onClick={(event) => event.stopPropagation()}>
-                {strList(row.data.attribute_brand_id).length} terms
+                {tx("Terms: {count}", { count: strList(row.data.attribute_brand_id).length })}
               </Link>
             ),
             sortable: true,
@@ -243,7 +246,7 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
       ? [
           {
             key: "products",
-            header: "Products",
+            header: tx("Products"),
             className: "text-end tabular-nums",
             cell: (row: Row) => strList(row.data[kind === "category" ? "category_product_list" : "tag_product_id"]).length,
             sortable: true,
@@ -251,10 +254,10 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
           } satisfies Column<Row>,
         ]
       : []),
-    { key: "status", header: "Status", cell: (row) => <StatusBadge value={str(row.data.status)} />, sortable: true, sortValue: (row) => str(row.data.status) },
+    { key: "status", header: tx("Status"), cell: (row) => <StatusBadge value={str(row.data.status)} />, sortable: true, sortValue: (row) => str(row.data.status) },
     {
       key: "updated",
-      header: "Updated",
+      header: tx("Updated"),
       className: "whitespace-nowrap",
       cell: (row) => formatDate(row.data.updated_at ?? row.data.created_at) || <span className="text-subtle">—</span>,
       sortable: true,
@@ -270,26 +273,26 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
           <span onClick={(event) => event.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${name}`}>
+                <Button variant="ghost" size="icon-sm" aria-label={tx("Actions for {name}", { name })}>
                   <EllipsisVertical />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-auto min-w-40">
                 {mayEdit ? (
                   <DropdownMenuItem onSelect={() => setEditing({ row })}>
-                    <Pencil /> Edit
+                    <Pencil /> {tx("Edit")}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem asChild>
                   <Link href={`/translation?type=${kind}&id=${encodeURIComponent(row.id)}`}>
-                    <Languages /> Translations
+                    <Languages /> {tx("Translations")}
                   </Link>
                 </DropdownMenuItem>
                 {mayEdit && row.data.status !== "archived" ? (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" onSelect={() => void archive(row)}>
-                      <Archive /> Archive
+                      <Archive /> {tx("Archive")}
                     </DropdownMenuItem>
                   </>
                 ) : null}
@@ -306,19 +309,19 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
   return (
     <div className="space-y-3">
       <PageHeader
-        title={kind === "term" ? `Terms of ${attributeName}` : undefined}
-        description={kind === "term" ? "The values this attribute can take. They are offered in this order when editing a product." : undefined}
-        center={<HeaderSearch value={term} onChange={setTerm} placeholder={`Search ${cfg.plural}`} />}
+        title={kind === "term" ? tx("Terms of {attribute}", { attribute: attributeName }) : undefined}
+        description={kind === "term" ? tx("The values this attribute can take. They are offered in this order when editing a product.") : undefined}
+        center={<HeaderSearch value={term} onChange={setTerm} placeholder={tx(text.search)} />}
         actions={
           <>
             {kind === "term" ? (
               <Link href="/attributes" className={buttonVariants({ variant: "outline" })}>
-                <ArrowLeft className="rtl:rotate-180" /> Attributes
+                <ArrowLeft className="rtl:rotate-180" /> {tx("Attributes")}
               </Link>
             ) : null}
             {mayAdd ? (
               <Button type="button" onClick={() => setEditing({ row: null })}>
-                <Plus /> Add {cfg.singular}
+                <Plus /> {tx(text.add)}
               </Button>
             ) : null}
           </>
@@ -327,8 +330,11 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
 
       {repeated.length ? (
         <p className="rounded-[14px] bg-tint-warning p-3 text-[13px] text-foreground" role="status">
-          {repeated.length === 1 ? `Several ${cfg.plural} share the ID ${repeated[0]}.` : `Several ${cfg.plural} share an ID (${repeated.slice(0, 5).join(", ")}${repeated.length > 5 ? "…" : ""}).`} They were given the same number by the
-          old admin. They still work, because products are listed on each {cfg.singular} itself; new {cfg.plural} get an unused ID.
+          {repeated.length === 1
+            ? tx("Several records here share the ID {id}. The old admin gave them the same number. They still work, because products are listed on each record itself; new records get an unused ID.", { id: repeated[0] })
+            : tx("Several records here share an ID ({ids}). The old admin gave them the same number. They still work, because products are listed on each record itself; new records get an unused ID.", {
+                ids: `${repeated.slice(0, 5).join(", ")}${repeated.length > 5 ? "…" : ""}`,
+              })}
         </p>
       ) : null}
 
@@ -337,23 +343,23 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
         columns={columns}
         loading={all.loading}
         error={all.error || null}
-        toolbar={<FilterSelect value={filter} onChange={setFilter} options={STATUS_FILTERS} ariaLabel="Status" />}
+        toolbar={<FilterSelect value={filter} onChange={setFilter} options={STATUS_FILTERS.map((option) => ({ ...option, label: tx(option.label) }))} ariaLabel={tx("Status")} />}
         defaultSort={kind === "term" ? { key: "serial", dir: "asc" } : undefined}
         onRowClick={mayEdit ? (row) => setEditing({ row }) : undefined}
         pageSize={50}
         hasMore={all.hasMore}
         onLoadMore={all.loadMore}
-        noun={cfg.singular}
-        nounPlural={cfg.plural}
+        noun={tx(text.noun)}
+        nounPlural={tx(text.nounPlural)}
         emptyState={
           <EmptyState
             compact
-            title={scoped.length ? `No ${cfg.plural} match` : `No ${cfg.plural} yet`}
-            description={scoped.length ? "Change the search or the status filter." : kind === "term" ? `Add the values ${attributeName} can take.` : undefined}
+            title={scoped.length ? tx(text.noneMatch) : tx(text.noneYet)}
+            description={scoped.length ? tx("Change the search or the status filter.") : kind === "term" ? tx("Add the values {attribute} can take.", { attribute: attributeName }) : undefined}
             action={
               !scoped.length && mayAdd ? (
                 <Button type="button" variant="outline" onClick={() => setEditing({ row: null })}>
-                  Add {cfg.singular}
+                  {tx(text.add)}
                 </Button>
               ) : undefined
             }
@@ -368,6 +374,7 @@ function TaxonomyList({ kind, attribute }: { kind: TaxonomyKind; attribute?: Row
 
 function TaxonomyDialog({ kind, row, attribute, usedIds, onClose }: { kind: TaxonomyKind; row: Row | null; attribute?: Row; usedIds: string[]; onClose: () => void }) {
   const cfg = TAXONOMY[kind];
+  const text = TAXONOMY_TEXT[kind];
   const base = useMemo(() => (row ? taxonomyFormFrom(row.data, kind) : emptyTaxonomyForm()), [row, kind]);
   const [form, setForm] = useState<TaxonomyForm>(base);
   const [showErrors, setShowErrors] = useState(false);
@@ -375,7 +382,7 @@ function TaxonomyDialog({ kind, row, attribute, usedIds, onClose }: { kind: Taxo
   const [picking, setPicking] = useState(false);
   const errors: TaxonomyErrors = showErrors ? validateTaxonomyForm(form, kind) : {};
   const set = <K extends keyof TaxonomyForm>(key: K) => (value: TaxonomyForm[K]) => setForm((current) => ({ ...current, [key]: value }));
-  const statusOptions = TAXONOMY_STATUSES.filter((status) => status !== "archived" || base.status === "archived").map((value) => ({ value, label: cap(value) }));
+  const statusOptions = TAXONOMY_STATUSES.filter((status) => status !== "archived" || base.status === "archived").map((value) => ({ value, label: tx(cap(value)) }));
 
   async function submit() {
     if (Object.keys(validateTaxonomyForm(form, kind)).length) {
@@ -388,25 +395,25 @@ function TaxonomyDialog({ kind, row, attribute, usedIds, onClose }: { kind: Taxo
       if (row) {
         const patch = buildTaxonomyUpdate(kind, form, base, { now: serverTimestamp(), remove: deleteField() });
         if (patch) await updateDoc(doc(db, cfg.collection, row.id), patch);
-        toast.success(patch ? `${cap(cfg.singular)} saved.` : "Nothing was changed.");
+        toast.success(patch ? tx(text.saved) : tx("Nothing was changed."));
       } else {
-        if (kind === "term" && !attribute) throw new Error("Open the terms from an attribute first.");
+        if (kind === "term" && !attribute) throw new Error(tx("Open the terms from an attribute first."));
         const counters = await idMapRef();
         const target = doc(collection(db, cfg.collection));
-        const id = await runTransaction(db, async (tx) => {
-          const taken = await takeIds(tx, counters, [cfg.counter] as const);
+        const id = await runTransaction(db, async (txn) => {
+          const taken = await takeIds(txn, counters, [cfg.counter] as const);
           const free = firstFreeId(taken[cfg.counter], usedIds);
           // The counter was moved on by one; if ids had to be stepped over, move it past the one used.
-          if (free !== taken[cfg.counter]) tx.update(counters, { [cfg.counter]: free + 1 });
-          tx.set(target, buildTaxonomyCreate(kind, form, { id: free, now: serverTimestamp() }));
-          if (kind === "term" && attribute) tx.update(doc(db, "attributes", attribute.id), { attribute_brand_id: arrayUnion(String(free)) });
+          if (free !== taken[cfg.counter]) txn.update(counters, { [cfg.counter]: free + 1 });
+          txn.set(target, buildTaxonomyCreate(kind, form, { id: free, now: serverTimestamp() }));
+          if (kind === "term" && attribute) txn.update(doc(db, "attributes", attribute.id), { attribute_brand_id: arrayUnion(String(free)) });
           return free;
         });
-        toast.success(`${cap(cfg.singular)} ${id} was added.`);
+        toast.success(tx(text.added, { id }));
       }
       onClose();
     } catch (err) {
-      toast.error(`The ${cfg.singular} was not saved; nothing was changed. ${message(err)}`);
+      toast.error(tx(text.notSaved, { error: message(err) }));
     } finally {
       setSaving(false);
     }
@@ -419,35 +426,39 @@ function TaxonomyDialog({ kind, row, attribute, usedIds, onClose }: { kind: Taxo
       <FormModal
         open
         onOpenChange={(next) => !next && onClose()}
-        title={row ? `Edit ${cfg.singular}` : `Add ${cfg.singular}`}
-        description={row ? `ID ${taxonomyId(row.data, kind) || "not set"}. The ID never changes.` : "The ID is issued when you save. Arabic and other translations are added under Translations."}
+        title={row ? tx(text.edit) : tx(text.add)}
+        description={row ? tx("ID {id}. The ID never changes.", { id: taxonomyId(row.data, kind) || tx("not set") }) : tx("The ID is issued when you save. Arabic and other translations are added under Translations.")}
         onSubmit={submit}
         submitting={saving}
-        submitLabel={row ? "Save" : `Add ${cfg.singular}`}
+        submitLabel={row ? tx("Save") : tx(text.add)}
       >
-        <TextField label="Name" required value={form.name} onChange={set("name")} maxLength={50} error={errors.name} />
-        <TextareaField label="Description" required value={form.description} onChange={set("description")} rows={3} error={errors.description} />
+        <TextField label={tx("Name")} required value={form.name} onChange={set("name")} maxLength={50} error={errors.name} />
+        <TextareaField label={tx("Description")} required value={form.description} onChange={set("description")} rows={3} error={errors.description} />
         <div className="grid gap-4 sm:grid-cols-2">
-          <NumberField label="Order number" required value={form.serialNo} onChange={set("serialNo")} integer min={0} max={99999} error={errors.serialNo} hint="Lower numbers come first." />
-          <SelectField label="Status" required value={form.status} onChange={set("status")} options={statusOptions} error={errors.status} />
+          <NumberField label={tx("Sort order")} required value={form.serialNo} onChange={set("serialNo")} integer min={0} max={99999} error={errors.serialNo} hint={tx("Lower numbers come first.")} />
+          <SelectField label={tx("Status")} required value={form.status} onChange={set("status")} options={statusOptions} error={errors.status} />
         </div>
         {cfg.hasColor ? (
-          <Field label="Colour swatch" hint="Optional. Shown next to the term, for colours." error={errors.color}>
+          <Field label={tx("Colour swatch")} hint={tx("Optional. Shown next to the term, for colours.")} error={errors.color}>
             <div className="flex items-center gap-2">
-              <input type="color" value={hex} onChange={(event) => set("color")(event.target.value)} aria-label="Colour swatch" className="h-8 w-12 cursor-pointer rounded-md border border-border bg-card p-0.5" />
-              <span className="font-mono text-[12px] text-muted-foreground" dir="ltr" lang="en">
-                {form.color || "No colour"}
-              </span>
+              <input type="color" value={hex} onChange={(event) => set("color")(event.target.value)} aria-label={tx("Colour swatch")} className="h-8 w-12 cursor-pointer rounded-md border border-border bg-card p-0.5" />
+              {form.color ? (
+                <span className="font-mono text-[12px] text-muted-foreground" dir="ltr" lang="en">
+                  {form.color}
+                </span>
+              ) : (
+                <span className="text-[12px] text-muted-foreground">{tx("No colour")}</span>
+              )}
               {form.color ? (
                 <Button type="button" variant="ghost" size="xs" onClick={() => set("color")("")}>
-                  <X /> Clear
+                  <X /> {tx("Clear")}
                 </Button>
               ) : null}
             </div>
           </Field>
         ) : null}
         {cfg.hasImage ? (
-          <Field label="Thumbnail" hint="Optional. Shown on the home page's category row.">
+          <Field label={tx("Thumbnail")} hint={tx("Optional. Shown on the home page's category row.")}>
             <div className="flex items-center gap-3">
               {form.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -456,11 +467,11 @@ function TaxonomyDialog({ kind, row, attribute, usedIds, onClose }: { kind: Taxo
                 <span className="block size-16 rounded-lg border border-dashed border-border bg-muted" />
               )}
               <Button type="button" variant="outline" size="sm" onClick={() => setPicking(true)}>
-                <ImagePlus /> {form.image ? "Change picture" : "Choose picture"}
+                <ImagePlus /> {form.image ? tx("Change picture") : tx("Choose picture")}
               </Button>
               {form.image ? (
                 <Button type="button" variant="ghost" size="xs" onClick={() => setForm((current) => ({ ...current, image: "", imageId: "" }))}>
-                  <X /> Remove
+                  <X /> {tx("Remove")}
                 </Button>
               ) : null}
             </div>
@@ -471,7 +482,7 @@ function TaxonomyDialog({ kind, row, attribute, usedIds, onClose }: { kind: Taxo
         <MediaPicker
           open={picking}
           onOpenChange={setPicking}
-          title="Choose a thumbnail"
+          title={tx("Choose a thumbnail")}
           onPick={(items) => {
             const picked = items[0];
             if (picked) setForm((current) => ({ ...current, image: picked.url, imageId: picked.imageId }));

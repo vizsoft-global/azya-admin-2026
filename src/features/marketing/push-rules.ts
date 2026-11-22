@@ -1,3 +1,4 @@
+import { tx, txKey } from "@/lib/i18n/tx";
 /*
  * Push notifications are sent by the callable `sendPushNotificationToUsers`.
  * It takes the document ids of `users` records, looks up each person's newest
@@ -51,11 +52,11 @@ export function validatePush(form: PushForm, recipientCount: number): PushErrors
   const errors: PushErrors = {};
   const title = form.title.trim();
   const body = form.body.trim();
-  if (!title) errors.title = "Enter a title.";
-  else if (title.length > PUSH_TITLE_MAX) errors.title = `Keep the title to ${PUSH_TITLE_MAX} characters or fewer.`;
-  if (!body) errors.body = "Enter the message.";
-  else if (body.length > PUSH_BODY_MAX) errors.body = `Keep the message to ${PUSH_BODY_MAX} characters or fewer.`;
-  if (recipientCount < 1) errors.recipients = "Choose at least one person to send to.";
+  if (!title) errors.title = tx("Enter a title.");
+  else if (title.length > PUSH_TITLE_MAX) errors.title = tx("Keep the title to {max} characters or fewer.", { max: PUSH_TITLE_MAX });
+  if (!body) errors.body = tx("Enter the message.");
+  else if (body.length > PUSH_BODY_MAX) errors.body = tx("Keep the message to {max} characters or fewer.", { max: PUSH_BODY_MAX });
+  if (recipientCount < 1) errors.recipients = tx("Choose at least one person to send to.");
   return errors;
 }
 
@@ -90,6 +91,9 @@ export function chunk<T>(list: T[], size: number): T[][] {
   return out;
 }
 
+/** Stored with a failure the function gave no reason for; translated when shown. */
+const UNKNOWN_REASON = txKey("Unknown reason");
+
 export type PushOutcome = { sent: string[]; failed: { userId: string; reason: string }[] };
 
 /** Who was reached and who was not, from one answer of the function (`{ summary: { success, failed } }`). */
@@ -99,7 +103,7 @@ export function readPushResult(result: unknown): PushOutcome {
   const failed = Array.isArray(summary.failed) ? summary.failed : [];
   return {
     sent: success.map((item) => text(map(item).userId)).filter(Boolean),
-    failed: failed.map((item) => ({ userId: text(map(item).userId), reason: text(map(item).reason) || "Unknown reason" })).filter((item) => item.userId),
+    failed: failed.map((item) => ({ userId: text(map(item).userId), reason: text(map(item).reason) || UNKNOWN_REASON })).filter((item) => item.userId),
   };
 }
 
@@ -107,22 +111,40 @@ export function mergeOutcomes(list: PushOutcome[]): PushOutcome {
   return { sent: list.flatMap((item) => item.sent), failed: list.flatMap((item) => item.failed) };
 }
 
-/** Plain wording for the function's failure reasons. */
-export function failureText(reason: string) {
-  if (/no valid fcm token/i.test(reason)) return "No device registered for notifications";
-  if (/user not found/i.test(reason)) return "Account not found";
-  if (/not.registered|unregistered/i.test(reason)) return "The app was removed from the device";
+/** Plain English wording for the function's failure reasons (used as is in the CSV download). */
+export function failureKey(reason: string) {
+  if (/no valid fcm token/i.test(reason)) return txKey("No device registered for notifications");
+  if (/user not found/i.test(reason)) return txKey("Account not found");
+  if (/not.registered|unregistered/i.test(reason)) return txKey("The app was removed from the device");
   return reason;
+}
+
+/** The same wording in the panel's language, for the screen. */
+export function failureText(reason: string) {
+  return tx(failureKey(reason));
+}
+
+const num = (n: number) => n.toLocaleString("en-US");
+
+/**
+ * "Sent to 12 people; 3 people could not be reached." as one whole sentence per case,
+ * so each can be worded properly in Arabic (which counts differently from English).
+ */
+function sentLine(sent: number, failed: number) {
+  if (!failed) return sent === 1 ? tx("Sent to 1 person.") : tx("Sent to {count} people.", { count: num(sent) });
+  if (sent === 1 && failed === 1) return tx("Sent to 1 person; 1 person could not be reached.");
+  if (sent === 1) return tx("Sent to 1 person; {failed} people could not be reached.", { failed: num(failed) });
+  if (failed === 1) return tx("Sent to {sent} people; 1 person could not be reached.", { sent: num(sent) });
+  return tx("Sent to {sent} people; {failed} people could not be reached.", { sent: num(sent), failed: num(failed) });
 }
 
 /** One line for the toast after a send. */
 export function outcomeText(outcome: PushOutcome) {
   const sent = outcome.sent.length;
   const failed = outcome.failed.length;
-  const people = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "person" : "people"}`;
-  if (!failed) return `Sent to ${people(sent)}.`;
-  if (!sent) return `Nobody was reached: ${people(failed)} could not be sent to.`;
-  return `Sent to ${people(sent)}; ${people(failed)} could not be reached.`;
+  if (!failed) return sentLine(sent, 0);
+  if (!sent) return failed === 1 ? tx("Nobody was reached: 1 person could not be sent to.") : tx("Nobody was reached: {count} people could not be sent to.", { count: num(failed) });
+  return sentLine(sent, failed);
 }
 
 /**
@@ -144,16 +166,21 @@ export function stoppedSend(batches: string[][], outcomes: PushOutcome[]): Stopp
 
 /** What to tell the person after a stopped send: counts for each group, and what a retry would do. */
 export function stoppedSendText(stop: StoppedSend, reason: string) {
-  const people = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "person" : "people"}`;
-  const parts = [`Sending stopped: ${reason}.`];
-  if (stop.reached || stop.notReached) parts.push(`Sent to ${people(stop.reached)}${stop.notReached ? `; ${people(stop.notReached)} could not be reached` : ""}.`);
-  else parts.push("Nobody is confirmed as sent to.");
-  if (stop.uncertain.length) parts.push(`${people(stop.uncertain.length)} may or may not have received it: the call that failed was sending to them.`);
-  if (stop.untried.length) parts.push(`${people(stop.untried.length)} ${stop.untried.length === 1 ? "was" : "were"} not sent to.`);
-  if (stop.remaining.length) {
-    const who = stop.remaining.length === 1 ? "Only that 1 person is" : `Only those ${people(stop.remaining.length)} are`;
-    parts.push(`${who} still selected, and your message is still here.`);
-    if (stop.uncertain.length) parts.push(stop.uncertain.length === 1 ? "Sending again may reach that person a second time." : `Sending again may reach some of the ${people(stop.uncertain.length)} a second time.`);
+  // Each sentence is translated whole; only complete sentences are joined.
+  const uncertain = stop.uncertain.length;
+  const untried = stop.untried.length;
+  const remaining = stop.remaining.length;
+  const parts = [tx("Sending stopped: {reason}.", { reason })];
+  if (stop.reached || stop.notReached) parts.push(sentLine(stop.reached, stop.notReached));
+  else parts.push(tx("Nobody is confirmed as sent to."));
+  if (uncertain === 1) parts.push(tx("1 person may or may not have received it: the call that failed was sending to them."));
+  else if (uncertain) parts.push(tx("{count} people may or may not have received it: the call that failed was sending to them.", { count: num(uncertain) }));
+  if (untried === 1) parts.push(tx("1 person was not sent to."));
+  else if (untried) parts.push(tx("{count} people were not sent to.", { count: num(untried) }));
+  if (remaining) {
+    parts.push(remaining === 1 ? tx("Only that 1 person is still selected, and your message is still here.") : tx("Only those {count} people are still selected, and your message is still here.", { count: num(remaining) }));
+    if (uncertain === 1) parts.push(tx("Sending again may reach that person a second time."));
+    else if (uncertain) parts.push(tx("Sending again may reach some of the {count} people a second time.", { count: num(uncertain) }));
   }
   return parts.join(" ");
 }

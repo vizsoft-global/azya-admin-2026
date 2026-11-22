@@ -1,4 +1,5 @@
 import { toDate, toNumber } from "@/lib/format";
+import { txKey } from "@/lib/i18n/tx";
 
 /**
  * Money rules for the finance screens. Pure: no Firestore, no React.
@@ -15,10 +16,10 @@ import { toDate, toNumber } from "@/lib/format";
 export const PAID_PAYMENT_STATUS = "CAPTURED";
 export const COMPLETED_ORDER_STATUS = "completed";
 
-/** One line for the screens: which orders the figures count. */
-export const PAID_RULE_TEXT = "Revenue and sales count orders whose payment was captured.";
-export const COMMISSION_RULE_TEXT = "Commission becomes payable when the order is completed (delivered), as in the creator's app.";
-export const DESIGNER_RULE_TEXT = "The designer payout rule has not been set, so no amount owed is shown for designers.";
+/** One line for the screens: which orders the figures count. English; show with `tx(...)`. */
+export const PAID_RULE_TEXT = txKey("Revenue and sales count orders whose payment was captured.");
+export const COMMISSION_RULE_TEXT = txKey("Commission becomes payable when the order is completed (delivered), as in the creator's app.");
+export const DESIGNER_RULE_TEXT = txKey("The designer payout rule has not been set, so no amount owed is shown for designers.");
 
 /** Kuwaiti dinar has three decimals. Same rounding as the customer app (`creator_sales.dart`). */
 export function round3(value: number) {
@@ -74,8 +75,8 @@ export function rateFlag(ratePercent: number | null | undefined): RateFlag {
 
 export const RATE_FLAG_LABEL: Record<RateFlag, string> = {
   "": "",
-  "no-rate": "No commission rate",
-  "above-100": "Rate above 100%",
+  "no-rate": txKey("No commission rate"),
+  "above-100": txKey("Rate above 100%"),
 };
 
 /* ---------- Orders ---------- */
@@ -169,9 +170,9 @@ export function saleState(order: OrderFacts): SaleState {
 }
 
 export const SALE_STATE_LABEL: Record<SaleState, string> = {
-  completed: "Completed",
-  paid: "Paid, not completed",
-  unpaid: "Not paid",
+  completed: txKey("Completed"),
+  paid: txKey("Paid, not completed"),
+  unpaid: txKey("Not paid"),
 };
 
 /** A completed order whose payment was never captured: counted by the app, worth a look. */
@@ -547,12 +548,12 @@ export type DateRange = { from: Date; to: Date };
 export type PeriodPreset = "7d" | "30d" | "90d" | "this-month" | "last-month" | "this-year";
 
 export const PERIOD_LABEL: Record<PeriodPreset, string> = {
-  "7d": "Last 7 days",
-  "30d": "Last 30 days",
-  "90d": "Last 90 days",
-  "this-month": "This month",
-  "last-month": "Last month",
-  "this-year": "This year",
+  "7d": txKey("Last 7 days"),
+  "30d": txKey("Last 30 days"),
+  "90d": txKey("Last 90 days"),
+  "this-month": txKey("This month"),
+  "last-month": txKey("Last month"),
+  "this-year": txKey("This year"),
 };
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());

@@ -1,5 +1,6 @@
 import { formatDate, formatMoney, toDate, toNumber } from "@/lib/format";
 import { record, text } from "./util";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 /**
  * Parts shared by creator and designer profiles: the contract, the payout
@@ -21,7 +22,7 @@ export function payoutPath(kind: PartnerKind): string {
 /* ---------- Contract ---------- */
 
 /** The two contract types the Flutter admin offers. */
-export const CONTRACT_TYPES = ["Gold", "Silver"] as const;
+export const CONTRACT_TYPES = [txKey("Gold"), txKey("Silver")] as const;
 
 export type Contract = { type: string; start: Date | null; end: Date | null };
 
@@ -45,10 +46,10 @@ export function contractState(contract: Contract, now: Date): "" | "upcoming" | 
 
 export function validateContract(form: Contract): Partial<Record<keyof Contract, string>> {
   const errors: Partial<Record<keyof Contract, string>> = {};
-  if (!(CONTRACT_TYPES as readonly string[]).includes(form.type)) errors.type = "Choose a contract type.";
-  if (!form.start) errors.start = "Choose the start date.";
-  if (!form.end) errors.end = "Choose the end date.";
-  else if (form.start && form.end < form.start) errors.end = "The end date is before the start date.";
+  if (!(CONTRACT_TYPES as readonly string[]).includes(form.type)) errors.type = tx("Choose a contract type.");
+  if (!form.start) errors.start = tx("Choose the start date.");
+  if (!form.end) errors.end = tx("Choose the end date.");
+  else if (form.start && form.end < form.start) errors.end = tx("The end date is before the start date.");
   return errors;
 }
 
@@ -105,7 +106,7 @@ export function hasRecordedPayment(payout: Pick<Payout, "total" | "completed" | 
   return payout.total > 0 || payout.completed > 0 || (payout.lastAmount ?? 0) > 0 || payout.lastDate !== null;
 }
 
-export const NO_PAYMENT_TEXT = "No payment recorded";
+export const NO_PAYMENT_TEXT = txKey("No payment recorded");
 
 /** What the Payouts card shows. Paid figures appear only when a payment has been recorded; otherwise the card says so instead of showing 0.000. */
 export function payoutLines(payout: Payout): { recorded: boolean; paid: string; completed: string; last: string; pending: string } {
@@ -114,10 +115,16 @@ export function payoutLines(payout: Payout): { recorded: boolean; paid: string; 
   const lastDate = payout.lastDate ? formatDate(payout.lastDate) : "";
   return {
     recorded,
-    paid: recorded ? formatMoney(payout.total) : NO_PAYMENT_TEXT,
-    completed: recorded ? formatMoney(payout.completed) : NO_PAYMENT_TEXT,
-    last: recorded ? [lastAmount, lastDate && `on ${lastDate}`].filter(Boolean).join(" ") || "Date not recorded" : NO_PAYMENT_TEXT,
-    pending: payout.pending > 0 ? formatMoney(payout.pending) : "Nothing waiting",
+    paid: recorded ? formatMoney(payout.total) : tx(NO_PAYMENT_TEXT),
+    completed: recorded ? formatMoney(payout.completed) : tx(NO_PAYMENT_TEXT),
+    last: !recorded
+      ? tx(NO_PAYMENT_TEXT)
+      : lastAmount && lastDate
+        ? tx("{amount} on {date}", { amount: lastAmount, date: lastDate })
+        : lastDate
+          ? tx("on {date}", { date: lastDate })
+          : lastAmount || tx("Date not recorded"),
+    pending: payout.pending > 0 ? formatMoney(payout.pending) : tx("Nothing waiting"),
   };
 }
 
@@ -154,17 +161,17 @@ export function normaliseIban(value: string): string {
  */
 export function validateBank(form: BankForm): Partial<Record<keyof BankForm, string>> {
   const errors: Partial<Record<keyof BankForm, string>> = {};
-  if (!form.bankName.trim()) errors.bankName = "Enter the bank name.";
-  if (!form.holder.trim()) errors.holder = "Enter the account holder's name.";
+  if (!form.bankName.trim()) errors.bankName = tx("Enter the bank name.");
+  if (!form.holder.trim()) errors.holder = tx("Enter the account holder's name.");
   const account = form.accountNumber.trim();
   const iban = normaliseIban(form.iban);
-  if (!account && !iban) errors.iban = "Enter the IBAN or the account number.";
+  if (!account && !iban) errors.iban = tx("Enter the IBAN or the account number.");
   if (account) {
-    if (!/^[0-9]+$/.test(account)) errors.accountNumber = "Use digits only.";
-    else if (account.startsWith("0")) errors.accountNumber = "A number starting with 0 cannot be stored here. Leave this empty and enter the IBAN.";
-    else if (account.length > 15) errors.accountNumber = "Numbers longer than 15 digits cannot be stored here. Leave this empty and enter the IBAN.";
+    if (!/^[0-9]+$/.test(account)) errors.accountNumber = tx("Use digits only.");
+    else if (account.startsWith("0")) errors.accountNumber = tx("A number starting with 0 cannot be stored here. Leave this empty and enter the IBAN.");
+    else if (account.length > 15) errors.accountNumber = tx("Numbers longer than 15 digits cannot be stored here. Leave this empty and enter the IBAN.");
   }
-  if (iban && !/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) errors.iban = "Enter the full IBAN, for example KW81CBKU0000000000001234560101.";
+  if (iban && !/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) errors.iban = tx("Enter the full IBAN, for example KW81CBKU0000000000001234560101.");
   return errors;
 }
 

@@ -2,21 +2,22 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { DataTable, type Column } from "@/components/shared/data-table";
+import { DataTable } from "@/components/shared/data-table";
 import { StatCard } from "@/components/shared/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { BALANCE_ORDER_CAP, RETURNS_CAP, useAllPayouts, useFinanceAccess, useOrders, usePartners, useReturns } from "./data";
 import { COMMISSION_RULE_TEXT, DESIGNER_RULE_TEXT, PAID_RULE_TEXT, commissionTotals, payoutsInRange, revenueTotals, round3, summariseCreator, type ReturnFacts } from "./finance";
-import { LoadError, LoadedLine, Money, NoAccess, Notice, Panel, TableSection, dateCol, moneyCol, numberCol, textCol, usePeriod } from "./parts";
+import { LoadError, LoadedLine, Ltr, Money, NoAccess, Notice, Panel, TableSection, dateCol, moneyCol, num, numberCol, textCol, usePeriod, type FinanceColumn } from "./parts";
 
 const FIRST_CAP = 2000;
 
 /** Money in, commission and payments for a period, from real records. Lines with no data behind them are left out. */
 export function FinancePage() {
   const { staff } = useFinanceAccess();
-  if (!staff) return <NoAccess what="Finance" />;
+  if (!staff) return <NoAccess description={tx("Finance is for staff with the sales permission.")} />;
   return <Finance />;
 }
 
@@ -32,14 +33,17 @@ function Line({ label, value, note, strong }: { label: string; value: ReactNode;
   );
 }
 
-const returnColumns: Column<ReturnFacts>[] = [
-  textCol("order", "Order", (item) => item.orderId, (item) => <span className="font-mono text-[12px]">{item.orderId || "—"}</span>),
-  dateCol("date", "Requested", (item) => item.createdAt),
-  numberCol("quantity", "Items", (item) => item.quantity),
-  moneyCol("amount", "Amount asked back", (item) => item.amount),
-  textCol("status", "Status", (item) => item.status, (item) => (item.status ? <StatusBadge value={item.status} /> : <span className="text-subtle">—</span>)),
-  textCol("reason", "Reason", (item) => item.reason),
-];
+/** Built when the table renders, so the titles follow the panel's language. */
+function returnColumns(): FinanceColumn<ReturnFacts>[] {
+  return [
+    textCol("order", txKey("Order"), (item) => item.orderId, (item) => <Ltr className="font-mono text-[12px]">{item.orderId || "—"}</Ltr>),
+    dateCol("date", txKey("Requested on"), (item) => item.createdAt),
+    numberCol("quantity", txKey("Items"), (item) => item.quantity),
+    moneyCol("amount", txKey("Amount asked back"), (item) => item.amount),
+    textCol("status", txKey("Status"), (item) => item.status, (item) => (item.status ? <StatusBadge value={item.status} /> : <span className="text-subtle">—</span>)),
+    textCol("reason", txKey("Reason"), (item) => item.reason),
+  ];
+}
 
 function Finance() {
   const period = usePeriod("30d");
@@ -63,6 +67,12 @@ function Finance() {
   const first = loaded.loading && !loaded.orders.length;
   const balancesLoading = (people.loading && !people.partners.length) || (completed.loading && !completed.orders.length);
   const balancesUnknown = completed.capped || Boolean(completed.error) || Boolean(people.error);
+  const refreshAll = () => {
+    loaded.refresh();
+    records.refresh();
+    completed.refresh();
+    people.refresh();
+  };
 
   return (
     <div className="space-y-4">
@@ -71,38 +81,67 @@ function Finance() {
         <LoadError message={loaded.error} onRetry={loaded.refresh} />
       ) : (
         <>
-          <LoadedLine range={range} error={loaded.error} count={loaded.orders.length} cap={loaded.cap} capped={loaded.capped} loadedAt={loaded.loadedAt} onRefresh={() => { loaded.refresh(); records.refresh(); completed.refresh(); people.refresh(); }} onMore={() => setCap((cur) => cur * 2)} loading={loaded.loading} />
+          <LoadedLine range={range} error={loaded.error} count={loaded.orders.length} cap={loaded.cap} capped={loaded.capped} loadedAt={loaded.loadedAt} onRefresh={refreshAll} onMore={() => setCap((cur) => cur * 2)} loading={loaded.loading} />
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Order revenue" value={<Money value={revenue.revenue} />} hint={`${revenue.orders.toLocaleString()} paid orders in ${period.label}`} loading={first} href="/analytics" />
-            <StatCard label="Creator commission" value={<Money value={round3(commission.earned + commission.pending)} />} hint="On orders placed in this period" loading={first} />
-            <StatCard label="Payments recorded" value={<Money value={paidOut.total} />} hint={`${paidOut.count} paid in ${period.label}`} loading={records.loading && !records.payouts.length} href="/payouts" />
-            <StatCard label="Payable to creators now" value={balancesUnknown ? "Not known" : <Money value={payableNow} />} hint={balancesUnknown ? "Balances could not be worked out" : "All dates, not only this period"} loading={balancesLoading} href="/create-payout" />
+            <StatCard label={tx("Order revenue")} value={<Money value={revenue.revenue} />} hint={tx("Paid orders in this period: {count}", { count: num(revenue.orders) })} loading={first} href="/analytics" />
+            <StatCard label={tx("Creator commission")} value={<Money value={round3(commission.earned + commission.pending)} />} hint={tx("On orders placed in this period")} loading={first} />
+            <StatCard label={tx("Payments recorded")} value={<Money value={paidOut.total} />} hint={tx("Payments in this period: {count}", { count: num(paidOut.count) })} loading={records.loading && !records.payouts.length} href="/payouts" />
+            <StatCard
+              label={tx("Payable to creators now")}
+              value={balancesUnknown ? tx("Not known") : <Money value={payableNow} />}
+              hint={balancesUnknown ? tx("Balances could not be worked out") : tx("All dates, not only this period")}
+              loading={balancesLoading}
+              href="/create-payout"
+            />
           </div>
           <Notice>
-            {PAID_RULE_TEXT} {COMMISSION_RULE_TEXT}
+            {tx(PAID_RULE_TEXT)} {tx(COMMISSION_RULE_TEXT)}
           </Notice>
 
           <div className="grid items-start gap-4 lg:grid-cols-2">
-            <Panel title="Money in" note="Paid orders placed in the period">
-              <Line label="Order revenue" value={<Money value={revenue.revenue} />} note="What customers paid, shipping included" strong />
-              <Line label="Products" value={<Money value={revenue.products} />} />
-              <Line label="Shipping collected" value={<Money value={revenue.shipping} />} />
-              <Line label="Paid orders" value={revenue.orders.toLocaleString()} />
-              <Line label="Average paid order" value={<Money value={revenue.average} />} />
+            <Panel title={tx("Money in")} note={tx("Paid orders placed in the period")}>
+              <Line label={tx("Order revenue")} value={<Money value={revenue.revenue} />} note={tx("What customers paid, shipping included")} strong />
+              <Line label={tx("Products")} value={<Money value={revenue.products} />} />
+              <Line label={tx("Shipping collected")} value={<Money value={revenue.shipping} />} />
+              <Line label={tx("Paid orders")} value={num(revenue.orders)} />
+              <Line label={tx("Average paid order")} value={<Money value={revenue.average} />} />
             </Panel>
-            <Panel title="Creators and designers" actions={<Link href="/create-payout" className={buttonVariants({ variant: "outline", size: "sm" })}>Balances</Link>}>
-              <Line label="Creator commission earned" value={<Money value={commission.earned} />} note="Orders of this period that are completed" />
-              <Line label="Creator commission pending" value={<Money value={commission.pending} />} note="Orders of this period paid but not completed" />
-              <Line label="Paid to creators" value={<Money value={paidOut.creators} />} note="Payments recorded with a date in this period" />
-              <Line label="Paid to designers" value={<Money value={paidOut.designers} />} note="Payments recorded with a date in this period" />
-              <Line label="Payable to creators now" value={balancesUnknown ? "Not known" : <Money value={payableNow} />} note="All dates" strong />
+            <Panel
+              title={tx("Creators and designers")}
+              actions={
+                <Link href="/create-payout" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                  {tx("Balances")}
+                </Link>
+              }
+            >
+              <Line label={tx("Creator commission earned")} value={<Money value={commission.earned} />} note={tx("Orders of this period that are completed")} />
+              <Line label={tx("Creator commission pending")} value={<Money value={commission.pending} />} note={tx("Orders of this period paid but not completed")} />
+              <Line label={tx("Paid to creators")} value={<Money value={paidOut.creators} />} note={tx("Payments recorded with a date in this period")} />
+              <Line label={tx("Paid to designers")} value={<Money value={paidOut.designers} />} note={tx("Payments recorded with a date in this period")} />
+              <Line label={tx("Payable to creators now")} value={balancesUnknown ? tx("Not known") : <Money value={payableNow} />} note={tx("All dates")} strong />
             </Panel>
           </div>
-          <Notice tone="warning">{DESIGNER_RULE_TEXT} Gross profit, margin, platform fees and shipping costs are not shown: nothing records what they are.</Notice>
-          {records.capped ? <Notice tone="warning">Only part of the payout records were read (the limit), so the payments figures may be incomplete.</Notice> : null}
+          <Notice tone="warning">
+            {tx(DESIGNER_RULE_TEXT)} {tx("Gross profit, margin, platform fees and shipping costs are not shown: nothing records what they are.")}
+          </Notice>
+          {records.capped ? <Notice tone="warning">{tx("Only part of the payout records were read (the limit), so the payments figures may be incomplete.")}</Notice> : null}
 
-          <TableSection title="Return requests" note={`Requests made in the period: ${returns.returns.length.toLocaleString()}, asking back ${formatMoney(asked)} in all. A request is not a refund until the returns team approves and refunds it.`}>
-            <DataTable rows={returns.returns} columns={returnColumns} loading={returns.loading && !returns.returns.length} error={returns.error || (returns.capped ? `Only the newest ${RETURNS_CAP} requests were read (the limit).` : null)} emptyMessage="No return requests in this period." defaultSort={{ key: "date", dir: "desc" }} pageSize={25} exportName="return-requests" noun="return request" />
+          <TableSection
+            title={tx("Return requests")}
+            note={tx("Requests made in the period: {count}, asking back {amount} in all. A request is not a refund until the returns team approves and refunds it.", { count: num(returns.returns.length), amount: formatMoney(asked) })}
+          >
+            <DataTable
+              rows={returns.returns}
+              columns={returnColumns()}
+              loading={returns.loading && !returns.returns.length}
+              error={returns.error || (returns.capped ? tx("Only the newest {cap} requests were read (the limit).", { cap: num(RETURNS_CAP) }) : null)}
+              emptyMessage={tx("No return requests in this period.")}
+              defaultSort={{ key: "date", dir: "desc" }}
+              pageSize={25}
+              exportName="return-requests"
+              noun={txKey("return request")}
+              nounPlural={txKey("return requests")}
+            />
           </TableSection>
         </>
       )}

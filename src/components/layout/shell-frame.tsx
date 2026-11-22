@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { initialsOf } from "@/lib/format";
 import type { Lang } from "@/lib/i18n";
+import { tx, txIn } from "@/lib/i18n/tx";
 import type { NavLeaf, NavSection } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { THEMES, THEME_LABELS, ThemeToggle, currentTheme, type ThemeName } from "./theme-toggle";
@@ -52,6 +53,14 @@ export type ShellFrameProps = {
   version?: string;
   children: ReactNode;
 };
+
+/*
+ * Menu labels, page titles, tab labels and breadcrumb labels arrive in English (they are plain data in
+ * `lib/nav.ts` and `lib/routes.ts`) and are translated here, where they are shown.
+ */
+
+/** "Partners › Designers", each part translated. In right-to-left text the browser mirrors the "›" itself. */
+const menuText = (menu: string) => menu.split(" › ").map((part) => tx(part)).join(" › ");
 
 const inLeaf = (leaf: NavLeaf, path: string) => leaf.tabs.includes(path) || Boolean(leaf.hidden?.includes(path));
 const defaultHref = (path: string) => `/${path}`;
@@ -130,13 +139,13 @@ export function ShellFrame({
                 type="button"
                 onClick={() => setMobileOpen(true)}
                 className="rounded-md p-1.5 text-muted-foreground hover:bg-card hover:text-foreground md:hidden"
-                aria-label="Open menu"
+                aria-label={tx("Open menu")}
               >
                 <Menu className="size-4" />
               </button>
               <div className="min-w-0 shrink-0">
                 {showTabs ? (
-                  <nav className="flex flex-wrap items-center gap-1" aria-label="Section pages">
+                  <nav className="flex flex-wrap items-center gap-1" aria-label={tx("Section pages")}>
                     {tabs.map((tab) => (
                       <Link
                         key={tab.path}
@@ -147,12 +156,12 @@ export function ShellFrame({
                           tab.path === active ? "bg-card font-medium text-heading shadow-sm" : "text-muted-foreground hover:text-heading",
                         )}
                       >
-                        {tab.label}
+                        {tx(tab.label)}
                       </Link>
                     ))}
                   </nav>
                 ) : (
-                  <h1 className="truncate text-[20px] font-semibold tracking-tight text-foreground">{title}</h1>
+                  <h1 className="truncate text-[20px] font-semibold tracking-tight text-foreground">{tx(title)}</h1>
                 )}
               </div>
               <div ref={centerRef} className="flex min-w-[160px] flex-1 justify-center px-2 empty:hidden" />
@@ -178,15 +187,15 @@ function Breadcrumbs({ crumbs, hrefFor }: { crumbs: ShellCrumb[]; hrefFor: (path
   const router = useRouter();
   const parent = [...crumbs].slice(0, -1).reverse().find((crumb) => crumb.path);
   return (
-    <nav aria-label="Breadcrumb" className="mb-2 flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+    <nav aria-label={tx("Breadcrumb")} className="mb-2 flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground">
       <button
         type="button"
         onClick={() => {
           if (window.history.length > 1) router.back();
           else if (parent?.path) router.push(hrefFor(parent.path));
         }}
-        title="Back"
-        aria-label="Back"
+        title={tx("Back")}
+        aria-label={tx("Back")}
         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-card hover:text-foreground"
       >
         <ArrowLeft className="size-3.5 rtl:rotate-180" />
@@ -194,9 +203,10 @@ function Breadcrumbs({ crumbs, hrefFor }: { crumbs: ShellCrumb[]; hrefFor: (path
       <ol className="flex min-w-0 items-center gap-1">
         {crumbs.map((crumb, index) => {
           const last = index === crumbs.length - 1;
+          const label = tx(crumb.label);
           const text = (
-            <span className="block max-w-[200px] truncate" title={crumb.label}>
-              {crumb.label}
+            <span className="block max-w-[200px] truncate" title={label}>
+              {label}
             </span>
           );
           return (
@@ -277,14 +287,14 @@ function Sidebar({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setQ("")}
-            placeholder="Search… ⌘K"
-            aria-label="Search pages"
+            placeholder={tx("Search… ⌘K")}
+            aria-label={tx("Search pages")}
             className="w-full min-w-0 bg-transparent outline-none placeholder:text-subtle"
           />
         </label>
       ) : null}
 
-      <nav className="no-scrollbar flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label="Main">
+      <nav className="no-scrollbar flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label={txIn("navigation", "Main")}>
         {expanded && q.trim() ? (
           <PageSearch hits={searchPages(q)} hrefFor={hrefFor} onPick={() => setQ("")} />
         ) : (
@@ -309,14 +319,14 @@ function Sidebar({
             ))}
           </div>
           <div className={cn("hidden shrink-0 items-center gap-0.5 md:flex", !expanded && "flex-col")}>
-            <button type="button" className={railButton} title={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={onToggleCollapsed}>
+            <button type="button" className={railButton} title={collapsed ? tx("Expand sidebar") : tx("Collapse sidebar")} aria-label={collapsed ? tx("Expand sidebar") : tx("Collapse sidebar")} onClick={onToggleCollapsed}>
               {collapsed ? <PanelLeftOpen className="size-3.5 rtl:rotate-180" /> : <PanelLeftClose className="size-3.5 rtl:rotate-180" />}
             </button>
             <button
               type="button"
               className={railButton}
-              title={locked ? "Let the collapsed sidebar open on hover" : "Keep the collapsed sidebar closed on hover"}
-              aria-label={locked ? "Unlock sidebar" : "Lock sidebar"}
+              title={locked ? tx("Let the collapsed sidebar open on hover") : tx("Keep the collapsed sidebar closed on hover")}
+              aria-label={locked ? tx("Unlock sidebar") : tx("Lock sidebar")}
               aria-pressed={locked}
               onClick={onToggleLocked}
             >
@@ -325,7 +335,7 @@ function Sidebar({
           </div>
         </div>
         {expanded && version ? (
-          <p className="mt-2 px-[9px] text-[10px] text-subtle" title={`Build ${version}`}>
+          <p className="mt-2 px-[9px] text-[10px] text-subtle" title={tx("Build {version}", { version })}>
             v{version}
           </p>
         ) : null}
@@ -344,6 +354,7 @@ const rowClass = (on: boolean, expanded: boolean) =>
 function SectionItem({ section, active, expanded, hrefFor }: { section: NavSection; active: string; expanded: boolean; hrefFor: (path: string) => string }) {
   const router = useRouter();
   const Icon = section.icon;
+  const label = tx(section.label);
   const children = section.children;
   const containsActive = children ? children.some((child) => inLeaf(child, active)) : Boolean(section.tabs?.includes(active) || section.hidden?.includes(active));
   const [open, setOpen] = useState(containsActive);
@@ -354,11 +365,11 @@ function SectionItem({ section, active, expanded, hrefFor }: { section: NavSecti
 
   if (!children) {
     return (
-      <Link href={hrefFor(section.tabs![0])} title={expanded ? undefined : section.label} aria-current={containsActive ? "page" : undefined} className={rowClass(containsActive, expanded)}>
+      <Link href={hrefFor(section.tabs![0])} title={expanded ? undefined : label} aria-current={containsActive ? "page" : undefined} className={rowClass(containsActive, expanded)}>
         <Icon className="size-4 shrink-0" strokeWidth={1.6} />
         {expanded ? (
-          <span className="truncate" title={section.label}>
-            {section.label}
+          <span className="truncate" title={label}>
+            {label}
           </span>
         ) : null}
       </Link>
@@ -370,7 +381,7 @@ function SectionItem({ section, active, expanded, hrefFor }: { section: NavSecti
     <div>
       <button
         type="button"
-        title={expanded ? undefined : section.label}
+        title={expanded ? undefined : label}
         aria-expanded={expanded ? open : undefined}
         className={rowClass(containsActive && !expanded, expanded)}
         onClick={() => {
@@ -384,8 +395,8 @@ function SectionItem({ section, active, expanded, hrefFor }: { section: NavSecti
       >
         <Icon className="size-4 shrink-0" strokeWidth={1.6} />
         {expanded ? (
-          <span className={cn("flex-1 truncate", containsActive && "font-medium")} title={section.label}>
-            {section.label}
+          <span className={cn("flex-1 truncate", containsActive && "font-medium")} title={label}>
+            {label}
           </span>
         ) : null}
       </button>
@@ -401,6 +412,7 @@ function SectionItem({ section, active, expanded, hrefFor }: { section: NavSecti
 }
 
 function ChildLink({ leaf, on, href }: { leaf: NavLeaf; on: boolean; href: string }) {
+  const label = tx(leaf.label);
   return (
     <Link
       href={href}
@@ -415,21 +427,21 @@ function ChildLink({ leaf, on, href }: { leaf: NavLeaf; on: boolean; href: strin
           <path d="M1 0v7a4 4 0 0 0 4 4h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         </svg>
       ) : null}
-      <span className="truncate" title={leaf.label}>
-        {leaf.label}
+      <span className="truncate" title={label}>
+        {label}
       </span>
     </Link>
   );
 }
 
 function PageSearch({ hits, hrefFor, onPick }: { hits: ShellPageHit[]; hrefFor: (path: string) => string; onPick: () => void }) {
-  if (!hits.length) return <p className="px-2 py-1 text-[11px] text-subtle">No pages or settings match.</p>;
+  if (!hits.length) return <p className="px-2 py-1 text-[11px] text-subtle">{tx("No pages or settings match.")}</p>;
   return (
     <>
       {hits.map((hit) => (
         <Link key={hit.path} href={hrefFor(hit.path)} onClick={onPick} className="rounded-[8px] px-[7px] py-1.5 outline-none hover:bg-sidebar-accent/60 focus-visible:bg-sidebar-accent">
-          <span className="block truncate text-[13px] text-foreground">{hit.title}</span>
-          <span className="block truncate text-[10px] text-subtle">{hit.menu}</span>
+          <span className="block truncate text-[13px] text-foreground">{tx(hit.title)}</span>
+          <span className="block truncate text-[10px] text-subtle">{menuText(hit.menu)}</span>
         </Link>
       ))}
     </>
@@ -442,7 +454,7 @@ function LanguageSwitch({ lang, onLang, className }: { lang: Lang; onLang: (lang
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Language"
+        aria-label={tx("Language")}
         className={cn("h-8 items-center gap-2 rounded-full bg-muted px-3 text-[12px] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50", className)}
       >
         <Languages className="size-3.5 text-muted-foreground" />
@@ -478,7 +490,7 @@ function ProfileMenu({
   const other: Lang = lang === "en" ? "ar" : "en";
   return (
     <DropdownMenu onOpenChange={(open) => open && setShownTheme(currentTheme())}>
-      <DropdownMenuTrigger className="flex items-center gap-2 rounded-full text-start outline-none focus-visible:ring-3 focus-visible:ring-ring/50" aria-label="Account menu">
+      <DropdownMenuTrigger className="flex items-center gap-2 rounded-full text-start outline-none focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={tx("Account menu")}>
         {profile.photo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={profile.photo} alt="" className="size-8 shrink-0 rounded-full bg-muted object-cover" />
@@ -498,7 +510,7 @@ function ProfileMenu({
         </DropdownMenuLabel>
         <DropdownMenuItem asChild>
           <Link href={profileHref}>
-            <UserRound /> Edit profile
+            <UserRound /> {tx("Edit profile")}
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onLang(other)}>
@@ -506,7 +518,7 @@ function ProfileMenu({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="flex items-center gap-1.5 text-[11px] font-normal text-subtle">
-          <Palette className="size-3.5" /> Theme
+          <Palette className="size-3.5" /> {tx("Theme")}
         </DropdownMenuLabel>
         {THEMES.map((name) => (
           <DropdownMenuItem
@@ -518,13 +530,13 @@ function ProfileMenu({
               setShownTheme(name);
             }}
           >
-            {THEME_LABELS[name]}
+            {tx(THEME_LABELS[name])}
             {theme === name ? <Check className="ms-auto size-3.5 text-subtle" /> : null}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={onLogout}>
-          <LogOut /> Log out
+          <LogOut className="rtl:-scale-x-100" /> {tx("Log out")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

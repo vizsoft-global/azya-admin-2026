@@ -1,18 +1,19 @@
+import { txKey } from "@/lib/i18n/tx";
 import { displayLabel, StoreValleyStatus } from "./status";
 
 export type IntakeTrackStep = { status: string; label: string };
 
 const happyPath: IntakeTrackStep[] = [
-  { status: StoreValleyStatus.intakeCreated, label: "Intake requested" },
-  { status: StoreValleyStatus.pickupScheduled, label: "Driver assigned" },
-  { status: StoreValleyStatus.pickupCompleted, label: "Handed to delivery partner" },
-  { status: StoreValleyStatus.verificationPassed, label: "Warehouse QC passed" },
-  { status: StoreValleyStatus.stored, label: "Stored in warehouse" },
+  { status: StoreValleyStatus.intakeCreated, label: txKey("Intake requested") },
+  { status: StoreValleyStatus.pickupScheduled, label: txKey("Driver assigned") },
+  { status: StoreValleyStatus.pickupCompleted, label: txKey("Handed to delivery partner") },
+  { status: StoreValleyStatus.verificationPassed, label: txKey("Warehouse QC passed") },
+  { status: StoreValleyStatus.stored, label: txKey("Stored in warehouse") },
 ];
 
 const failedQc: IntakeTrackStep = {
   status: StoreValleyStatus.verificationFailed,
-  label: "Warehouse QC failed",
+  label: txKey("Warehouse QC failed"),
 };
 
 export function intakeStepLabel(status: string) {

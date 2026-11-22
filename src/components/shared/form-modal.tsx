@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 
 export type FormShellProps = {
@@ -36,7 +37,7 @@ function submitHandler(onSubmit: () => void | Promise<void>) {
   };
 }
 
-function Buttons({ onOpenChange, submitting, submitLabel = "Save", cancelLabel = "Cancel", submitDisabled, footerStart }: FormShellProps) {
+function Buttons({ onOpenChange, submitting, submitLabel = tx("Save"), cancelLabel = tx("Cancel"), submitDisabled, footerStart }: FormShellProps) {
   return (
     <>
       {footerStart ? <div className="me-auto flex items-center gap-2">{footerStart}</div> : null}

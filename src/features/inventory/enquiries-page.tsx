@@ -17,15 +17,16 @@ import { useRequestActions } from "./request-actions";
 import { actionLabel, isDestructive, orderedActions, RequestDetailSheet } from "./request-detail";
 import { requestActions, requestTitle, type RequestAction } from "./requests";
 import { useDesignerNames, useRequests } from "./use-inventory-data";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 type EnquiryRow = { id: string; view: RequestView };
 
 const ENQUIRY_ACTIONS = new Set<RequestAction>(["raiseEnquiry", "cancelEnquiry", "receiveEnquiry"]);
 const STATUS_OPTIONS = [
-  { value: "all", label: "All enquiries" },
-  { value: "active", label: "Open" },
-  { value: "Cancelled", label: "Cancelled" },
-  { value: "Archived", label: "Archived" },
+  { value: "all", label: txKey("All enquiries") },
+  { value: "active", label: txKey("Still open") },
+  { value: "Cancelled", label: txKey("Cancelled") },
+  { value: "Archived", label: txKey("Archived") },
 ];
 
 /**
@@ -53,10 +54,10 @@ export function EnquiriesPage() {
   const enquiryActions = (view: RequestView) => orderedActions(new Set([...requestActions(view, scope)].filter((action) => ENQUIRY_ACTIONS.has(action))));
 
   const columns: Column<EnquiryRow>[] = [
-    { key: "enquiry", header: "Enquiry", cell: ({ view }) => <span className="font-mono text-[12px]">{view.enquiry.id}</span>, sortable: true, sortValue: ({ view }) => view.enquiry.id },
+    { key: "enquiry", header: txKey("Enquiry"), cell: ({ view }) => <span className="font-mono text-[12px]">{view.enquiry.id}</span>, sortable: true, sortValue: ({ view }) => view.enquiry.id },
     {
       key: "product",
-      header: "Product",
+      header: txKey("Product"),
       cell: ({ view }) => (
         <span className="block min-w-40 max-w-64">
           <span className="block truncate font-medium text-foreground">{view.productName || view.productId}</span>
@@ -69,12 +70,12 @@ export function EnquiriesPage() {
     },
     ...(scope.isDesigner
       ? []
-      : [{ key: "designer", header: "Designer", cell: ({ view }: EnquiryRow) => designerNames.get(view.designerUid) ?? "—", sortable: true, sortValue: ({ view }: EnquiryRow) => designerNames.get(view.designerUid) ?? "" } satisfies Column<EnquiryRow>]),
-    { key: "issue", header: "Issue", cell: ({ view }) => view.enquiry.issueType || "—", sortable: true, sortValue: ({ view }) => view.enquiry.issueType },
-    { key: "affected", header: "Affected", className: "text-end tabular-nums", cell: ({ view }) => `${view.enquiry.affectedQty} of ${view.quantity}`, sortable: true, sortValue: ({ view }) => view.enquiry.affectedQty },
-    { key: "stage", header: "Stage", cell: ({ view }) => (enquiryStageLabel(view) ? <StatusBadge value={enquiryStageLabel(view)} /> : "—"), sortable: true, sortValue: ({ view }) => enquiryStageLabel(view) },
-    { key: "status", header: "Status", cell: ({ view }) => <StatusBadge value={view.enquiry.status} label={view.enquiry.status === "active" ? "Open" : undefined} />, sortable: true, sortValue: ({ view }) => view.enquiry.status },
-    { key: "updated", header: "Last change", className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.updatedAt) || "—", sortable: true, sortValue: ({ view }) => view.updatedAt?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.updatedAt) },
+      : [{ key: "designer", header: txKey("Designer"), cell: ({ view }: EnquiryRow) => designerNames.get(view.designerUid) ?? "—", sortable: true, sortValue: ({ view }: EnquiryRow) => designerNames.get(view.designerUid) ?? "" } satisfies Column<EnquiryRow>]),
+    { key: "issue", header: txKey("Issue"), cell: ({ view }) => (view.enquiry.issueType ? tx(view.enquiry.issueType) : "—"), sortable: true, sortValue: ({ view }) => view.enquiry.issueType },
+    { key: "affected", header: txKey("Affected"), className: "text-end tabular-nums", cell: ({ view }) => tx("{count} of {total}", { count: view.enquiry.affectedQty, total: view.quantity }), sortable: true, sortValue: ({ view }) => view.enquiry.affectedQty },
+    { key: "stage", header: txKey("Stage"), cell: ({ view }) => (enquiryStageLabel(view) ? <StatusBadge value={enquiryStageLabel(view)} /> : "—"), sortable: true, sortValue: ({ view }) => enquiryStageLabel(view) },
+    { key: "status", header: txKey("Status"), cell: ({ view }) => <StatusBadge value={view.enquiry.status} label={view.enquiry.status === "active" ? tx("Still open") : undefined} />, sortable: true, sortValue: ({ view }) => view.enquiry.status },
+    { key: "updated", header: txKey("Last change"), className: "whitespace-nowrap", cell: ({ view }) => formatDate(view.updatedAt) || "—", sortable: true, sortValue: ({ view }) => view.updatedAt?.getTime() ?? null, exportValue: ({ view }) => formatDate(view.updatedAt) },
     {
       key: "actions",
       header: "",
@@ -85,7 +86,7 @@ export function EnquiriesPage() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${view.enquiry.id}`}>
+              <Button variant="ghost" size="icon-sm" aria-label={tx("Actions for {name}", { name: view.enquiry.id })}>
                 <EllipsisVertical />
               </Button>
             </DropdownMenuTrigger>
@@ -104,25 +105,25 @@ export function EnquiriesPage() {
 
   return (
     <div className="grid gap-3">
-      <PageHeader description="Short or damaged pieces reported on a completed restock. The affected pieces are held as unavailable until the enquiry is closed." />
+      <PageHeader description={tx("Short or damaged pieces reported on a completed restock. The affected pieces are held as unavailable until the enquiry is closed.")} />
       {canRaise.length ? (
         <section className="rounded-[14px] bg-card p-4">
-          <h3 className="text-[13px] font-semibold text-heading">Completed restocks without an enquiry</h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">Raise an enquiry if the warehouse received fewer pieces than requested, or damaged ones.</p>
+          <h3 className="text-[13px] font-semibold text-heading">{tx("Completed restocks without an enquiry")}</h3>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">{tx("Raise an enquiry if the warehouse received fewer pieces than requested, or damaged ones.")}</p>
           <ul className="mt-3 grid gap-2">
             {canRaise.slice(0, 8).map((view) => (
               <li key={view.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
                 <span className="min-w-0 text-[13px]">
                   <span className="font-medium text-foreground">{view.productName || view.productId}</span>
-                  <span className="text-muted-foreground"> · {requestTitle(view)} · {view.quantity} requested</span>
+                  <span className="text-muted-foreground"> · {tx("{id} · {count} requested", { id: requestTitle(view), count: view.quantity })}</span>
                 </span>
                 <Button size="sm" variant="outline" onClick={() => void actions.run("raiseEnquiry", view)}>
-                  Raise enquiry
+                  {tx("Raise enquiry")}
                 </Button>
               </li>
             ))}
           </ul>
-          {canRaise.length > 8 ? <p className="mt-2 text-[12px] text-muted-foreground">{canRaise.length - 8} more are listed under Stock management › Accepted.</p> : null}
+          {canRaise.length > 8 ? <p className="mt-2 text-[12px] text-muted-foreground">{tx("{count} more are listed under Stock management, in the Accepted tab.", { count: canRaise.length - 8 })}</p> : null}
         </section>
       ) : null}
       <DataTable
@@ -131,8 +132,8 @@ export function EnquiriesPage() {
         loading={loading}
         error={error || null}
         searchText={({ view }) => `${view.enquiry.id} ${view.productName} ${view.productId} ${requestTitle(view)} ${view.enquiry.issueType} ${designerNames.get(view.designerUid) ?? ""}`}
-        searchPlaceholder="Search enquiry, product or request"
-        toolbar={<FilterSelect ariaLabel="Enquiry status" value={status} onChange={setStatus} options={STATUS_OPTIONS} />}
+        searchPlaceholder={tx("Search enquiry, product or request")}
+        toolbar={<FilterSelect ariaLabel={tx("Enquiry status")} value={status} onChange={setStatus} options={STATUS_OPTIONS.map((option) => ({ value: option.value, label: tx(option.label) }))} />}
         defaultSort={{ key: "updated", dir: "desc" }}
         onRowClick={(row) => setOpenId(row.id)}
         activeRowId={openId}
@@ -140,9 +141,9 @@ export function EnquiriesPage() {
         hasMore={hasMore}
         onLoadMore={loadMore}
         exportName={scope.isDesigner ? undefined : "enquiries"}
-        noun="enquiry"
-        nounPlural="enquiries"
-        emptyState={<EmptyState title="No enquiries" description="An enquiry is raised from a completed restock when pieces are missing or damaged." compact />}
+        noun={txKey("enquiry")}
+        nounPlural={txKey("enquiries")}
+        emptyState={<EmptyState title={tx("No enquiries")} description={tx("An enquiry is raised from a completed restock when pieces are missing or damaged.")} compact />}
       />
       <RequestDetailSheet view={opened} actions={opened ? requestActions(opened, scope) : new Set()} designerName={opened && !scope.isDesigner ? designerNames.get(opened.designerUid) : undefined} onAction={(action, view) => void actions.run(action, view)} onClose={() => setOpenId(null)} />
       {actions.dialogs}

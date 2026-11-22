@@ -1,3 +1,4 @@
+import { tx } from "@/lib/i18n/tx";
 import { addressFromParts, itemsFromJson, warehouseIntakeBody } from "@/lib/store-valley/address";
 import { StoreValleyConfig } from "@/lib/store-valley/config";
 import { batchExternalRequestId, isReadyRestock } from "@/lib/store-valley/restock";
@@ -11,12 +12,12 @@ import { NOW, type AddressView, type Patch, type RequestView } from "./model";
 
 /** Why these requests cannot share one pickup, or null. */
 export function pickupBatchProblem(views: RequestView[]): string | null {
-  if (views.length === 0) return "Select at least one ready restock.";
+  if (views.length === 0) return tx("Select at least one ready restock.");
   const designers = new Set(views.map((view) => view.designerUid));
-  if (designers.size !== 1 || !views[0].designerUid) return "Designer is missing on this restock request.";
-  if (views.some((view) => !view.productRef)) return "Product is missing on this restock request.";
+  if (designers.size !== 1 || !views[0].designerUid) return tx("Designer is missing on this restock request.");
+  if (views.some((view) => !view.productRef)) return tx("Product is missing on this restock request.");
   if (views.some((view) => !isReadyRestock({ requestType: view.requestType, fulfillStatus: view.fulfillStatus }))) {
-    return "Only restocks marked ready to pick up can be added to this pickup.";
+    return tx("Only restocks marked ready to pick up can be added to this pickup.");
   }
   return null;
 }
@@ -31,8 +32,10 @@ const label = (view: RequestView) => view.requestId || view.movementLogId || vie
 export function alreadyBookedProblem(views: RequestView[]): string | null {
   const booked = views.filter((view) => view.delivery.refId !== "" || view.delivery.trackingId !== "");
   if (!booked.length) return null;
-  const names = booked.map((view) => (view.delivery.trackingId ? `${label(view)} (tracking ${view.delivery.trackingId})` : label(view))).join(", ");
-  return `A pickup is already booked for ${names}. Nothing was sent to the warehouse. Reload the page to see the current state.`;
+  const names = booked
+    .map((view) => (view.delivery.trackingId ? tx("{id} (tracking {trackingId})", { id: label(view), trackingId: view.delivery.trackingId }) : label(view)))
+    .join(tx(", "));
+  return tx("A pickup is already booked for {names}. Nothing was sent to the warehouse. Reload the page to see the current state.", { names });
 }
 
 /** Last check before a pickup is sent, on freshly read requests: none booked already, and all still ready. */
@@ -43,12 +46,12 @@ export function freshPickupProblem(views: RequestView[]): string | null {
 /** What is missing from a pickup or warehouse address, in the reader's words, or null. */
 export function addressProblem(address: AddressView, whose: string): string | null {
   const missing = [
-    !address.name && "contact name",
-    !address.phone && "phone number",
-    !address.line1 && "street address",
-    !address.city && "city",
+    !address.name && tx("contact name"),
+    !address.phone && tx("phone number"),
+    !address.line1 && tx("street address"),
+    !address.city && tx("city"),
   ].filter(Boolean);
-  return missing.length ? `${whose} is missing its ${missing.join(", ")}.` : null;
+  return missing.length ? tx("{whose} is missing its {fields}.", { whose, fields: missing.join(tx(", ")) }) : null;
 }
 
 export type PickupLine = {
@@ -92,13 +95,13 @@ export type PickupPlan = { externalRequestId: string; call: ProxyCall };
  * `deliveryId` is the number taken from the `delivery_id` counter.
  */
 export function planPickup(input: { deliveryId: number | string; lines: PickupLine[]; designer: PickupDesigner; warehouse: AddressView }): PickupPlan | { problem: string } {
-  if (!input.lines.length) return { problem: "Select at least one ready restock." };
-  const pickupProblem = addressProblem(input.designer.pickup, "The designer's pickup address");
-  if (pickupProblem) return { problem: `${pickupProblem} Complete it on the designer's profile, then create the pickup again.` };
-  const warehouseProblem = addressProblem(input.warehouse, "The warehouse address in company settings");
+  if (!input.lines.length) return { problem: tx("Select at least one ready restock.") };
+  const pickupProblem = addressProblem(input.designer.pickup, tx("The designer's pickup address"));
+  if (pickupProblem) return { problem: tx("{problem} Complete it on the designer's profile, then create the pickup again.", { problem: pickupProblem }) };
+  const warehouseProblem = addressProblem(input.warehouse, tx("The warehouse address in company settings"));
   if (warehouseProblem) return { problem: warehouseProblem };
   const designerId = input.designer.designerId.trim();
-  if (!designerId) return { problem: "This designer has no designer ID on their profile, so the warehouse cannot be told whose stock this is." };
+  if (!designerId) return { problem: tx("This designer has no designer ID on their profile, so the warehouse cannot be told whose stock this is.") };
 
   const pickup = input.designer.pickup;
   const externalRequestId = `INT-${batchExternalRequestId(String(input.deliveryId))}`;
@@ -137,11 +140,11 @@ export function planPickup(input: { deliveryId: number | string; lines: PickupLi
 export type ProxyResult = { status?: unknown; body?: unknown; pickup_otp?: unknown };
 
 /** Reads the proxy's answer: the warehouse tracking id and the pickup OTP, or what went wrong. */
-export function readPickupResult(result: ProxyResult): { ok: true; trackingId: string; pickupOtp: string } | { ok: false; message: string } {
+export function readPickupResult(result: ProxyResult, refused = tx("The warehouse did not accept the pickup request.")): { ok: true; trackingId: string; pickupOtp: string } | { ok: false; message: string } {
   const status = typeof result.status === "number" ? result.status : 500;
   const body = result.body && typeof result.body === "object" ? (result.body as Record<string, unknown>) : {};
   if (status < 200 || status >= 300) {
-    return { ok: false, message: typeof body.message === "string" && body.message ? body.message : "The warehouse did not accept the pickup request." };
+    return { ok: false, message: typeof body.message === "string" && body.message ? body.message : refused };
   }
   const trackingId = String(body.order_id ?? body.request_id ?? body.delivery_order_id ?? "");
   const pickupOtp = String(result.pickup_otp ?? body.pickup_otp ?? "");
@@ -203,6 +206,6 @@ export function pickupRequestPatch(input: {
 export function pickupCreatedMessage(pickupOtp: string) {
   const otp = pickupOtp.trim();
   return otp
-    ? `Pickup request created. Tell the driver this OTP: ${otp}`
-    : "Pickup request created. The warehouse will collect the selected products in one trip.";
+    ? tx("Pickup request created. Tell the driver this OTP: {otp}", { otp })
+    : tx("Pickup request created. The warehouse will collect the selected products in one trip.");
 }

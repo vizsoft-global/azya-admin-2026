@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { formatMoney, toNumber } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
 import { LINE_STATE_LABEL, LINE_STATE_TONE, lineImage, lineMeasurements, lineName, lineQty, lineSku, lineState, paymentLabel, text, type Dict } from "./model";
 
@@ -24,7 +25,7 @@ export function Section({ title, description, actions, children, className }: { 
   );
 }
 
-/** Filter chips with a count, used as tabs above a list. */
+/** Filter chips with a count, used as tabs above a list. Labels are English keys and are translated here. */
 export function CountTabs<T extends string>({ tabs, value, onChange, counts }: { tabs: { value: T; label: string }[]; value: T; onChange: (value: T) => void; counts?: Partial<Record<T, number>> }) {
   return (
     <div role="tablist" className="flex flex-wrap gap-2">
@@ -37,7 +38,7 @@ export function CountTabs<T extends string>({ tabs, value, onChange, counts }: {
           onClick={() => onChange(tab.value)}
           className={buttonVariants({ size: "sm", variant: tab.value === value ? "default" : "outline" })}
         >
-          {tab.label}
+          {tx(tab.label)}
           {counts && counts[tab.value] != null ? <span className="tabular-nums opacity-70">{counts[tab.value]}</span> : null}
         </button>
       ))}
@@ -47,12 +48,12 @@ export function CountTabs<T extends string>({ tabs, value, onChange, counts }: {
 
 export function PaymentBadge({ status }: { status: unknown }) {
   const label = paymentLabel(status);
-  return <StatusBadge value={label} tone={label === "Not started" ? "neutral" : undefined} />;
+  return <StatusBadge value={label} label={tx(label)} tone={label === "Not started" ? "neutral" : undefined} />;
 }
 
 export function LineStateBadge({ order, line }: { order: Dict; line: Dict }) {
   const { state, detail } = lineState(order, line);
-  return <StatusBadge label={detail || LINE_STATE_LABEL[state]} tone={LINE_STATE_TONE[state]} />;
+  return <StatusBadge label={tx(detail || LINE_STATE_LABEL[state])} tone={LINE_STATE_TONE[state]} />;
 }
 
 /** One product line: picture, name, SKU, what was ordered and, when `showPrice`, its price. */
@@ -71,8 +72,15 @@ export function LineRow({ line, showPrice, badge, children }: { line: Dict; show
       <div className="min-w-0 flex-1 basis-40">
         <p className="text-[13px] font-medium break-words text-foreground">{lineName(line)}</p>
         <p className="mt-0.5 text-[12px] text-muted-foreground">
-          {text(line.product_main_type) === "custom" ? "Custom-made" : "Ready-made"}
-          {lineSku(line) ? ` · SKU ${lineSku(line)}` : ""} · Qty {lineQty(line)}
+          {text(line.product_main_type) === "custom" ? tx("Custom-made") : tx("Ready-made")}
+          {lineSku(line) ? (
+            <>
+              {" · SKU "}
+              <bdi dir="ltr" lang="en">{lineSku(line)}</bdi>
+            </>
+          ) : null}
+          {" · "}
+          {tx("Qty {count}", { count: lineQty(line) })}
         </p>
         {measurements.length ? <p className="mt-1 text-[12px] text-muted-foreground">{measurements.join(" · ")}</p> : null}
         {children ? <div className="mt-2 flex flex-wrap items-center gap-2">{children}</div> : null}
@@ -80,7 +88,7 @@ export function LineRow({ line, showPrice, badge, children }: { line: Dict; show
       <div className="flex shrink-0 flex-col items-end gap-1.5">
         {badge}
         {showPrice && price != null ? (
-          <p className="text-[12px] text-muted-foreground tabular-nums">
+          <p dir="ltr" lang="en" className="text-[12px] text-muted-foreground tabular-nums">
             {formatMoney(price)} × {lineQty(line)} = <span className="font-medium text-foreground">{formatMoney(line.total_price)}</span>
           </p>
         ) : null}
@@ -103,9 +111,8 @@ export function Fact({ label, children, ltr }: { label: string; children: ReactN
   return (
     <div className="flex items-baseline justify-between gap-4 py-1 text-[13px]">
       <span className="text-muted-foreground">{label}</span>
-      <span dir={ltr ? "ltr" : undefined} lang={ltr ? "en" : undefined} className="min-w-0 text-end break-words text-foreground">
-        {children}
-      </span>
+      {/* The left-to-right run sits inside the value, so the value itself still aligns to the end of the row in Arabic. */}
+      <span className="min-w-0 text-end break-words text-foreground">{ltr ? <bdi dir="ltr" lang="en">{children}</bdi> : children}</span>
     </div>
   );
 }

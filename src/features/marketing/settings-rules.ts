@@ -1,5 +1,6 @@
 import { getPath } from "@/lib/object-path";
 import { roundMoney, toNumber } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 
 /*
  * The Settings screen edits one record: `settings` where `type == "Company"`.
@@ -59,12 +60,12 @@ export const CATALOGUE_MODE = "settings_secret_feature.settings_catllog_feature"
 
 /** Countries the warehouse can be in, with the two-letter code stored beside the name. */
 export const WAREHOUSE_COUNTRIES = [
-  { value: "Kuwait", label: "Kuwait", iso: "KW" },
-  { value: "Saudi Arabia", label: "Saudi Arabia", iso: "SA" },
-  { value: "United Arab Emirates", label: "United Arab Emirates", iso: "AE" },
-  { value: "Qatar", label: "Qatar", iso: "QA" },
-  { value: "Bahrain", label: "Bahrain", iso: "BH" },
-  { value: "Oman", label: "Oman", iso: "OM" },
+  { value: "Kuwait", label: txKey("Kuwait"), iso: "KW" },
+  { value: "Saudi Arabia", label: txKey("Saudi Arabia"), iso: "SA" },
+  { value: "United Arab Emirates", label: txKey("United Arab Emirates"), iso: "AE" },
+  { value: "Qatar", label: txKey("Qatar"), iso: "QA" },
+  { value: "Bahrain", label: txKey("Bahrain"), iso: "BH" },
+  { value: "Oman", label: txKey("Oman"), iso: "OM" },
 ];
 
 export function countryIso(country: string) {
@@ -74,122 +75,122 @@ export function countryIso(country: string) {
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     key: "company",
-    title: "Company details",
-    description: "Contact details and legal text the customer app shows.",
+    title: txKey("Company details"),
+    description: txKey("Contact details and legal text the customer app shows."),
     permissions: ["settings_company_settings"],
     fields: [
-      { path: `${COMPANY}.company_name`, label: "Company name", kind: "text", maxLength: 30 },
-      { path: `${COMPANY}.company_website`, label: "Website", kind: "url" },
-      { path: `${COMPANY}.contact_email`, label: "Contact email", kind: "email", maxLength: 40 },
-      { path: `${COMPANY}.contact_form_url`, label: "Contact form link", kind: "url" },
-      { path: `${COMPANY}.phone_number`, label: "Phone number", kind: "tel", maxLength: 12 },
+      { path: `${COMPANY}.company_name`, label: txKey("Company name"), kind: "text", maxLength: 30 },
+      { path: `${COMPANY}.company_website`, label: txKey("Website"), kind: "url" },
+      { path: `${COMPANY}.contact_email`, label: txKey("Contact email"), kind: "email", maxLength: 40 },
+      { path: `${COMPANY}.contact_form_url`, label: txKey("Contact form link"), kind: "url" },
+      { path: `${COMPANY}.phone_number`, label: txKey("Phone number"), kind: "tel", maxLength: 12 },
       { path: `${COMPANY}.whatsapp`, label: "WhatsApp", kind: "tel" },
-      { path: `${COMPANY}.address`, label: "Address", kind: "text", wide: true },
+      { path: `${COMPANY}.address`, label: txKey("Address"), kind: "text", wide: true },
       { path: `${COMPANY}.social_media_facebook`, label: "Facebook", kind: "url" },
       { path: `${COMPANY}.social_media_instagram`, label: "Instagram", kind: "url" },
       { path: `${COMPANY}.social_media_linkedin`, label: "LinkedIn", kind: "url" },
       { path: `${COMPANY}.social_media_twitter`, label: "Twitter / X", kind: "url" },
-      { path: `${COMPANY}.privacy_policy`, label: "Privacy policy", kind: "textarea", wide: true },
-      { path: `${COMPANY}.terms_condition`, label: "Terms and conditions", kind: "textarea", wide: true },
-      { path: `${COMPANY}.disclaimer`, label: "Disclaimer", kind: "textarea", wide: true },
+      { path: `${COMPANY}.privacy_policy`, label: txKey("Privacy policy"), kind: "textarea", wide: true },
+      { path: `${COMPANY}.terms_condition`, label: txKey("Terms and conditions"), kind: "textarea", wide: true },
+      { path: `${COMPANY}.disclaimer`, label: txKey("Disclaimer"), kind: "textarea", wide: true },
     ],
   },
   {
     key: "warehouse",
-    title: "Warehouse address",
-    description: "Where parcels are collected from. Shipping labels and restock pickups use this address.",
+    title: txKey("Warehouse address"),
+    description: txKey("Where parcels are collected from. Shipping labels and restock pickups use this address."),
     permissions: ["settings_company_settings"],
     fields: [
-      { path: `${WAREHOUSE}.shipping_name`, label: "Contact name", kind: "text", required: true },
-      { path: `${WAREHOUSE}.shipping_phone`, label: "Phone number", kind: "tel", required: true },
-      { path: `${WAREHOUSE}.address_line_1`, label: "Street address", kind: "text", required: true, wide: true },
-      { path: `${WAREHOUSE}.building`, label: "Building", kind: "text" },
-      { path: `${WAREHOUSE}.block`, label: "Block", kind: "text" },
-      { path: `${WAREHOUSE}.city`, label: "City", kind: "text", required: true },
-      { path: `${WAREHOUSE}.state`, label: "Region", kind: "text" },
-      { path: `${WAREHOUSE}.country`, label: "Country", kind: "select", options: WAREHOUSE_COUNTRIES.map(({ value, label }) => ({ value, label })) },
+      { path: `${WAREHOUSE}.shipping_name`, label: txKey("Contact name"), kind: "text", required: true },
+      { path: `${WAREHOUSE}.shipping_phone`, label: txKey("Phone number"), kind: "tel", required: true },
+      { path: `${WAREHOUSE}.address_line_1`, label: txKey("Street address"), kind: "text", required: true, wide: true },
+      { path: `${WAREHOUSE}.building`, label: txKey("Building"), kind: "text" },
+      { path: `${WAREHOUSE}.block`, label: txKey("Block"), kind: "text" },
+      { path: `${WAREHOUSE}.city`, label: txKey("City"), kind: "text", required: true },
+      { path: `${WAREHOUSE}.state`, label: txKey("Region"), kind: "text" },
+      { path: `${WAREHOUSE}.country`, label: txKey("Country"), kind: "select", options: WAREHOUSE_COUNTRIES.map(({ value, label }) => ({ value, label })) },
     ],
   },
   {
     key: "shipping",
-    title: "Delivery charges",
-    description: "What customers pay for delivery at checkout. Kuwait is a flat charge; other Gulf countries are charged by weight.",
+    title: txKey("Delivery charges"),
+    description: txKey("What customers pay for delivery at checkout. Kuwait is a flat charge; other Gulf countries are charged by weight."),
     permissions: ["settings_company_settings"],
     fields: [
-      { path: `${SHIPPING}.shipping_charge_kuwait`, label: "Delivery in Kuwait", kind: "money", required: true },
-      { path: `${SHIPPING}.shipping_charge_gcc`, label: "Other Gulf countries, first half kilo", kind: "money", required: true },
-      { path: `${SHIPPING}.shipping_charge_gcc_extra`, label: "Other Gulf countries, each further half kilo", kind: "money", required: true },
+      { path: `${SHIPPING}.shipping_charge_kuwait`, label: txKey("Delivery in Kuwait"), kind: "money", required: true },
+      { path: `${SHIPPING}.shipping_charge_gcc`, label: txKey("Other Gulf countries, first half kilo"), kind: "money", required: true },
+      { path: `${SHIPPING}.shipping_charge_gcc_extra`, label: txKey("Other Gulf countries, each further half kilo"), kind: "money", required: true },
     ],
   },
   {
     key: "app-update",
-    title: "App update prompt",
-    description: "Customers on an older build than these numbers are asked to update.",
+    title: txKey("App update prompt"),
+    description: txKey("Customers on an older build than these numbers are asked to update."),
     permissions: ["settings_app_updater"],
     fields: [
-      { path: `${VERSION}.android_version_int`, label: "Latest Android build number", kind: "int", required: true },
-      { path: `${VERSION}.ios_version_int`, label: "Latest iPhone build number", kind: "int", required: true },
-      { path: `${VERSION}.dismissible_status`, label: "Customers can skip the update", kind: "switch", hint: "Off: the app cannot be used until it is updated." },
-      { path: `${VERSION}.changelog`, label: "What is new", kind: "textarea", hint: "Shown in the update prompt.", wide: true },
+      { path: `${VERSION}.android_version_int`, label: txKey("Latest Android build number"), kind: "int", required: true },
+      { path: `${VERSION}.ios_version_int`, label: txKey("Latest iPhone build number"), kind: "int", required: true },
+      { path: `${VERSION}.dismissible_status`, label: txKey("Customers can skip the update"), kind: "switch", hint: txKey("Off: the app cannot be used until it is updated.") },
+      { path: `${VERSION}.changelog`, label: txKey("What is new"), kind: "textarea", hint: txKey("Shown in the update prompt."), wide: true },
     ],
   },
   {
     key: "phone",
-    title: "Phone verification",
-    description: "How customers confirm their phone number.",
+    title: txKey("Phone verification"),
+    description: txKey("How customers confirm their phone number."),
     permissions: [],
     fields: [
-      { path: "settings_phone_otp_status", label: "Ask customers to verify their phone number", kind: "switch" },
+      { path: "settings_phone_otp_status", label: txKey("Ask customers to verify their phone number"), kind: "switch" },
       {
         path: "settings_otp_service",
-        label: "Codes are sent by",
+        label: txKey("Codes are sent by"),
         kind: "select",
         permission: "settings_payment",
         options: [
-          { value: "otpless", label: "OTPless (WhatsApp or SMS)" },
-          { value: "firebase", label: "Firebase (SMS)" },
+          { value: "otpless", label: txKey("OTPless (WhatsApp or SMS)") },
+          { value: "firebase", label: txKey("Firebase (SMS)") },
         ],
       },
     ],
   },
   {
     key: "purchases",
-    title: "In-app purchase",
-    description: "Shows the Apple in-app purchase button on iPhone.",
+    title: txKey("In-app purchase"),
+    description: txKey("Shows the Apple in-app purchase button on iPhone."),
     permissions: ["settings_catalog_mode"],
-    fields: [{ path: "settings_inapp_purchase_status", label: "Offer in-app purchase on iPhone", kind: "switch" }],
+    fields: [{ path: "settings_inapp_purchase_status", label: txKey("Offer in-app purchase on iPhone"), kind: "switch" }],
   },
   {
     key: "catalogue",
-    title: "Catalogue mode",
-    description: "Lets customers look at the shop without being able to buy.",
+    title: txKey("Catalogue mode"),
+    description: txKey("Lets customers look at the shop without being able to buy."),
     permissions: ["settings_catalog_mode"],
     fields: [
       {
         path: CATALOGUE_MODE,
-        label: "Catalogue mode",
+        label: txKey("Catalogue mode"),
         kind: "switch",
         onUnlessFalse: true,
-        hint: "On: customers can browse products, but the add-to-bag and buy buttons are hidden on every product page and product list, so nobody can order.",
+        hint: txKey("On: customers can browse products, but the add-to-bag and buy buttons are hidden on every product page and product list, so nobody can order."),
       },
     ],
   },
   {
     key: "promotions",
-    title: "Creator promotions",
-    description: "How long a custom creator promotion runs once it is approved.",
+    title: txKey("Creator promotions"),
+    description: txKey("How long a custom creator promotion runs once it is approved."),
     permissions: [],
-    fields: [{ path: "settings_custom_promotion_duration", label: "Promotion length", kind: "int", required: true, min: 1, hint: "Days" }],
+    fields: [{ path: "settings_custom_promotion_duration", label: txKey("Promotion length"), kind: "int", required: true, min: 1, hint: txKey("Days") }],
   },
   {
     key: "loyalty",
-    title: "Loyalty points",
-    description: "The rate at which spending earns points. The customer app does not show loyalty points yet, so this has no effect for customers today.",
+    title: txKey("Loyalty points"),
+    description: txKey("The rate at which spending earns points. The customer app does not show loyalty points yet, so this has no effect for customers today."),
     permissions: [],
     fields: [
-      { path: `${LOYALTY}.settings_is_loyalty_status`, label: "Loyalty points are on", kind: "switch" },
-      { path: `${LOYALTY}.settings_loyalty_rupee`, label: "For every amount spent", kind: "money", required: true },
-      { path: `${LOYALTY}.settings_loyalty_point`, label: "Points earned", kind: "int", required: true },
+      { path: `${LOYALTY}.settings_is_loyalty_status`, label: txKey("Loyalty points are on"), kind: "switch" },
+      { path: `${LOYALTY}.settings_loyalty_rupee`, label: txKey("For every amount spent"), kind: "money", required: true },
+      { path: `${LOYALTY}.settings_loyalty_point`, label: txKey("Points earned"), kind: "int", required: true },
     ],
   },
 ];
@@ -232,16 +233,16 @@ export function validateDraft(fields: SettingField[], draft: SettingsDraft): Rec
     if (field.kind === "int" || field.kind === "money") {
       const min = field.min ?? 0;
       if (value == null) {
-        if (field.required) errors[field.path] = `Enter ${field.label.toLowerCase()}.`;
-      } else if ((value as number) < min) errors[field.path] = `This cannot be less than ${min}.`;
-      else if (field.kind === "int" && !Number.isInteger(draft[field.path])) errors[field.path] = "Enter a whole number.";
+        if (field.required) errors[field.path] = tx("Enter {label}.", { label: tx(field.label).toLowerCase() });
+      } else if ((value as number) < min) errors[field.path] = tx("This cannot be less than {min}.", { min });
+      else if (field.kind === "int" && !Number.isInteger(draft[field.path])) errors[field.path] = tx("Enter a whole number.");
       continue;
     }
     if (field.kind === "switch") continue;
     const text = value as string;
-    if (field.required && !text) errors[field.path] = `Enter ${field.label.toLowerCase()}.`;
-    else if (field.maxLength && text.length > field.maxLength) errors[field.path] = `Keep this to ${field.maxLength} characters or fewer.`;
-    else if (field.kind === "email" && text && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) errors[field.path] = "This does not look like an email address.";
+    if (field.required && !text) errors[field.path] = tx("Enter {label}.", { label: tx(field.label).toLowerCase() });
+    else if (field.maxLength && text.length > field.maxLength) errors[field.path] = tx("Keep this to {max} characters or fewer.", { max: field.maxLength });
+    else if (field.kind === "email" && text && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) errors[field.path] = tx("This does not look like an email address.");
   }
   return errors;
 }
@@ -278,10 +279,17 @@ export function readLatLng(value: unknown): LatLng | null {
 /** An error message, or "" when the pair is a real place (or both are empty). */
 export function latLngError(lat: number | null, lng: number | null) {
   if (lat == null && lng == null) return "";
-  if (lat == null || lng == null) return "Enter both latitude and longitude, or leave both empty.";
-  if (lat < -90 || lat > 90) return "Latitude is between -90 and 90.";
-  if (lng < -180 || lng > 180) return "Longitude is between -180 and 180.";
+  if (lat == null || lng == null) return tx("Enter both latitude and longitude, or leave both empty.");
+  if (lat < -90 || lat > 90) return tx("Latitude is between -90 and 90.");
+  if (lng < -180 || lng > 180) return tx("Longitude is between -180 and 180.");
   return "";
+}
+
+/** Which of the two boxes a coordinate problem belongs under ("" when there is none). */
+export function latLngErrorField(lat: number | null, lng: number | null): "lat" | "lng" | "" {
+  if (!latLngError(lat, lng)) return "";
+  if (lat == null || lng == null) return "lat";
+  return lat < -90 || lat > 90 ? "lat" : "lng";
 }
 
 export function mapsLink(point: LatLng) {
@@ -367,9 +375,9 @@ export function accessModeUpdate(mode: AccessMode): Record<string, boolean> {
 }
 
 export const ACCESS_MODES: { value: AccessMode; label: string; hint: string }[] = [
-  { value: "open", label: "Open to everyone", hint: "Anyone can register and use the app." },
-  { value: "waitlist", label: "Waitlist", hint: "New customers join a waitlist and wait to be accepted." },
-  { value: "secret", label: "Secret code", hint: "Only people with an access code can get in." },
+  { value: "open", label: txKey("Open to everyone"), hint: txKey("Anyone can register and use the app.") },
+  { value: "waitlist", label: txKey("Waitlist"), hint: txKey("New customers join a waitlist and wait to be accepted.") },
+  { value: "secret", label: txKey("Secret code"), hint: txKey("Only people with an access code can get in.") },
 ];
 
 /* ---------- fields that follow another field ---------- */
@@ -402,16 +410,16 @@ export function saveConfirmation(changes: Record<string, unknown>): SaveConfirma
   const catalogue = changes[CATALOGUE_MODE];
   if (catalogue === true) {
     return {
-      title: "Turn catalogue mode on?",
-      description: "As soon as you save, the add-to-bag and buy buttons disappear for every customer, on product pages and product lists. People can still browse, but nobody can order until you turn it off again.",
-      confirmLabel: "Turn on",
+      title: tx("Turn catalogue mode on?"),
+      description: tx("As soon as you save, the add-to-bag and buy buttons disappear for every customer, on product pages and product lists. People can still browse, but nobody can order until you turn it off again."),
+      confirmLabel: tx("Turn on"),
     };
   }
   if (catalogue === false) {
     return {
-      title: "Turn catalogue mode off?",
-      description: "As soon as you save, every customer gets the add-to-bag and buy buttons back and can order again.",
-      confirmLabel: "Turn off",
+      title: tx("Turn catalogue mode off?"),
+      description: tx("As soon as you save, every customer gets the add-to-bag and buy buttons back and can order again."),
+      confirmLabel: tx("Turn off"),
     };
   }
   return null;

@@ -1,4 +1,5 @@
 import { toDate, toNumber } from "@/lib/format";
+import { tx, txKey } from "@/lib/i18n/tx";
 import { lineInScope, orderInScope, orderLinesInScope, type RoleScope } from "@/lib/role-scope";
 import { addressFromParts, addressToJson } from "@/lib/store-valley/address";
 
@@ -22,7 +23,10 @@ const lower = (value: unknown) => text(value).toLowerCase();
 export const orderLines = (order: Dict) => dicts(dict(order.order_items).cart_items);
 /** Identifies a line inside `cart_items`. Never use the array index: the pickup function rewrites the array. */
 export const lineKey = (line: Dict) => `${text(line.cart_item_id)}|${text(line.product_id)}`;
-export const lineName = (line: Dict) => text(dict(line.product_info).name) || text(line.product_id) || "Item";
+/** The product name as data: sent to Store Valley and written to CSV, so the fallback stays English. */
+export const lineDataName = (line: Dict) => text(dict(line.product_info).name) || text(line.product_id) || "Item";
+/** The product name for the screen. */
+export const lineName = (line: Dict) => text(dict(line.product_info).name) || text(line.product_id) || tx("Item");
 export const lineQty = (line: Dict) => toNumber(line.quantity) ?? 0;
 export const lineSku = (line: Dict) => text(dict(line.product_stock_info).product_sku);
 export const lineDesigner = (line: Dict) => text(line.product_designer_id);
@@ -44,7 +48,7 @@ export function isWarehouseLine(line: Dict) {
 export function lineMeasurements(line: Dict): string[] {
   if (lower(line.product_main_type) !== "custom") return [];
   const body = dict(dict(line.product_user_body_info).body_info);
-  const parts: [string, string][] = [["Height", "height"], ["Chest", "chest"], ["Waist", "waist"], ["Hips", "hips"], ["Inseam", "inseam"], ["Shoulder width", "shoulder_width"], ["Arm length", "arm_length"]];
+  const parts: [string, string][] = [[tx("Height"), "height"], [tx("Chest"), "chest"], [tx("Waist"), "waist"], [tx("Hips"), "hips"], [tx("Inseam"), "inseam"], [tx("Shoulder width"), "shoulder_width"], [tx("Arm length"), "arm_length"]];
   return parts.flatMap(([label, key]) => {
     const value = toNumber(body[key]);
     return value ? [`${label} ${value}${text(body[`${key}_unit`])}`] : [];
@@ -56,12 +60,13 @@ export function lineMeasurements(line: Dict): string[] {
 export const PAID = "CAPTURED";
 export const isPaid = (order: Dict) => text(order.payment_status) === PAID;
 
+/** The payment state in English: the key for sorting, exports and the badge colour. Show it with `tx(paymentLabel(...))`. */
 export function paymentLabel(status: unknown) {
   const value = text(status);
-  if (value === PAID) return "Paid";
-  if (value === "Initialization" || value === "PENDING") return "Pending";
-  if (value === "FAILED") return "Failed";
-  return value ? "Cancelled" : "Not started";
+  if (value === PAID) return txKey("Paid");
+  if (value === "Initialization" || value === "PENDING") return txKey("Pending");
+  if (value === "FAILED") return txKey("Failed");
+  return value ? txKey("Cancelled") : txKey("Not started");
 }
 
 /* ---------- address ---------- */
@@ -93,7 +98,7 @@ export function readAddress(raw: unknown): Address {
 export const isCompleteAddress = (address: Address) => Boolean(address.line1 && address.city && address.name && address.phone);
 
 export function addressLine(address: Address) {
-  return [address.line1, address.line2, address.block && `Block ${address.block}`, address.building && `Building ${address.building}`, address.city, address.state, address.country, address.postalCode].filter(Boolean).join(", ");
+  return [address.line1, address.line2, address.block && tx("Block {block}", { block: address.block }), address.building && tx("Building {building}", { building: address.building }), address.city, address.state, address.country, address.postalCode].filter(Boolean).join(tx(", "));
 }
 
 /** The address in the shape Store Valley takes (Kuwait block / building parsed out of the street when needed). */
@@ -139,27 +144,43 @@ export function shipments(order: Dict): Shipment[] {
 
 export const openShipmentFor = (order: Dict, productId: string) => shipments(order).find((item) => !item.cancelled && item.productIds.includes(productId));
 
-/** "out_for_delivery" / "REQUESTED" → "Out for delivery" / "Requested". */
+/** "out_for_delivery" / "REQUESTED" → "Out for delivery" / "Requested". English; show it with `statusLabel`. */
 export function statusText(status: unknown) {
   const value = lower(status).replace(/_+/g, " ");
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 }
+
+/**
+ * The statuses Store Valley, the delivery jobs and the stock reservation store, tidied
+ * by `statusText`. Listed so each has Arabic; a status not listed is shown as stored.
+ */
+export const KNOWN_STATUS_TEXTS = [
+  txKey("Requested"), txKey("Queued"), txKey("Processing"), txKey("Failed"), txKey("Cancelled"), txKey("Pending"), txKey("Confirmed"), txKey("Ready"), txKey("Assigned"),
+  txKey("Order assigned"), txKey("Out for delivery"), txKey("Outfordelivery"), txKey("Delivered"), txKey("Completed"), txKey("Returned"), txKey("Intake created"), txKey("Request created"),
+  txKey("Pickup scheduled"), txKey("Pickup completed"), txKey("Verification passed"), txKey("Verification failed"), txKey("Stored"), txKey("Return initiated"), txKey("Return completed"),
+  txKey("Reserved"), txKey("Released shipped"), txKey("Released cancelled"), txKey("Stock failed"), txKey("None"), txKey("Verified"), txKey("Not verified"),
+  txKey("Incomplete address"), txKey("Incomplete pickup address"), txKey("Missing designer id"), txKey("No warehouse lines"), txKey("No pickup items"), txKey("Store valley error"),
+  txKey("Conflict"), txKey("Order not found"), txKey("Error"), txKey("Out of stock"),
+];
+
+/** A stored status for display, in the panel's language. */
+export const statusLabel = (status: unknown) => tx(statusText(status));
 
 /* ---------- where a line is in fulfilment ---------- */
 
 export type LineState = "awaiting_payment" | "stock_failed" | "needs_shipping" | "queued" | "request_failed" | "with_designer" | "ready_for_pickup" | "in_delivery" | "delivered" | "cancelled";
 
 export const LINE_STATE_LABEL: Record<LineState, string> = {
-  awaiting_payment: "Awaiting payment",
-  stock_failed: "Stock not reserved",
-  needs_shipping: "Needs shipping",
-  queued: "Delivery request queued",
-  request_failed: "Delivery request failed",
-  with_designer: "With designer",
-  ready_for_pickup: "Ready for pickup",
-  in_delivery: "In delivery",
-  delivered: "Delivered",
-  cancelled: "Cancelled",
+  awaiting_payment: txKey("Awaiting payment"),
+  stock_failed: txKey("Stock not reserved"),
+  needs_shipping: txKey("Needs shipping"),
+  queued: txKey("Delivery request queued"),
+  request_failed: txKey("Delivery request failed"),
+  with_designer: txKey("With designer"),
+  ready_for_pickup: txKey("Ready for pickup"),
+  in_delivery: txKey("In delivery"),
+  delivered: txKey("Delivered"),
+  cancelled: txKey("Cancelled"),
 };
 
 export const LINE_STATE_TONE: Record<LineState, "success" | "warning" | "danger" | "info" | "progress" | "neutral"> = {
@@ -188,8 +209,8 @@ export function lineState(order: Dict, line: Dict): { state: LineState; detail: 
   const pickup = linePickup(line);
   const status = lower(pickup.status);
   if (status === "cancelled") return { state: "cancelled", detail: "" };
-  if (status === "processing" && text(pickup.delivery_tracking_id)) return { state: "in_delivery", detail: "Pickup requested" };
-  if (status === "recevied" || status === "received") return { state: "in_delivery", detail: "Received from designer" };
+  if (status === "processing" && text(pickup.delivery_tracking_id)) return { state: "in_delivery", detail: txKey("Pickup requested") };
+  if (status === "recevied" || status === "received") return { state: "in_delivery", detail: txKey("Received from designer") };
   if (status === "ready to pickup" || status === "retry") {
     const request = lower(order.custom_shipping_request_status);
     if (request === "failed") return { state: "request_failed", detail: "" };
@@ -203,12 +224,12 @@ export function lineState(order: Dict, line: Dict): { state: LineState; detail: 
 export type QueueBucket = "failed" | "needs_shipping" | "with_designer" | "ready_for_pickup" | "in_delivery" | "delivered";
 
 export const QUEUE_BUCKETS: { value: QueueBucket; label: string; hint: string }[] = [
-  { value: "failed", label: "Failed", hint: "Stock could not be reserved or the delivery request was refused." },
-  { value: "needs_shipping", label: "Needs shipping", hint: "Paid warehouse items with no delivery request yet." },
-  { value: "with_designer", label: "With designer", hint: "Paid items the designer has not marked ready." },
-  { value: "ready_for_pickup", label: "Ready for pickup", hint: "Marked ready by the designer, pickup not booked yet." },
-  { value: "in_delivery", label: "In delivery", hint: "A delivery or pickup request is open." },
-  { value: "delivered", label: "Delivered", hint: "Every request for these items is delivered." },
+  { value: "failed", label: txKey("Failed"), hint: txKey("Stock could not be reserved or the delivery request was refused.") },
+  { value: "needs_shipping", label: txKey("Needs shipping"), hint: txKey("Paid warehouse items with no delivery request yet.") },
+  { value: "with_designer", label: txKey("With designer"), hint: txKey("Paid items the designer has not marked ready.") },
+  { value: "ready_for_pickup", label: txKey("Ready for pickup"), hint: txKey("Marked ready by the designer, pickup not booked yet.") },
+  { value: "in_delivery", label: txKey("In delivery"), hint: txKey("A delivery or pickup request is open.") },
+  { value: "delivered", label: txKey("Delivered"), hint: txKey("Every request for these items is delivered.") },
 ];
 
 const BUCKET_OF: Partial<Record<LineState, QueueBucket>> = {
@@ -269,17 +290,17 @@ export type StatusChoice = "all" | "paid" | "unpaid" | "with_designer" | "ready_
 export function statusChoices(scope: RoleScope): { value: StatusChoice; label: string }[] {
   if (scope.isDesigner) {
     return [
-      { value: "all", label: "All orders" },
-      { value: "with_designer", label: "To prepare" },
-      { value: "ready_for_pickup", label: "Ready for pickup" },
-      { value: "in_delivery", label: "In delivery" },
-      { value: "delivered", label: "Delivered" },
+      { value: "all", label: tx("All orders") },
+      { value: "with_designer", label: tx("To prepare") },
+      { value: "ready_for_pickup", label: tx("Ready for pickup") },
+      { value: "in_delivery", label: tx("In delivery") },
+      { value: "delivered", label: tx("Delivered") },
     ];
   }
   return [
-    { value: "all", label: "All payments" },
-    { value: "paid", label: "Paid" },
-    { value: "unpaid", label: "Unpaid" },
+    { value: "all", label: tx("All payments") },
+    { value: "paid", label: tx("Paid") },
+    { value: "unpaid", label: tx("Unpaid") },
   ];
 }
 
@@ -293,12 +314,12 @@ export function matchesStatus(scope: RoleScope, order: Dict, choice: StatusChoic
 export type DateChoice = "all" | "today" | "yesterday" | "week" | "month" | "custom";
 
 export const DATE_CHOICES: { value: DateChoice; label: string }[] = [
-  { value: "all", label: "Any date" },
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Yesterday" },
-  { value: "week", label: "This week" },
-  { value: "month", label: "This month" },
-  { value: "custom", label: "Custom range" },
+  { value: "all", label: txKey("Any date") },
+  { value: "today", label: txKey("Today") },
+  { value: "yesterday", label: txKey("Yesterday") },
+  { value: "week", label: txKey("This week") },
+  { value: "month", label: txKey("This month") },
+  { value: "custom", label: txKey("Custom range") },
 ];
 
 const dayStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -382,13 +403,13 @@ export function canMarkReady(scope: RoleScope, order: Dict, line: Dict) {
  */
 export function withLineReady(cartItems: Dict[], key: string, pickupAddress: unknown, now: unknown): { items: Dict[] } | { error: string } {
   const index = cartItems.findIndex((line) => lineKey(line) === key);
-  if (index < 0) return { error: "That item is no longer on the order. Reload and try again." };
+  if (index < 0) return { error: tx("That item is no longer on the order. Reload and try again.") };
   const line = cartItems[index];
-  if (isWarehouseLine(line)) return { error: "This item ships from the warehouse, so there is nothing to collect." };
+  if (isWarehouseLine(line)) return { error: tx("This item ships from the warehouse, so there is nothing to collect.") };
   const pickup = linePickup(line);
-  if (text(pickup.delivery_tracking_id)) return { error: "A pickup is already booked for this item." };
-  if (lower(pickup.status) === "ready to pickup") return { error: "This item is already marked ready." };
-  if (!isCompleteAddress(readAddress(pickupAddress))) return { error: "Your pickup address needs a street, city, contact name and phone number. Complete it in your profile first." };
+  if (text(pickup.delivery_tracking_id)) return { error: tx("A pickup is already booked for this item.") };
+  if (lower(pickup.status) === "ready to pickup") return { error: tx("This item is already marked ready.") };
+  if (!isCompleteAddress(readAddress(pickupAddress))) return { error: tx("Your pickup address needs a street, city, contact name and phone number. Complete it in your profile first.") };
   const items = cartItems.slice();
   items[index] = { ...line, product_pickup_info: { ...pickup, created_at: now, status: "Ready to Pickup", pickup_address: pickupAddress } };
   return { items };
@@ -416,8 +437,8 @@ export function withShipmentCancelled(order: Dict, trackingId: string): Dict | n
 
 /** The two things releasing reserved stock can mean. The server treats any other reason as "cancelled". */
 export const RELEASE_CHOICES = [
-  { value: "shipped", label: "The items have left the warehouse", effect: "Reserved units are taken off the reservation and stay out of sellable stock. Use this when the parcel was handed over outside the normal flow." },
-  { value: "cancelled", label: "The order will not be shipped", effect: "Reserved units go back on sale and any delivery request still waiting in the queue is cancelled. Use this when the order is being cancelled by hand." },
+  { value: "shipped", label: txKey("The items have left the warehouse"), effect: txKey("Reserved units are taken off the reservation and stay out of sellable stock. Use this when the parcel was handed over outside the normal flow.") },
+  { value: "cancelled", label: txKey("The order will not be shipped"), effect: txKey("Reserved units go back on sale and any delivery request still waiting in the queue is cancelled. Use this when the order is being cancelled by hand.") },
 ] as const;
 export type ReleaseReason = (typeof RELEASE_CHOICES)[number]["value"];
 
@@ -463,10 +484,15 @@ export function retryPlan(order: Dict, jobs: Job[]): RetryPlan {
 
 /** What a retry actually set in motion. The function reports no counts, so this is said from the plan. */
 export function describeRetry(plan: RetryPlan) {
-  if (plan.kind === "none") return "Nothing was retried: no request has failed and no item is waiting for one.";
+  if (plan.kind === "none") return tx("Nothing was retried: no request has failed and no item is waiting for one.");
   const count = plan.kind === "jobs" ? plan.jobIds.length : plan.failed;
-  if (plan.kind === "jobs") return `${count} failed pickup request${count === 1 ? " was" : "s were"} queued again. The warehouse delivery was left alone because its stock is no longer reserved.`;
-  return count ? `${count} failed request${count === 1 ? " was" : "s were"} queued again. This page updates when Store Valley answers.` : "No request had failed. The server was asked to request delivery for the items that have none.";
+  if (plan.kind === "jobs") {
+    return count === 1
+      ? tx("1 failed pickup request was queued again. The warehouse delivery was left alone because its stock is no longer reserved.")
+      : tx("{count} failed pickup requests were queued again. The warehouse delivery was left alone because its stock is no longer reserved.", { count });
+  }
+  if (!count) return tx("No request had failed. The server was asked to request delivery for the items that have none.");
+  return count === 1 ? tx("1 failed request was queued again. This page updates when Store Valley answers.") : tx("{count} failed requests were queued again. This page updates when Store Valley answers.", { count });
 }
 
 /**
@@ -477,7 +503,7 @@ export function describeRetry(plan: RetryPlan) {
 export function releaseBlock(jobs: Job[]) {
   const retrying = failedWarehouseJobs(jobs).find((job) => job.attempts < JOB_MAX_ATTEMPTS);
   if (!retrying) return "";
-  return `The server is still retrying the delivery request for this order (attempt ${retrying.attempts} of ${JOB_MAX_ATTEMPTS}; it tries again every five minutes). Releasing the stock would not stop it, so the order could still ship. Wait until the request succeeds or stops, then release.`;
+  return tx("The server is still retrying the delivery request for this order (attempt {attempts} of {max}; it tries again every five minutes). Releasing the stock would not stop it, so the order could still ship. Wait until the request succeeds or stops, then release.", { attempts: retrying.attempts, max: JOB_MAX_ATTEMPTS });
 }
 
 export type CallOutcome = { ok: boolean; message: string };
@@ -486,18 +512,19 @@ export type CallOutcome = { ok: boolean; message: string };
 export function describeReserve(result: unknown): CallOutcome {
   const data = dict(result);
   const status = text(data.status);
-  if (data.ok === true && data.skipped === true) return { ok: false, message: `Nothing was reserved: the order's stock status is ${statusText(status).toLowerCase() || "unchanged"}.` };
+  if (data.ok === true && data.skipped === true) return { ok: false, message: tx("Nothing was reserved: the order's stock status is {status}.", { status: statusLabel(status).toLowerCase() || tx("unchanged") }) };
   if (data.ok === true && status === "reserved") {
     const count = Array.isArray(data.lines) ? data.lines.length : 0;
-    return { ok: true, message: `Stock reserved${count ? ` for ${count} product${count === 1 ? "" : "s"}` : ""}. The delivery is requested next.` };
+    if (!count) return { ok: true, message: tx("Stock reserved. The delivery is requested next.") };
+    return { ok: true, message: count === 1 ? tx("Stock reserved for 1 product. The delivery is requested next.") : tx("Stock reserved for {count} products. The delivery is requested next.", { count }) };
   }
-  return { ok: false, message: `The stock was not reserved${text(data.code) ? `: ${statusText(data.code).toLowerCase()}` : ""}.` };
+  return { ok: false, message: text(data.code) ? tx("The stock was not reserved: {reason}.", { reason: statusLabel(data.code).toLowerCase() }) : tx("The stock was not reserved.") };
 }
 
 /** What `releaseWarehouseStock` did, from its result. */
 export function describeRelease(result: unknown, reason: ReleaseReason): CallOutcome {
   const data = dict(result);
-  if (data.ok === true && data.skipped === true) return { ok: false, message: `Nothing was released: no units of this order are reserved (stock status ${statusText(data.status).toLowerCase() || "none"}).` };
-  if (data.ok === true) return { ok: true, message: reason === "cancelled" ? "Stock released and back on sale." : "Stock released as shipped." };
-  return { ok: false, message: "The stock was not released." };
+  if (data.ok === true && data.skipped === true) return { ok: false, message: tx("Nothing was released: no units of this order are reserved (stock status {status}).", { status: statusLabel(data.status).toLowerCase() || tx("none") }) };
+  if (data.ok === true) return { ok: true, message: reason === "cancelled" ? tx("Stock released and back on sale.") : tx("Stock released as shipped.") };
+  return { ok: false, message: tx("The stock was not released.") };
 }

@@ -251,6 +251,41 @@ export function warehouseIntakeBody(request: {
   return prepareWarehouseIntakeBody(body);
 }
 
+/**
+ * A warehouse delivery (`POST /orders`) exactly as the Flutter admin sends it for
+ * stock leaving the warehouse: the SDK's `DeliveryRequest.toJson()` after
+ * `StoreValleyService.createDelivery` asked for an OTP (`requires_otp_proof`
+ * true, no `delivery_otp`: the proxy generates the code).
+ */
+export function deliveryRequestToJson(request: {
+  clientOrderId: string;
+  designerId: string;
+  pickupLocationId: string;
+  deliveryAddress: StoreValleyAddress;
+  items: LogisticsItem[];
+  specialInstructions?: string;
+  orderKind?: "ready_made" | "custom_made";
+  packagingProfile: string;
+}) {
+  return {
+    client_order_id: request.clientOrderId,
+    designer_id: request.designerId,
+    pickup_location_id: request.pickupLocationId,
+    delivery_address: addressToJson(request.deliveryAddress),
+    items: request.items.map(logisticsItemToJson),
+    stops: null,
+    requires_collection: false,
+    collection_amount: null,
+    special_instructions: request.specialInstructions ?? null,
+    order_kind: request.orderKind ?? "ready_made",
+    inventory_source: "warehouse",
+    packaging_profile: request.packagingProfile,
+    requires_otp_proof: true,
+    requires_photo_proof: true,
+    metadata: null,
+  };
+}
+
 export function pickupRequestToJson(request: {
   externalRequestId: string;
   designer: { designerId: string; name?: string; pickupAddress: StoreValleyAddress };

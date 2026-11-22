@@ -1,3 +1,4 @@
+import { tx, txKey } from "@/lib/i18n/tx";
 import { roundMoney, toNumber } from "@/lib/format";
 
 /*
@@ -32,10 +33,10 @@ export function packFormFromDoc(data: Record<string, unknown>): PackForm {
 export function validatePack(form: PackForm): PackErrors {
   const errors: PackErrors = {};
   const name = form.name.trim();
-  if (!name) errors.name = "Enter a name for the pack.";
-  else if (name.length > PACK_NAME_MAX) errors.name = `Keep the name to ${PACK_NAME_MAX} characters or fewer.`;
-  if (form.credits == null || !Number.isInteger(form.credits) || form.credits < 1) errors.credits = "Enter how many try-on credits the pack gives (at least 1).";
-  if (form.price == null || form.price < 0) errors.price = "Enter the price in KWD.";
+  if (!name) errors.name = tx("Enter a name for the pack.");
+  else if (name.length > PACK_NAME_MAX) errors.name = tx("Keep the name to {max} characters or fewer.", { max: PACK_NAME_MAX });
+  if (form.credits == null || !Number.isInteger(form.credits) || form.credits < 1) errors.credits = tx("Enter how many try-on credits the pack gives (at least 1).");
+  if (form.price == null || form.price < 0) errors.price = tx("Enter the price in KWD.");
   return errors;
 }
 
@@ -74,10 +75,10 @@ export const PLAN_NAME_MAX = 40;
 
 /** Keys inside `plan_feature`, with the wording the app shows next to each tick. */
 export const PLAN_FEATURES = [
-  { key: "access_to_products", label: "Access to products" },
-  { key: "discounts", label: "Discounts" },
-  { key: "free_shipping", label: "Free shipping" },
-  { key: "premium_support", label: "Premium support" },
+  { key: "access_to_products", label: txKey("Access to products") },
+  { key: "discounts", label: txKey("Discounts") },
+  { key: "free_shipping", label: txKey("Free shipping") },
+  { key: "premium_support", label: txKey("Premium support") },
 ] as const;
 export type PlanFeatureKey = (typeof PLAN_FEATURES)[number]["key"];
 
@@ -110,10 +111,10 @@ export function planFormFromDoc(data: Record<string, unknown>): PlanForm {
 export function validatePlan(form: PlanForm): PlanErrors {
   const errors: PlanErrors = {};
   const name = form.name.trim();
-  if (!name) errors.name = "Enter a name for the plan.";
-  else if (name.length > PLAN_NAME_MAX) errors.name = `Keep the name to ${PLAN_NAME_MAX} characters or fewer.`;
-  if (form.price == null || form.price < 0) errors.price = "Enter the price in KWD.";
-  if (!form.duration.trim()) errors.duration = "Say how long the plan lasts, for example “30 days”.";
+  if (!name) errors.name = tx("Enter a name for the plan.");
+  else if (name.length > PLAN_NAME_MAX) errors.name = tx("Keep the name to {max} characters or fewer.", { max: PLAN_NAME_MAX });
+  if (form.price == null || form.price < 0) errors.price = tx("Enter the price in KWD.");
+  if (!form.duration.trim()) errors.duration = tx("Say how long the plan lasts, for example “30 days”.");
   return errors;
 }
 

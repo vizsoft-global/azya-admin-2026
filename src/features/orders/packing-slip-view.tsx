@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatDate } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import { orderLinesInScope } from "@/lib/role-scope";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { loadOptionNames } from "./data";
@@ -64,23 +65,23 @@ export function PackingSlipButton({ order }: { order: Dict }) {
   return (
     <>
       <Button variant="outline" size="sm" className="bg-card" onClick={() => setOpen(true)}>
-        <Printer /> Packing slip
+        <Printer /> {tx("Packing slip")}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Packing slip</DialogTitle>
+            <DialogTitle>{tx("Packing slip")}</DialogTitle>
             <DialogDescription>
-              {slip.audience === "designer" ? "Your items in this order, to pack for the courier. It has no customer details." : "The items and the delivery address, without prices."} Prints on A4 or a label roll.
+              {slip.audience === "designer" ? tx("Your items in this order, to pack for the courier. It has no customer details. Prints on A4 or a label roll.") : tx("The items and the delivery address, without prices. Prints on A4 or a label roll.")}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-border">
             <SlipSheet slip={slip} />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Close</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>{tx("Close")}</Button>
             <Button onClick={() => window.print()}>
-              <Printer /> Print
+              <Printer /> {tx("Print")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -106,16 +107,14 @@ function SlipSheet({ slip }: { slip: PackingSlip }) {
     <article className="azyaa-slip mx-auto w-full max-w-[190mm] p-4 text-[12px] leading-snug">
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-current pb-2">
         <div className="min-w-0">
-          <p className="text-[16px] font-semibold">Packing slip</p>
+          <p className="text-[16px] font-semibold">{tx("Packing slip")}</p>
           <p>
-            Order <bdi {...ltr} className="font-semibold">{slip.orderNumber || "—"}</bdi>
+            {tx("Order")} <bdi {...ltr} className="font-semibold">{slip.orderNumber || "—"}</bdi>
           </p>
         </div>
         <div className="text-end">
-          <p>Placed {formatDate(slip.placed) || "—"}</p>
-          <p>
-            {slip.itemCount} {slip.itemCount === 1 ? "item" : "items"} in {slip.lineCount} {slip.lineCount === 1 ? "line" : "lines"}
-          </p>
+          <p>{tx("Placed on {date}", { date: formatDate(slip.placed) || "—" })}</p>
+          <p>{tx("Items: {items} · Lines: {lines}", { items: slip.itemCount, lines: slip.lineCount })}</p>
         </div>
       </header>
 
@@ -128,7 +127,7 @@ function SlipSheet({ slip }: { slip: PackingSlip }) {
         ))}
         {slip.tracking.length ? (
           <p className="mt-1">
-            Tracking <bdi {...ltr} className="font-semibold break-all">{slip.tracking.join(", ")}</bdi>
+            {tx("Tracking")} <bdi {...ltr} className="font-semibold break-all">{slip.tracking.join(", ")}</bdi>
           </p>
         ) : null}
         {to.note ? <p className={to.missing.length ? "mt-1 border border-current p-1 font-semibold" : "mt-1"}>{to.note}</p> : null}
@@ -145,21 +144,21 @@ function SlipSheet({ slip }: { slip: PackingSlip }) {
             <div className="min-w-0 flex-1">
               <p className="font-semibold break-words">{line.name}</p>
               <p>
-                {line.kind}
+                {tx(line.kind)}
                 {line.sku ? (
                   <>
                     {" · SKU "}
                     <bdi {...ltr}>{line.sku}</bdi>
                   </>
                 ) : null}
-                {slip.audience === "staff" ? ` · ${line.from === "warehouse" ? "From the warehouse" : "Collected from the designer"}` : ""}
+                {slip.audience === "staff" ? ` · ${line.from === "warehouse" ? tx("From the warehouse") : tx("Collected from the designer")}` : ""}
               </p>
               {line.options.length ? <p className="break-words">{line.options.join(" · ")}</p> : null}
               {line.measurements.length ? <p className="break-words">{line.measurements.join(" · ")}</p> : null}
             </div>
             <p className="shrink-0 text-end text-[14px] font-semibold">
               <span aria-hidden>× </span>
-              <span className="sr-only">Quantity </span>
+              <span className="sr-only">{tx("Quantity")} </span>
               {line.quantity}
             </p>
           </li>
@@ -167,21 +166,21 @@ function SlipSheet({ slip }: { slip: PackingSlip }) {
       </ul>
 
       <p className="mt-2 font-semibold">
-        Total to pack: {slip.itemCount} {slip.itemCount === 1 ? "item" : "items"}
+        {tx("Total items to pack: {count}", { count: slip.itemCount })}
       </p>
       {slip.packedElsewhere ? (
         <p className="mt-1">
-          {slip.packedElsewhere} more of your {slip.packedElsewhere === 1 ? "items is" : "items are"} already in the warehouse and packed there.
+          {tx("Your items already in the warehouse and packed there: {count}.", { count: slip.packedElsewhere })}
         </p>
       ) : null}
 
       <section className="azyaa-slip-notes mt-4">
-        <p className="text-[11px] font-semibold tracking-wide uppercase">Notes</p>
+        <p className="text-[11px] font-semibold tracking-wide uppercase">{tx("Notes")}</p>
         <div className="h-6 border-b border-current" />
         <div className="h-6 border-b border-current" />
         <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3">
-          <p className="min-w-32 flex-1 border-b border-current pb-4">Packed by</p>
-          <p className="min-w-24 flex-1 border-b border-current pb-4">Date</p>
+          <p className="min-w-32 flex-1 border-b border-current pb-4">{tx("Packed by")}</p>
+          <p className="min-w-24 flex-1 border-b border-current pb-4">{tx("Date")}</p>
         </div>
       </section>
     </article>

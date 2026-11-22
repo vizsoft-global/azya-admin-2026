@@ -1,3 +1,4 @@
+import { tx, txKey } from "@/lib/i18n/tx";
 /*
  * Home page settings of the customer app. Everything lives inside
  * `settings_home` on the Company settings record. Banners are two lists in
@@ -10,14 +11,14 @@ export type HomeSwitch = { field: string; label: string; hint: string };
 
 /** One on/off switch per home page section. `field` is the key inside `settings_home`, spelled as stored. */
 export const HOME_SWITCHES: HomeSwitch[] = [
-  { field: "settings_is_search_status", label: "Search bar", hint: "The search box at the top of the home page." },
-  { field: "settings_is_bag_status", label: "Bag button", hint: "The shopping bag icon in the home page header." },
-  { field: "settings_is_category_widget_status", label: "Categories", hint: "The row of categories chosen below." },
-  { field: "settings_is_bannerlist_widget_status", label: "Main banner slider", hint: "The banners listed below." },
-  { field: "setting_is_creator_bannner_widget_status", label: "Creator space banner slider", hint: "Banners at the top of the creator space." },
-  { field: "settings_is_recentview_widget_status", label: "Recently viewed", hint: "Products the customer looked at last." },
-  { field: "settings_is_recommended_widget_status", label: "Recommended for you", hint: "Recommended products." },
-  { field: "settings_is_new_status", label: "Newly launched", hint: "The newest products." },
+  { field: "settings_is_search_status", label: txKey("Search bar"), hint: txKey("The search box at the top of the home page.") },
+  { field: "settings_is_bag_status", label: txKey("Bag button"), hint: txKey("The shopping bag icon in the home page header.") },
+  { field: "settings_is_category_widget_status", label: txKey("Categories"), hint: txKey("The row of categories chosen below.") },
+  { field: "settings_is_bannerlist_widget_status", label: txKey("Main banner slider"), hint: txKey("The banners listed below.") },
+  { field: "setting_is_creator_bannner_widget_status", label: txKey("Creator space banner slider"), hint: txKey("Banners at the top of the creator space.") },
+  { field: "settings_is_recentview_widget_status", label: txKey("Recently viewed"), hint: txKey("Products the customer looked at last.") },
+  { field: "settings_is_recommended_widget_status", label: txKey("Recommended for you"), hint: txKey("Recommended products.") },
+  { field: "settings_is_new_status", label: txKey("Newly launched"), hint: txKey("The newest products.") },
 ];
 
 export type BannerKind = "main" | "creator";
@@ -73,13 +74,13 @@ export type BannerErrors = Partial<Record<keyof BannerForm, string>>;
 
 export function validateBanner(form: BannerForm): BannerErrors {
   const errors: BannerErrors = {};
-  if (!form.titleEn.trim()) errors.titleEn = "Enter the title in English.";
-  else if (form.titleEn.trim().length > BANNER_TITLE_MAX) errors.titleEn = `Keep the title to ${BANNER_TITLE_MAX} characters or fewer.`;
-  if (form.titleAr.trim().length > BANNER_TITLE_MAX) errors.titleAr = `Keep the title to ${BANNER_TITLE_MAX} characters or fewer.`;
-  if (!form.subtitleEn.trim()) errors.subtitleEn = "Enter the subtitle in English.";
-  else if (form.subtitleEn.trim().length > BANNER_SUBTITLE_MAX) errors.subtitleEn = `Keep the subtitle to ${BANNER_SUBTITLE_MAX} characters or fewer.`;
-  if (form.subtitleAr.trim().length > BANNER_SUBTITLE_MAX) errors.subtitleAr = `Keep the subtitle to ${BANNER_SUBTITLE_MAX} characters or fewer.`;
-  if (!form.image) errors.image = "Choose a picture for the banner.";
+  if (!form.titleEn.trim()) errors.titleEn = tx("Enter the title in English.");
+  else if (form.titleEn.trim().length > BANNER_TITLE_MAX) errors.titleEn = tx("Keep the title to {max} characters or fewer.", { max: BANNER_TITLE_MAX });
+  if (form.titleAr.trim().length > BANNER_TITLE_MAX) errors.titleAr = tx("Keep the title to {max} characters or fewer.", { max: BANNER_TITLE_MAX });
+  if (!form.subtitleEn.trim()) errors.subtitleEn = tx("Enter the subtitle in English.");
+  else if (form.subtitleEn.trim().length > BANNER_SUBTITLE_MAX) errors.subtitleEn = tx("Keep the subtitle to {max} characters or fewer.", { max: BANNER_SUBTITLE_MAX });
+  if (form.subtitleAr.trim().length > BANNER_SUBTITLE_MAX) errors.subtitleAr = tx("Keep the subtitle to {max} characters or fewer.", { max: BANNER_SUBTITLE_MAX });
+  if (!form.image) errors.image = tx("Choose a picture for the banner.");
   return errors;
 }
 

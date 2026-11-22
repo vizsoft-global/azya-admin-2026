@@ -7,13 +7,12 @@ import { DateField, MoneyField, SelectField, TextField, TextareaField } from "@/
 import { FormModal } from "@/components/shared/form-modal";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
+import { tx } from "@/lib/i18n/tx";
 import type { RoleScope } from "@/lib/role-scope";
 import { recordPayout } from "./data";
 import { DESIGNER_RULE_TEXT, hasBankDetails, round3, type CreatorSummary, type DesignerSummary, type Partner } from "./finance";
-import { PAYMENT_METHODS, validatePayment, type PaymentErrors, type PaymentForm } from "./payouts";
-import { Money, Notice } from "./parts";
-
-const methodOptions = PAYMENT_METHODS.map((value) => ({ value, label: value }));
+import { PAYMENT_METHODS, validatePayment, type PaymentErrors, type PaymentForm, type PaymentLimitLabel } from "./payouts";
+import { Ltr, Money, Notice } from "./parts";
 
 export type PaymentTarget =
   | { partner: Partner; kind: "creator"; summary: CreatorSummary }
@@ -38,7 +37,9 @@ function Figure({ label, value, strong }: { label: string; value: number; strong
 export function RecordPaymentDialog({ target, recorder, blocked, onClose, onRecorded }: { target: PaymentTarget; recorder: RoleScope; blocked?: string; onClose: () => void; onRecorded: () => void }) {
   const { partner } = target;
   const limit = target.kind === "creator" ? target.summary.payable : target.limit;
-  const limitLabel = target.kind === "creator" ? "payable balance" : "delivered sales not yet recorded as paid";
+  const limitLabel: PaymentLimitLabel = target.kind === "creator" ? "payable balance" : "delivered sales not yet recorded as paid";
+  // The stored value stays the English text; only the label shown is translated.
+  const methodOptions = PAYMENT_METHODS.map((value) => ({ value, label: tx(value) }));
   const [form, setForm] = useState<PaymentForm>(() => ({ amount: null, method: PAYMENT_METHODS[0], reference: "", paidAt: new Date(), note: "" }));
   const [errors, setErrors] = useState<PaymentErrors>({});
   const [confirming, setConfirming] = useState(false);
@@ -57,12 +58,12 @@ export function RecordPaymentDialog({ target, recorder, blocked, onClose, onReco
     if (form.amount == null || !form.paidAt) return;
     try {
       const result = await recordPayout({ partnerDocId: partner.docId, amount: form.amount, method: form.method, reference: form.reference, paidAt: form.paidAt, note: form.note, recorder });
-      toast.success(`Payment #${result.transactionId} recorded: ${formatMoney(form.amount)} paid to ${result.name}.`);
+      toast.success(tx("Payment #{number} recorded: {amount} paid to {name}.", { number: result.transactionId, amount: formatMoney(form.amount), name: result.name }));
       onRecorded();
       onClose();
     } catch (err) {
       // ConfirmDialog shows the message and stays open; nothing was written (the write is one transaction).
-      throw err instanceof Error ? err : new Error("The payment was not recorded. Nothing was changed; try again.");
+      throw err instanceof Error ? err : new Error(tx("The payment was not recorded. Nothing was changed; try again."));
     }
   }
 
@@ -75,17 +76,21 @@ export function RecordPaymentDialog({ target, recorder, blocked, onClose, onReco
       <FormModal
         open
         onOpenChange={(open) => !open && onClose()}
-        title={`Record a payment to ${partner.name || "this person"}`}
-        description="For a payment you have already made outside the admin. Nothing is sent from here."
+        title={partner.name ? tx("Record a payment to {name}", { name: partner.name }) : tx("Record a payment to this person")}
+        description={tx("For a payment you have already made outside the admin. Nothing is sent from here.")}
         onSubmit={review}
-        submitLabel="Review"
+        submitLabel={tx("Review")}
         submitDisabled={nothingToRecord || Boolean(blocked)}
         size="lg"
       >
         <div className="grid gap-4">
           <div className="rounded-lg border border-border px-3 py-2 text-[13px]">
             <p className="font-medium text-foreground">
-              {partner.name || "No name"} <span className="font-normal text-muted-foreground">· {target.kind === "creator" ? "Creator" : "Designer"}{partner.code ? ` · ${partner.code}` : ""}</span>
+              {partner.name || tx("No name")}{" "}
+              <span className="font-normal text-muted-foreground">
+                · {target.kind === "creator" ? tx("Creator") : tx("Designer")}
+                {partner.code ? <> · <Ltr>{partner.code}</Ltr></> : null}
+              </span>
             </p>
             <p className="text-muted-foreground" dir="ltr" lang="en">{partner.email}</p>
             {hasBankDetails(partner.bank) ? (
@@ -93,52 +98,57 @@ export function RecordPaymentDialog({ target, recorder, blocked, onClose, onReco
                 {[partner.bank.bankName, partner.bank.accountHolderName, partner.bank.accountNumber, partner.bank.iban].filter(Boolean).join(" · ")}
               </p>
             ) : (
-              <p className="mt-1 text-[12px] text-destructive">No bank details are on this person&apos;s record.</p>
+              <p className="mt-1 text-[12px] text-destructive">{tx("No bank details are on this person's record.")}</p>
             )}
             {partner.legacy.completed > 0 || partner.legacy.pending > 0 ? (
               <p className="mt-1 text-[12px] text-muted-foreground">
-                Old admin figures on the record, not used here: {formatMoney(partner.legacy.completed)} completed, {formatMoney(partner.legacy.pending)} pending.
+                {tx("Old admin figures on the record, not used here: {completed} completed, {pending} pending.", { completed: formatMoney(partner.legacy.completed), pending: formatMoney(partner.legacy.pending) })}
               </p>
             ) : null}
           </div>
 
           {target.kind === "creator" ? (
             <div className="grid gap-2 sm:grid-cols-3">
-              <Figure label="Commission earned" value={target.summary.earned} />
-              <Figure label="Already paid out" value={target.summary.withdrawn} />
-              <Figure label="Payable balance" value={target.summary.payable} strong />
+              <Figure label={tx("Commission earned")} value={target.summary.earned} />
+              <Figure label={tx("Already paid out")} value={target.summary.withdrawn} />
+              <Figure label={tx("Payable balance")} value={target.summary.payable} strong />
             </div>
           ) : (
             <>
               <div className="grid gap-2 sm:grid-cols-3">
-                <Figure label="Delivered sales (gross)" value={target.summary.completedSales} />
-                <Figure label="Recorded as paid" value={target.recorded} />
-                <Figure label="Most that can be recorded" value={target.limit} strong />
+                <Figure label={tx("Delivered sales (gross)")} value={target.summary.completedSales} />
+                <Figure label={tx("Recorded as paid")} value={target.recorded} />
+                <Figure label={tx("Most that can be recorded")} value={target.limit} strong />
               </div>
-              <Notice tone="warning">{DESIGNER_RULE_TEXT} Enter the amount you actually paid; it cannot be more than delivered sales not yet recorded as paid.</Notice>
+              <Notice tone="warning">
+                {tx(DESIGNER_RULE_TEXT)} {tx("Enter the amount you actually paid; it cannot be more than delivered sales not yet recorded as paid.")}
+              </Notice>
             </>
           )}
           {target.kind === "creator" && target.summary.payable < target.summary.appBalance ? (
             <Notice tone="warning">
-              The app shows a balance of {formatMoney(target.summary.appBalance)}, but {formatMoney(round3(target.summary.appBalance - target.summary.payable))} of it sits on promotions that are overdrawn or no longer on this creator&apos;s record, so it cannot be recorded here.
+              {tx("The app shows a balance of {balance}, but {blocked} of it sits on promotions that are overdrawn or no longer on this creator's record, so it cannot be recorded here.", {
+                balance: formatMoney(target.summary.appBalance),
+                blocked: formatMoney(round3(target.summary.appBalance - target.summary.payable)),
+              })}
             </Notice>
           ) : null}
           {blocked ? <Notice tone="warning">{blocked}</Notice> : null}
-          {nothingToRecord && !blocked ? <Notice>There is nothing to record for this person right now.</Notice> : null}
+          {nothingToRecord && !blocked ? <Notice>{tx("There is nothing to record for this person right now.")}</Notice> : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid content-start gap-1.5">
-              <MoneyField label="Amount paid" required value={form.amount} onChange={(value) => set("amount", value)} error={errors.amount} disabled={nothingToRecord} />
+              <MoneyField label={tx("Amount paid")} required value={form.amount} onChange={(value) => set("amount", value)} error={errors.amount} disabled={nothingToRecord} />
               {target.kind === "creator" && !nothingToRecord ? (
                 <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => set("amount", target.summary.payable)}>
-                  Use the full balance
+                  {tx("Use the full balance")}
                 </Button>
               ) : null}
             </div>
-            <DateField label="Date paid" required value={form.paidAt} onChange={(value) => set("paidAt", value)} max={new Date()} error={errors.paidAt} />
-            <SelectField label="How it was paid" required value={form.method} onChange={(value) => set("method", value)} options={methodOptions} error={errors.method} />
-            <TextField label="Reference" value={form.reference} onChange={(value) => set("reference", value)} placeholder="Bank transfer reference" maxLength={120} dir="ltr" error={errors.reference} />
-            <TextareaField label="Note" value={form.note} onChange={(value) => set("note", value)} rows={2} maxLength={500} error={errors.note} className="sm:col-span-2" />
+            <DateField label={tx("Date paid")} required value={form.paidAt} onChange={(value) => set("paidAt", value)} max={new Date()} error={errors.paidAt} />
+            <SelectField label={tx("How it was paid")} required value={form.method} onChange={(value) => set("method", value)} options={methodOptions} error={errors.method} />
+            <TextField label={tx("Reference")} value={form.reference} onChange={(value) => set("reference", value)} placeholder={tx("Bank transfer reference")} maxLength={120} dir="ltr" error={errors.reference} />
+            <TextareaField label={tx("Note")} value={form.note} onChange={(value) => set("note", value)} rows={2} maxLength={500} error={errors.note} className="sm:col-span-2" />
           </div>
         </div>
       </FormModal>
@@ -146,15 +156,17 @@ export function RecordPaymentDialog({ target, recorder, blocked, onClose, onReco
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title={`Record ${formatMoney(amount)} as paid to ${partner.name || "this person"}?`}
+        title={partner.name ? tx("Record {amount} as paid to {name}?", { amount: formatMoney(amount), name: partner.name }) : tx("Record {amount} as paid to this person?", { amount: formatMoney(amount) })}
         description={
           <>
-            This records a payment you have already made by {form.method.toLowerCase()}. It does not send any money.{" "}
-            {after != null ? `The balance ${partner.name || "the creator"} sees in the app drops from ${formatMoney(target.kind === "creator" ? target.summary.appBalance : 0)} to ${formatMoney(after)}. ` : "Designers see no balance in the app, so nothing changes for them there. "}
-            A recorded payment cannot be deleted or changed afterwards.
+            {tx("This records a payment you have already made ({method}). It does not send any money.", { method: tx(form.method) })}{" "}
+            {target.kind === "creator" && after != null
+              ? tx("The balance the creator sees in the app drops from {before} to {after}.", { before: formatMoney(target.summary.appBalance), after: formatMoney(after) })
+              : tx("Designers see no balance in the app, so nothing changes for them there.")}{" "}
+            {tx("A recorded payment cannot be deleted or changed afterwards.")}
           </>
         }
-        confirmLabel="Record payment"
+        confirmLabel={tx("Record payment")}
         onConfirm={record}
       />
     </>

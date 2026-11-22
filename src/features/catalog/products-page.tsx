@@ -21,6 +21,7 @@ import { downloadCsv, toCsv } from "@/lib/csv";
 import { getFirebase } from "@/lib/firebase";
 import { useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, formatMoney } from "@/lib/format";
+import { tx, txKey, txLang } from "@/lib/i18n/tx";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
 import { approveProduct, archiveProduct, rejectProduct } from "./product-actions";
@@ -46,22 +47,25 @@ import { useCanReview, useDesigners } from "./use-catalog";
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 const STATUS_OPTIONS = [
-  { value: "all", label: "All statuses" },
-  { value: "active", label: "Active" },
-  { value: "request", label: "Awaiting approval" },
-  { value: "inactive", label: "Inactive" },
-  { value: "draft", label: "Draft" },
-  { value: "archived", label: "Archived" },
+  { value: "all", label: txKey("All statuses") },
+  { value: "active", label: txKey("Active") },
+  { value: "request", label: txKey("Awaiting approval") },
+  { value: "inactive", label: txKey("Inactive") },
+  { value: "draft", label: txKey("Draft") },
+  { value: "archived", label: txKey("Archived") },
 ];
 
 const DATE_OPTIONS: { value: DatePreset; label: string }[] = [
-  { value: "all", label: "Any date" },
-  { value: "today", label: "Added today" },
-  { value: "yesterday", label: "Added yesterday" },
-  { value: "week", label: "Added this week" },
-  { value: "month", label: "Added this month" },
-  { value: "custom", label: "Date range" },
+  { value: "all", label: txKey("Any date") },
+  { value: "today", label: txKey("Added today") },
+  { value: "yesterday", label: txKey("Added yesterday") },
+  { value: "week", label: txKey("Added this week") },
+  { value: "month", label: txKey("Added this month") },
+  { value: "custom", label: txKey("Date range") },
 ];
+
+/** The option list with its labels in the panel's language. */
+const translated = <T extends { label: string }>(options: T[]): T[] => options.map((option) => ({ ...option, label: tx(option.label) }));
 
 export function ProductsListPage() {
   return <ProductsScreen view="list" />;
@@ -130,7 +134,7 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
   const designerOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const item of items) if (item.designerUid) seen.set(item.designerUid, item.designerName || item.designerUid.slice(0, 8));
-    return [{ value: "all", label: "All designers" }, ...[...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))];
+    return [{ value: "all", label: tx("All designers") }, ...[...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))];
   }, [items]);
 
   const open = items.find((item) => item.id === openId) ?? null;
@@ -139,17 +143,17 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
 
   async function approve(item: ProductItem) {
     const ok = await confirm({
-      title: `Approve ${item.name}?`,
-      description: "The product and its stock record become active, and customers can see it in the shop.",
-      confirmLabel: "Approve",
+      title: tx("Approve {name}?", { name: item.name }),
+      description: tx("The product and its stock record become active, and customers can see it in the shop."),
+      confirmLabel: tx("Approve"),
     });
     if (!ok) return;
     setBusyId(item.id);
     try {
       await approveProduct(item.id, item.data);
-      toast.success(`${item.name} is now live.`);
+      toast.success(tx("{name} is now live.", { name: item.name }));
     } catch (err) {
-      toast.error(`${item.name} was not approved; nothing was changed. ${message(err)}`);
+      toast.error(tx("{name} was not approved; nothing was changed. {error}", { name: item.name, error: message(err) }));
     } finally {
       setBusyId(null);
     }
@@ -157,19 +161,19 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
 
   async function archive(item: ProductItem) {
     const ok = await confirm({
-      title: `Archive ${item.name}?`,
-      description: "The product and its stock record are marked archived and leave the shop. Nothing is deleted; an admin can set the status back later.",
-      confirmLabel: "Archive",
+      title: tx("Archive {name}?", { name: item.name }),
+      description: tx("The product and its stock record are marked archived and leave the shop. Nothing is deleted; an admin can set the status back later."),
+      confirmLabel: tx("Archive"),
       destructive: true,
     });
     if (!ok) return;
     setBusyId(item.id);
     try {
       await archiveProduct(item.id, item.data);
-      toast.success(`${item.name} was archived.`);
+      toast.success(tx("{name} was archived.", { name: item.name }));
       setOpenId(null);
     } catch (err) {
-      toast.error(`${item.name} was not archived; nothing was changed. ${message(err)}`);
+      toast.error(tx("{name} was not archived; nothing was changed. {error}", { name: item.name, error: message(err) }));
     } finally {
       setBusyId(null);
     }
@@ -182,7 +186,7 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
   const columns: Column<ProductItem>[] = [
     {
       key: "name",
-      header: "Product",
+      header: tx("Product"),
       cell: (item) => (
         <span className="flex min-w-0 items-center gap-3">
           <Thumb src={item.image} className="size-10 rounded-lg" />
@@ -197,10 +201,10 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
       sortable: true,
       sortValue: (item) => item.name,
     },
-    { key: "type", header: "Type", cell: (item) => (item.type === "custom" ? "Custom" : "Ready"), sortable: true, sortValue: (item) => item.type },
+    { key: "type", header: tx("Type"), cell: (item) => (item.type === "custom" ? tx("Custom") : tx("Ready")), sortable: true, sortValue: (item) => item.type },
     {
       key: "price",
-      header: "Price",
+      header: tx("Price"),
       className: "text-end whitespace-nowrap tabular-nums",
       cell: (item) => formatMoney(item.price) || <span className="text-subtle">—</span>,
       sortable: true,
@@ -208,19 +212,19 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
     },
     {
       key: "stock",
-      header: "Stock",
+      header: tx("Stock"),
       className: "text-end tabular-nums",
       cell: (item) => (item.stock == null ? <span className="text-subtle">—</span> : <span className={cn(item.lowStock && "font-medium text-destructive")}>{item.stock}</span>),
       sortable: true,
       sortValue: (item) => item.stock,
     },
-    { key: "sales", header: "Sales", className: "text-end tabular-nums", cell: (item) => item.sales, sortable: true, sortValue: (item) => item.sales },
+    { key: "sales", header: tx("Sales"), className: "text-end tabular-nums", cell: (item) => item.sales, sortable: true, sortValue: (item) => item.sales },
     ...(scope.isDesigner
       ? []
       : [
           {
             key: "designer",
-            header: "Designer",
+            header: tx("Designer"),
             cell: (item: ProductItem) => <span className="block max-w-40 truncate">{item.designerName || <span className="text-subtle">—</span>}</span>,
             sortable: true,
             sortValue: (item: ProductItem) => item.designerName,
@@ -228,7 +232,7 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
         ]),
     {
       key: "rating",
-      header: "Rating",
+      header: tx("Rating"),
       className: "whitespace-nowrap",
       cell: (item) =>
         item.rating == null ? (
@@ -241,10 +245,10 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
       sortable: true,
       sortValue: (item) => item.rating,
     },
-    { key: "status", header: "Status", cell: (item) => <StatusBadge value={item.status} label={productStatusLabel(item.status)} />, sortable: true, sortValue: (item) => item.status },
+    { key: "status", header: tx("Status"), cell: (item) => <StatusBadge value={item.status} label={productStatusLabel(item.status)} />, sortable: true, sortValue: (item) => item.status },
     {
       key: "created",
-      header: pending ? "Added" : "Created",
+      header: pending ? tx("Added") : tx("Created"),
       className: "whitespace-nowrap",
       cell: (item) => (item.createdAt == null ? <span className="text-subtle">—</span> : formatDate(item.createdAt)),
       sortable: true,
@@ -259,10 +263,10 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
             cell: (item: ProductItem) => (
               <span className="inline-flex gap-1" onClick={(event) => event.stopPropagation()}>
                 <Button type="button" size="sm" disabled={busyId === item.id} onClick={() => void approve(item)}>
-                  <Check /> Approve
+                  <Check /> {tx("Approve")}
                 </Button>
                 <Button type="button" size="sm" variant="destructive" disabled={busyId === item.id} onClick={() => setRejectId(item.id)}>
-                  <X /> Reject
+                  <X /> {tx("Reject")}
                 </Button>
               </span>
             ),
@@ -274,12 +278,12 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
   const emptyState = (
     <EmptyState
       compact
-      title={pending ? "Nothing is waiting for approval" : items.length ? "No products match these filters" : "No products yet"}
-      description={pending ? "Products that designers add or change appear here until an admin approves or rejects them." : items.length ? "Change or clear the filters to see more." : undefined}
+      title={pending ? tx("Nothing is waiting for approval") : items.length ? tx("No products match these filters") : tx("No products yet")}
+      description={pending ? tx("Products that designers add or change appear here until an admin approves or rejects them.") : items.length ? tx("Change or clear the filters to see more.") : undefined}
       action={
         !pending && !items.length && allowed("product_add") ? (
           <Link href="/product-add" className={buttonVariants({ variant: "outline" })}>
-            Add the first product
+            {tx("Add the first product")}
           </Link>
         ) : undefined
       }
@@ -289,15 +293,15 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
   return (
     <div className="space-y-3">
       <PageHeader
-        center={<HeaderSearch value={term} onChange={setTerm} placeholder="Search products, ID, designer" />}
+        center={<HeaderSearch value={term} onChange={setTerm} placeholder={tx("Search products, ID, designer")} />}
         actions={
           <>
             <Button type="button" variant="outline" disabled={!filtered.length} onClick={exportCsv}>
-              <Download /> Export CSV
+              <Download /> {tx("Export CSV")}
             </Button>
             {!pending && allowed("product_add") ? (
               <Link href="/product-add" className={buttonVariants()}>
-                <Plus /> Add product
+                <Plus /> {tx("Add product")}
               </Link>
             ) : null}
           </>
@@ -306,26 +310,29 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
 
       {!pending ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="Products" value={overview.hasMore ? `${stats.total}+` : stats.total} hint={overview.hasMore ? "Loaded so far; there are more" : undefined} loading={overview.loading && !overviewItems.length} />
+          <StatCard label={tx("Products")} value={overview.hasMore ? `${stats.total}+` : stats.total} hint={overview.hasMore ? tx("Loaded so far; there are more") : undefined} loading={overview.loading && !overviewItems.length} />
           <StatCard
-            label="Awaiting approval"
+            label={tx("Awaiting approval")}
             value={pendingTotal ?? stats.pending}
-            hint={pendingTotal != null ? (scope.isDesigner ? "All of your products" : "All products") : partial || undefined}
+            hint={pendingTotal != null ? (scope.isDesigner ? tx("All of your products") : tx("All products")) : partial || undefined}
             href="/pending-products"
             loading={pendingTotal == null && overview.loading && !overviewItems.length}
           />
-          <StatCard label="Low on stock" value={stats.lowStock} hint={partial ? `${partial}: ready-made, at or under the alert level` : "Ready-made, at or under the alert level"} loading={inventory.loading && !inventory.rows.length} />
           <StatCard
-            label="Best seller"
-            value={<span className="text-[15px]">{stats.bestSeller ? stats.bestSeller.name : "No sales yet"}</span>}
-            hint={[stats.bestSeller ? `${stats.bestSeller.sales} sales` : "", partial].filter(Boolean).join(" · ") || undefined}
+            label={tx("Low on stock")}
+            value={stats.lowStock}
+            hint={partial ? tx("Of the {count} products loaded so far: ready-made, at or under the alert level", { count: overviewItems.length }) : tx("Ready-made, at or under the alert level")} loading={inventory.loading && !inventory.rows.length} />
+          <StatCard
+            label={tx("Best seller")}
+            value={<span className="text-[15px]">{stats.bestSeller ? stats.bestSeller.name : tx("No sales yet")}</span>}
+            hint={[stats.bestSeller ? tx("Sales: {count}", { count: stats.bestSeller.sales }) : "", partial].filter(Boolean).join(" · ") || undefined}
             loading={overview.loading && !overviewItems.length}
           />
         </div>
       ) : null}
 
       <FilterBar
-        summary={`${filtered.length}${products.hasMore ? "+" : ""} ${filtered.length === 1 ? "product" : "products"}`}
+        summary={tx("Products: {count}", { count: `${filtered.length}${products.hasMore ? "+" : ""}` })}
         active={filtersActive}
         onClear={() => {
           setStatus("all");
@@ -335,13 +342,13 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
           setTo(null);
         }}
       >
-        {pending ? null : <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} ariaLabel="Status" />}
-        {scope.isDesigner ? null : <FilterSelect value={designer} onChange={setDesigner} options={designerOptions} ariaLabel="Designer" />}
-        <FilterSelect value={preset} onChange={(value) => setPreset(value as DatePreset)} options={DATE_OPTIONS} ariaLabel="Date added" />
+        {pending ? null : <FilterSelect value={status} onChange={setStatus} options={translated(STATUS_OPTIONS)} ariaLabel={tx("Status")} />}
+        {scope.isDesigner ? null : <FilterSelect value={designer} onChange={setDesigner} options={designerOptions} ariaLabel={tx("Designer")} />}
+        <FilterSelect value={preset} onChange={(value) => setPreset(value as DatePreset)} options={translated(DATE_OPTIONS)} ariaLabel={tx("Date added")} />
         {preset === "custom" ? (
           <>
             <DateField value={from} onChange={setFrom} max={to ?? undefined} className="w-36" id="products-from" />
-            <span className="text-[12px] text-muted-foreground">to</span>
+            <span className="text-[12px] text-muted-foreground">{tx("to")}</span>
             <DateField value={to} onChange={setTo} min={from ?? undefined} className="w-36" id="products-to" />
           </>
         ) : null}
@@ -349,9 +356,11 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
 
       {products.hasMore ? (
         <p className="flex flex-wrap items-center gap-2 px-1 text-[12px] text-muted-foreground" role="status">
-          {wantedStatus !== "all" || scope.isDesigner ? `Showing the first ${items.length} matching products.` : `Showing and filtering the newest ${items.length} products only.`} Older ones are not searched or filtered until they are loaded.
+          {wantedStatus !== "all" || scope.isDesigner
+            ? tx("Showing the first {count} matching products. Older ones are not searched or filtered until they are loaded.", { count: items.length })
+            : tx("Showing and filtering the newest {count} products only. Older ones are not searched or filtered until they are loaded.", { count: items.length })}
           <Button type="button" variant="outline" size="xs" onClick={products.loadMore}>
-            Load more
+            {tx("Load more")}
           </Button>
         </p>
       ) : null}
@@ -387,7 +396,7 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
                       <span className="mt-1 flex items-end justify-between gap-2">
                         <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                           <span dir="ltr" lang="en">{item.code}</span>
-                          {item.stock != null ? <span className={cn(item.lowStock && "text-destructive")}> · {item.stock} in stock</span> : null}
+                          {item.stock != null ? <span className={cn(item.lowStock && "text-destructive")}> · {tx("{count} in stock", { count: item.stock })}</span> : null}
                         </span>
                         <span className="text-[13px] font-semibold whitespace-nowrap text-foreground">{formatMoney(item.price) || "—"}</span>
                       </span>
@@ -401,7 +410,7 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
           {products.hasMore ? (
             <div className="flex justify-center">
               <Button type="button" variant="outline" onClick={products.loadMore}>
-                Load more
+                {tx("Load more")}
               </Button>
             </div>
           ) : null}
@@ -418,7 +427,8 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
           pageSize={50}
           hasMore={products.hasMore}
           onLoadMore={products.loadMore}
-          noun="product"
+          noun={tx("product")}
+          nounPlural={tx("products")}
         />
       )}
 
@@ -437,11 +447,11 @@ function ProductsScreen({ view, pending = false }: { view: "list" | "grid"; pend
       <RejectDialog
         open={rejecting !== null}
         onOpenChange={(next) => !next && setRejectId(null)}
-        name={rejecting?.name ?? "this product"}
+        name={rejecting?.name ?? tx("this product")}
         onReject={async (reason) => {
           if (!rejecting) return;
           await rejectProduct(rejecting.id, rejecting.data, reason, scope.uid);
-          toast.success(`${rejecting.name} was rejected.`);
+          toast.success(tx("{name} was rejected.", { name: rejecting.name }));
           setOpenId(null);
         }}
       />
@@ -517,7 +527,7 @@ function ProductPreview({
         {item ? (
           <>
             <SheetHeader className="border-b border-border pe-12">
-              <SheetTitle className="truncate">{item.name}</SheetTitle>
+              <SheetTitle className="truncate">{txLang() === "ar" && item.nameAr ? item.nameAr : item.name}</SheetTitle>
               <SheetDescription className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-[12px]" dir="ltr" lang="en">
                   {item.code}
@@ -535,7 +545,7 @@ function ProductPreview({
               ) : null}
               {item.rejectReason && item.status !== "active" ? (
                 <div className="rounded-lg bg-tint-danger p-3 text-[13px]">
-                  <p className="font-medium text-foreground">Rejected{item.data.product_rejected_at ? ` on ${formatDate(item.data.product_rejected_at)}` : ""}</p>
+                  <p className="font-medium text-foreground">{item.data.product_rejected_at ? tx("Rejected on {date}", { date: formatDate(item.data.product_rejected_at) }) : tx("Rejected")}</p>
                   <p className="mt-1 whitespace-pre-wrap text-foreground">{item.rejectReason}</p>
                 </div>
               ) : null}
@@ -543,45 +553,51 @@ function ProductPreview({
                 card={false}
                 columns={2}
                 items={[
-                  { label: "Arabic name", value: item.nameAr && item.nameAr !== item.name ? item.nameAr : "" },
-                  { label: "Type", value: item.type === "custom" ? "Custom made" : "Ready made" },
-                  { label: "Designer", value: item.designerName },
-                  { label: "Price", value: formatMoney(item.price) },
-                  { label: "Compare-at price", value: formatMoney(item.comparePrice) },
+                  { label: tx("Arabic name"), value: item.nameAr && item.nameAr !== item.name ? item.nameAr : "" },
+                  { label: tx("Type"), value: item.type === "custom" ? tx("Custom made") : tx("Ready made") },
+                  { label: tx("Designer"), value: item.designerName },
+                  { label: tx("Price"), value: formatMoney(item.price) },
+                  { label: tx("Compare-at price"), value: formatMoney(item.comparePrice) },
                   { label: "SKU", value: stock.SKU == null ? "" : String(stock.SKU), mono: true, ltr: true },
-                  { label: "Can be ordered", value: item.stock == null ? "" : String(item.stock) },
-                  { label: "Sales", value: String(item.sales) },
-                  { label: "Rating", value: item.rating == null ? "" : `${item.rating} (${item.ratingCount})` },
-                  { label: "Commission", value: authorizer.is_affiliate_product === true ? `${str(String(authorizer.affiliate_commission_rate ?? 0))}% · ${String(authorizer.affiliate_commission_points ?? 0)} points` : "No affiliation" },
-                  { label: "Created", value: item.createdAt == null ? "" : formatDate(item.createdAt, true) },
-                  { label: "Updated", value: item.updatedAt == null ? "" : formatDate(item.updatedAt, true) },
-                  { label: "Short description", value: str(info.short_description), wide: true },
-                  { label: "Description", value: str(info.description), wide: true },
+                  { label: tx("Can be ordered"), value: item.stock == null ? "" : String(item.stock) },
+                  { label: tx("Sales"), value: String(item.sales) },
+                  { label: tx("Rating"), value: item.rating == null ? "" : `${item.rating} (${item.ratingCount})` },
+                  {
+                    label: tx("Commission"),
+                    value:
+                      authorizer.is_affiliate_product === true
+                        ? tx("{rate}% · {points} points", { rate: str(String(authorizer.affiliate_commission_rate ?? 0)), points: String(authorizer.affiliate_commission_points ?? 0) })
+                        : tx("No affiliation"),
+                  },
+                  { label: tx("Created"), value: item.createdAt == null ? "" : formatDate(item.createdAt, true) },
+                  { label: tx("Updated"), value: item.updatedAt == null ? "" : formatDate(item.updatedAt, true) },
+                  { label: tx("Short description"), value: str(info.short_description), wide: true },
+                  { label: tx("Description"), value: str(info.description), wide: true },
                 ]}
               />
             </div>
             <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/50 p-4">
               {mayArchive && canArchive(item.status) ? (
                 <Button type="button" variant="destructive" disabled={busy} onClick={() => onArchive(item)}>
-                  Archive
+                  {tx("Archive")}
                 </Button>
               ) : null}
               <span className="flex-1" />
               {canReview && canReject(item.status) ? (
                 <Button type="button" variant="destructive" disabled={busy} onClick={() => onReject(item)}>
-                  Reject
+                  {tx("Reject")}
                 </Button>
               ) : null}
               {canReview && canApprove(item.status) ? (
                 <Button type="button" variant="outline" disabled={busy} onClick={() => onApprove(item)}>
-                  Approve
+                  {tx("Approve")}
                 </Button>
               ) : null}
               <Link href={`/translation?type=product&id=${encodeURIComponent(item.id)}`} className={buttonVariants({ variant: "outline" })}>
-                <Languages /> Translations
+                <Languages /> {tx("Translations")}
               </Link>
               <Link href={`/product-edit?id=${encodeURIComponent(item.id)}`} className={buttonVariants()}>
-                <Pencil /> {canEdit ? "Edit" : "Open"}
+                <Pencil /> {canEdit ? tx("Edit") : tx("Open")}
               </Link>
             </div>
           </>

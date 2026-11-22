@@ -16,7 +16,7 @@ function sparkPath(points: number[]) {
     .join(" ");
 }
 
-/** Headline number for a dashboard or the top of a list page. */
+/** Headline number for a dashboard or the top of a list page. The value is isolated, so "4,821.375 KWD" keeps its order inside Arabic. */
 export function StatCard({
   label,
   value,
@@ -50,7 +50,7 @@ export function StatCard({
     <>
       <p className="text-[14px] font-medium text-foreground">{label}</p>
       <p className="mt-2 truncate text-[25px] font-semibold tracking-tight text-foreground">
-        {loading ? <span className="inline-block h-7 w-16 animate-pulse rounded bg-muted align-middle" /> : value}
+        {loading ? <span className="inline-block h-7 w-16 animate-pulse rounded bg-muted align-middle" /> : <bdi>{value}</bdi>}
       </p>
       {delta ? <p className={cn("mt-2 text-[13px]", positive === false ? "text-destructive" : "text-success")}>{delta}</p> : null}
       {hint ? <p className="mt-1 text-[12px] text-subtle">{hint}</p> : null}
