@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { adminRoutes } from "@/lib/routes";
+import { PageLoading } from "@/components/shared/page-loading";
 import { AdminPage } from "./admin-page";
 
 // Static export: prerender one HTML file per route instead of rendering on demand.
@@ -14,7 +15,7 @@ export const dynamicParams = false;
 // prerender can only tolerate when it is wrapped in a boundary.
 export default function Page() {
   return (
-    <Suspense fallback={<p className="rounded-[14px] bg-white p-6 text-sm">Loading…</p>}>
+    <Suspense fallback={<PageLoading />}>
       <AdminPage />
     </Suspense>
   );
