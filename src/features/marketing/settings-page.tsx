@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { GeoPoint, doc, runTransaction, serverTimestamp, updateDoc } from "firebase/firestore";
-import { ExternalLink, Eye, EyeOff, Settings2 } from "lucide-react";
+import { ExternalLink, Eye, EyeOff, KeyRound, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-provider";
@@ -17,17 +17,24 @@ import { Spinner } from "@/components/ui/spinner";
 import { useCompanySettings } from "@/lib/company-settings";
 import { getFirebase } from "@/lib/firebase";
 import type { Row } from "@/lib/firestore-ui";
+import { formatDate } from "@/lib/format";
 import { getPath } from "@/lib/object-path";
 import { useUnsavedChanges } from "@/lib/unsaved";
 import { cn } from "@/lib/utils";
 import { Section, errorText } from "./parts";
 import {
+  ACCESS_CODES,
+  ACCESS_CODE_TARGET,
   ACCESS_MODES,
   SETTINGS_SECTIONS,
   WAREHOUSE,
   accessMode,
+  accessCodeExpiry,
+  accessCodeUsable,
+  accessCodes,
   accessModeUpdate,
   applyPaymentDraft,
+  catalogueModeUnrecorded,
   changedLabels,
   followOnChanges,
   gatewayLabel,
@@ -40,7 +47,9 @@ import {
   primaryGatewayName,
   readLatLng,
   readSetting,
+  saveConfirmation,
   settingsChanges,
+  topUpAccessCodes,
   validateDraft,
   type AccessMode,
   type GatewayPatch,
@@ -143,6 +152,9 @@ function SectionFootnote({ section, data }: { section: SettingsSection; data: Re
     const ios = String(getPath(data, "settings_app_version_info.ios_version_string") ?? "") || "not recorded";
     return <p className="mt-3 text-[12px] text-subtle">Version names on record: Android {android}, iPhone {ios}.</p>;
   }
+  if (section.key === "catalogue" && catalogueModeUnrecorded(data)) {
+    return <p className="mt-3 text-[12px] text-destructive">This switch has never been saved on the settings record. The app treats that as on, so customers cannot order right now; turn it off and save to let them.</p>;
+  }
   if (section.key === "phone") {
     const channel = String(getPath(data, "settings_company_info.phone_otp_type") ?? "");
     return channel ? <p className="mt-3 text-[12px] text-subtle">With OTPless, codes go out by {channel}.</p> : null;
@@ -152,6 +164,7 @@ function SectionFootnote({ section, data }: { section: SettingsSection; data: Re
 
 function SettingsCard({ section, settings }: { section: SettingsSection; settings: Row }) {
   const { allowed } = useAuth();
+  const confirm = useConfirm();
   // Only what the person typed is kept here; every other field keeps following the live record.
   const [edits, setEdits] = useState<SettingsDraft>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -170,6 +183,8 @@ function SettingsCard({ section, settings }: { section: SettingsSection; setting
       toast.error(`${section.title} was not saved. Check the highlighted fields.`);
       return;
     }
+    const question = saveConfirmation(changes);
+    if (question && !(await confirm(question))) return;
     setSaving(true);
     try {
       await updateDoc(settingsRef(settings.id), { ...changes, ...followOnChanges(changes, serverTimestamp()) });
@@ -408,7 +423,7 @@ function AccessCard({ settings }: { settings: Row }) {
     <Section
       id="settings-access"
       title="Who can get into the app"
-      description={<>Access codes and waitlist requests are handled on the <Link href="/customer-waitlist" className="underline underline-offset-2">customer waitlist</Link> page.</>}
+      description={<>Waitlist requests are handled on the <Link href="/customer-waitlist" className="underline underline-offset-2">customer waitlist</Link> page. In secret code mode, the codes to hand out are listed here.</>}
       actions={<SaveBar dirty={dirty} saving={saving} onSave={() => void save()} onReset={() => setEdit(null)} />}
     >
       <div role="radiogroup" aria-label="Who can get into the app" className="grid gap-2 sm:grid-cols-3">
@@ -430,6 +445,77 @@ function AccessCard({ settings }: { settings: Row }) {
           );
         })}
       </div>
+      {stored === "secret" ? <AccessCodes settings={settings} /> : null}
     </Section>
+  );
+}
+
+/** A random number in [0, 1) from the browser's secure generator. */
+function secureRandom() {
+  const box = new Uint32Array(1);
+  crypto.getRandomValues(box);
+  return box[0] / 2 ** 32;
+}
+
+/** The codes people type to get into the app in secret-code mode. Hidden until asked for. */
+function AccessCodes({ settings }: { settings: Row }) {
+  const { scope } = useAuth();
+  const [shown, setShown] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const now = new Date();
+  const codes = accessCodes(settings.data);
+  const usable = codes.filter((code) => accessCodeUsable(code, now));
+
+  async function generate() {
+    setBusy(true);
+    try {
+      const { db } = getFirebase();
+      const ref = settingsRef(settings.id);
+      const createdBy = scope.userDocId ? doc(db, "users", scope.userDocId) : null;
+      const result = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const next = topUpAccessCodes(accessCodes(snap.data()), { now: new Date(), createdBy, random: secureRandom });
+        if (next.added.length || next.removed) tx.update(ref, { [ACCESS_CODES]: next.list });
+        return next;
+      });
+      if (!result.added.length && !result.removed) toast.success(`There are already ${ACCESS_CODE_TARGET} codes that work. No new code was needed.`);
+      else toast.success(`${result.added.length} new ${result.added.length === 1 ? "code" : "codes"} added${result.removed ? `; ${result.removed} that no longer worked ${result.removed === 1 ? "was" : "were"} removed` : ""}.`);
+      setShown(true);
+    } catch (err) {
+      toast.error(`No codes were generated: ${errorText(err)}. The list is unchanged.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-foreground">Access codes</p>
+          <p className="text-[12px] text-muted-foreground">
+            {usable.length} of {ACCESS_CODE_TARGET} codes work right now. Each code lets one person in and is then used up.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" disabled={!usable.length} aria-pressed={shown} onClick={() => setShown((on) => !on)}>
+            {shown ? <EyeOff /> : <Eye />} {shown ? "Hide codes" : "Show codes"}
+          </Button>
+          <Button size="sm" disabled={busy || usable.length >= ACCESS_CODE_TARGET} onClick={() => void generate()}>
+            {busy ? <Spinner size="sm" className="text-current" /> : <KeyRound />} Generate codes
+          </Button>
+        </div>
+      </div>
+      {shown && usable.length ? (
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {usable.map((code) => (
+            <li key={String(code.code)} className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2">
+              <span className="font-mono text-[13px] font-medium tracking-widest text-foreground" dir="ltr" lang="en">{String(code.code)}</span>
+              <span className="text-[11px] text-subtle">until {formatDate(accessCodeExpiry(code))}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
