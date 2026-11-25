@@ -3,6 +3,7 @@
 - Nothing in this panel has been tried against live data: it is covered by unit tests, type-check, lint and a production build only.
 - Database rules do not enforce roles. "A designer sees only their own records" is applied by the screens, not by the database.
 - Store Valley (warehouse and delivery) requests are built and unit-tested but have not been sent from this panel; the vendor acceptance run has not happened.
+- The Store Valley check page (`/store-valley-check`, super admin only; steps in `docs/store-valley-staging-tests.md`) has not been opened signed in. Its requests, records and pass/fail rules are unit-tested; the five staging tests themselves have not been run. Until the `storeValleyDiagnostics` function is released the page cannot tell which Store Valley system is connected or show received updates, and it warns instead of locking.
 - A failed delivery job cannot be cancelled from the browser (rules deny writes to `store_valley_delivery_jobs`), so releasing stock is refused while a failed warehouse job can still be retried by the server.
 - There is no rule for what a designer is paid from a sale, so designer balances are not computed; creator balances follow the customer app's wallet formula.
 - The customer app sells from `inventory.stock`. A restock the warehouse has stored is added to it with "Add to stock" (once per request); a super admin can also adjust it with a reason. Restocks completed before 22 Nov 2026 ask whether they were already counted.
