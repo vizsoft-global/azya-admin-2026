@@ -60,7 +60,7 @@ export const mainNav: NavSection[] = [
     icon: ShoppingBag,
     children: [
       { label: "Orders", tabs: ["orders"], hidden: ["order-details", "filterorders", "filterorders-nopage"] },
-      { label: "Shipping", tabs: ["shipping-orders"], hidden: ["create-shipping-label"] },
+      { label: "Shipping", tabs: ["shipping-orders", "store-valley-check"], hidden: ["create-shipping-label"] },
       { label: "Returns", tabs: ["return-orders", "refund"] },
     ],
   },

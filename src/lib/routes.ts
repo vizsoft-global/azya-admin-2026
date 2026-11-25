@@ -61,6 +61,7 @@ export const adminRoutes: AdminRoute[] = [
   { path: "order-details", flutterName: "Order-Details", title: "Order details", group: "Orders", permission: "order", view: "orders" },
   { path: "shipping-orders", flutterName: "ShippingOrders", title: "Fulfilment queue", group: "Orders", permission: "order", view: "orders" },
   { path: "create-shipping-label", flutterName: "Create-Shipping-Label", title: "Request shipping", group: "Orders", permission: "order", view: "orders" },
+  { path: "store-valley-check", flutterName: "StoreValleyCheck", title: "Store Valley check", group: "Orders", permission: "order", view: "orders" },
   { path: "return-orders", flutterName: "Return-Orders", title: "Returns", group: "Orders", permission: "return", view: "returns" },
   { path: "refund", flutterName: "Refund", title: "Outcomes to record", group: "Orders", permission: "return", view: "returns" },
 

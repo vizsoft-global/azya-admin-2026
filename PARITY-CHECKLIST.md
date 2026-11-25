@@ -42,6 +42,7 @@ Removed because the Flutter screens were static mock-ups with no data behind the
 | /order-details | Order-Details | order |
 | /shipping-orders | ShippingOrders | order |
 | /create-shipping-label | Create-Shipping-Label | order |
+| /store-valley-check | (new, no Flutter screen) | order, super admin only |
 | /return-orders | Return-Orders | return |
 | /refund | Refund | return |
 | /customers | Customers | customer |
