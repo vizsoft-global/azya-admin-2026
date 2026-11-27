@@ -56,7 +56,7 @@ import {
   type TestDef,
   type TestRecord,
 } from "./sv-check";
-import { askNow, cancelTestDelivery, latestDeliveries, loadEvents, lookUp, readStockNow, refreshStockCopy, removeTestRecords, runConnectionChecks, runWrongLocation, sendSignedTestUpdate, startTest, type ConnectionResult, type LookupHit } from "./sv-check-data";
+import { askNow, cancelTestDelivery, latestDeliveries, loadEvents, lookUp, moveOldCodes, readStockNow, refreshStockCopy, removeTestRecords, runConnectionChecks, runWrongLocation, sendSignedTestUpdate, startTest, type ConnectionResult, type MoveCodesResult, type LookupHit } from "./sv-check-data";
 
 const SAVED_DATA = "azyaa.sv-check.test-data";
 const message = (error: unknown) => (error instanceof Error ? error.message : tx("unknown error"));
@@ -732,6 +732,7 @@ function ToolsSection({ records, runs, run }: { records: TestRecord[]; runs: str
   const [latest, setLatest] = useState<Dict[] | null>(null);
   const [chosen, setChosen] = useState("");
   const removeRun = chosen || (runs.includes(run) ? run : (runs[0] ?? ""));
+  const [moved, setMoved] = useState<MoveCodesResult | null>(null);
 
   async function guarded(name: string, work: () => Promise<void>) {
     setBusy(name);
@@ -759,6 +760,25 @@ function ToolsSection({ records, runs, run }: { records: TestRecord[]; runs: str
       const removed = await removeTestRecords(list);
       setChosen("");
       toast.success(tx("{count} test records removed.", { count: removed }));
+    });
+  }
+
+  async function countOldCodes() {
+    await guarded("count-codes", async () => setMoved(await moveOldCodes(true)));
+  }
+
+  async function moveCodes() {
+    const sure = await confirm({
+      title: tx("Move the old codes to the private store?"),
+      description: tx("Codes saved on orders, restock requests, returns and Store Valley records are copied to the store only the back office can read, then removed from those records. Staff keep seeing them through the panel. This cannot be undone from the panel."),
+      confirmLabel: tx("Move codes"),
+      cancelLabel: tx("Cancel"),
+    });
+    if (!sure) return;
+    await guarded("move-codes", async () => {
+      const result = await moveOldCodes(false);
+      setMoved(result);
+      toast.success(tx("Old codes moved."));
     });
   }
 
@@ -822,6 +842,27 @@ function ToolsSection({ records, runs, run }: { records: TestRecord[]; runs: str
           {busy === "remove" ? tx("Removing…") : tx("Remove test records")}
         </Button>
         <span className="min-w-0 flex-1 basis-60 text-[12px] text-muted-foreground">{tx("This only deletes the panel's own test records. It does not cancel anything at Store Valley.")}</span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+        <Button variant="outline" className="bg-card" disabled={Boolean(busy)} onClick={() => void countOldCodes()}>
+          {busy === "count-codes" ? tx("Counting…") : tx("Count old codes")}
+        </Button>
+        <Button variant="outline" className="bg-card" disabled={Boolean(busy)} onClick={() => void moveCodes()}>
+          {busy === "move-codes" ? tx("Moving…") : tx("Move old codes")}
+        </Button>
+        <span className="min-w-0 flex-1 basis-60 text-[12px] text-muted-foreground">
+          {moved
+            ? tx("{state}: {logistics} Store Valley records, {orders} orders, {movements} restock requests, {returns} returns. Left alone (no tracking number): {skipped}.", {
+                state: moved.dryRun ? tx("Still holding a code") : tx("Moved"),
+                logistics: moved.logistics,
+                orders: moved.orders,
+                movements: moved.movements,
+                returns: moved.returns,
+                skipped: moved.skipped,
+              })
+            : tx("One-time step: older records still carry their code in the open. Count first, then move.")}
+        </span>
       </div>
     </Section>
   );

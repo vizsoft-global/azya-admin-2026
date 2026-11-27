@@ -222,6 +222,20 @@ export async function removeTestRecords(records: TestRecord[]) {
   return removed;
 }
 
+export type MoveCodesResult = { dryRun: boolean; logistics: number; orders: number; movements: number; returns: number; skipped: number };
+
+/**
+ * Counts (dry run) or moves the codes still saved in readable records into the
+ * private store only the back office can read. Run once after the back office
+ * and the panel that use the private store are both released.
+ */
+export async function moveOldCodes(dryRun: boolean): Promise<MoveCodesResult> {
+  const result = dict(await callFunction(DIAGNOSTICS, { action: "move_codes", dry_run: dryRun }));
+  const moved = dict(result.moved);
+  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  return { dryRun: result.dry_run !== false, logistics: count(moved.logistics), orders: count(moved.orders), movements: count(moved.movements), returns: count(moved.returns), skipped: count(result.skipped) };
+}
+
 /* ---------- tools ---------- */
 
 export type LookupHit = { route: string; label: string; answer: SvAnswer };
