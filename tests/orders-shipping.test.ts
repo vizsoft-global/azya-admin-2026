@@ -135,7 +135,9 @@ describe("recording an accepted request", () => {
   it("adds the entry and the type status for a warehouse delivery, and nothing else", () => {
     const patch = withRequestRecorded(order(), { group: requestGroups(order())[0], trackingId: "SV-1", deliveryType: "ready", deliveryRef: "delivery/x", otp: "111222", now: "NOW" });
     expect(Object.keys(patch).sort()).toEqual(["delivery_info_list", "ready_shipping_request_status", "updated_at"]);
-    expect(patch.delivery_info_list).toEqual([{ delivery_id: "SV-1", delivery_tracking_id: "SV-1", status: "REQUESTED", delivery_type: "ready", product_ids: ["P1"], delivery_ref: "delivery/x", pickup_otp: "111222", created_at: "NOW", updated_at: "NOW" }]);
+    expect(patch.delivery_info_list).toEqual([{ delivery_id: "SV-1", delivery_tracking_id: "SV-1", status: "REQUESTED", delivery_type: "ready", product_ids: ["P1"], delivery_ref: "delivery/x", has_code: true, created_at: "NOW", updated_at: "NOW" }]);
+    // The code itself never reaches the order.
+    expect(JSON.stringify(patch)).not.toContain("111222");
   });
   it("moves a designer's lines to processing with the tracking id and keeps the other lines", () => {
     const patch = withRequestRecorded(order(), { group: requestGroups(order())[1], trackingId: "DO-1", deliveryType: "custom", deliveryRef: "delivery/y", otp: "", now: "NOW" });

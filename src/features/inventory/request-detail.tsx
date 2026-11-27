@@ -11,6 +11,8 @@ import { statusLabel } from "@/lib/status";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useQueryRows } from "@/lib/firestore-ui";
+import { codeOf } from "@/lib/store-valley/codes";
+import { useCodeLookup } from "@/lib/use-codes";
 import { formatDate } from "@/lib/format";
 import { tx, txKey } from "@/lib/i18n/tx";
 import { cn } from "@/lib/utils";
@@ -20,7 +22,7 @@ import { addressLine, type RequestView } from "./model";
 import { fulfillLabel, requestTitle, type RequestAction } from "./requests";
 import { deliveryClientId, unrecordedDeliveryKind, unrecordedDeliveryNote, unrecordedTrackingId } from "./returns";
 import { awaitingStockNote, awaitsStock } from "./stock-moves";
-import { hasTracking, readLogistics, timelineView, trackingIdOf, type LogisticsView } from "./tracking";
+import { codeIdsOf, hasTracking, readLogistics, timelineView, trackingIdOf, type LogisticsView } from "./tracking";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -58,7 +60,11 @@ export function TimelinePanel({ view }: { view: RequestView }) {
   const logisticsRow = useLogistics(trackingId);
   const [live, setLive] = useState<Partial<LogisticsView>>({});
   const [busy, setBusy] = useState<"" | "refresh" | "resend">("");
-  const timeline = timelineView(view, readLogistics(logisticsRow), live);
+  const logistics = readLogistics(logisticsRow);
+  // The code is kept by the back office; it is fetched for this one request (a designer gets only their own).
+  const codeIds = codeIdsOf(view, logistics);
+  const lookup = useCodeLookup(codeIds, hasTracking(view));
+  const timeline = timelineView(view, logistics, live, codeOf("", codeIds, lookup.codes));
 
   if (!hasTracking(view)) {
     return <p className="text-[13px] text-muted-foreground">{tx("No pickup has been booked for this request yet, so there is nothing to track.")}</p>;
@@ -107,8 +113,10 @@ export function TimelinePanel({ view }: { view: RequestView }) {
       <EntityDetail card={false} columns={2} items={ids} />
       {timeline.otpLabel ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2">
-          <span className="text-[13px] font-medium text-foreground">{timeline.otpCode ? tx("Pickup OTP") : tx("OTP verified")}</span>
-          {timeline.otpCode ? <CopyValue value={timeline.otpCode} what="OTP" /> : <Check className="size-4 text-success" />}
+          <span className="text-[13px] font-medium text-foreground">{timeline.otpState === "verified" ? tx("OTP verified") : tx("Pickup OTP")}</span>
+          {timeline.otpState === "code" ? <CopyValue value={timeline.otpCode} what="OTP" /> : null}
+          {timeline.otpState === "verified" ? <Check className="size-4 text-success" /> : null}
+          {timeline.otpState === "sent" ? <span className="text-[12px] text-muted-foreground">{lookup.loading ? tx("Loading the code…") : tx("Sent to the designer. The code itself could not be loaded here.")}</span> : null}
           {timeline.canResend ? (
             <Button type="button" variant="outline" size="sm" className="ms-auto" disabled={busy !== ""} onClick={() => void resend()}>
               <Send /> {tx("Resend")}

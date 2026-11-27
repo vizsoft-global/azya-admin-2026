@@ -85,7 +85,7 @@ import {
   thresholdProblem,
   warehouseLookup,
 } from "@/features/inventory/stock";
-import { hasTracking, liveStatusPatch, readLiveTracking, readLogistics, timelineView, trackingIdOf } from "@/features/inventory/tracking";
+import { codeIdsOf, hasTracking, liveStatusPatch, readLiveTracking, readLogistics, timelineView, trackingIdOf } from "@/features/inventory/tracking";
 import { arrayUnion } from "firebase/firestore";
 import { scopeOf } from "@/lib/role-scope";
 import { deliveryRequestToJson } from "@/lib/store-valley/address";
@@ -414,7 +414,7 @@ describe("warehouse pickup", () => {
       "request_delivery_info.delivery_ref": deliveryRef,
       "request_delivery_info.delivery_id": "314",
       "request_delivery_info.delivery_tracking_id": "REQ-9",
-      "request_delivery_info.pickup_otp": "654321",
+      "request_delivery_info.has_code": true,
       "request_delivery_info.pickup_address.shipping_phone": "55512345",
       "request_delivery_info.pickup_address.address_line_1": "Street 4",
       "request_delivery_info.delivery_address.shipping_name": "Azyaa warehouse",
@@ -588,9 +588,33 @@ describe("tracking", () => {
     expect(view.steps.map((step) => [step.done, step.current])).toEqual([[true, false], [false, true], [false, false], [false, false], [false, false]]);
   });
 
+  it("never saves the code on the request, only that one exists", () => {
+    const patch = pickupRequestPatch({ deliveryRef: ref("delivery/d1"), deliveryId: 314, trackingId: "REQ-9", pickupOtp: "654321", pickup: readAddress({}), warehouse: readAddress({}), count: 1 });
+    expect(patch).not.toHaveProperty(["request_delivery_info.pickup_otp"]);
+    expect(JSON.stringify(patch)).not.toContain("654321");
+    expect(pickupRequestPatch({ deliveryRef: ref("delivery/d1"), deliveryId: 314, trackingId: "REQ-9", pickupOtp: " ", pickup: readAddress({}), warehouse: readAddress({}), count: 1 })["request_delivery_info.has_code"]).toBe(false);
+  });
+
+  it("shows a fetched code on a request that only notes one exists", () => {
+    const noted = shipping({ pickup_otp: undefined, has_code: true });
+    const logistics = readLogistics({ id: "l1", data: { status: "pickup_scheduled", request_id: "REQ-9", delivery_order_id: "DO-1", otp_sent_at: "2026-11-27" } });
+    expect(noted.delivery).toMatchObject({ pickupOtp: "", hasCode: true });
+    expect(logistics?.hasCode).toBe(true);
+    expect(codeIdsOf(noted, logistics)).toEqual(["REQ-9", "DO-1"]);
+    // Fetched: the code is shown and can be sent again.
+    expect(timelineView(noted, logistics, {}, "777888")).toMatchObject({ otpLabel: "OTP 777888", otpState: "code", otpCode: "777888", canResend: true });
+    // Not fetched (loading, refused, or not released): it still says a code was sent and offers Resend.
+    expect(timelineView(noted, logistics)).toMatchObject({ otpLabel: "Code sent", otpState: "sent", otpCode: "", canResend: true });
+    // A code an old record still holds wins over the fetched one.
+    expect(timelineView(shipping(), logistics, {}, "777888").otpCode).toBe("654321");
+    // The warehouse's record alone is enough to know a code exists.
+    expect(timelineView(shipping({ pickup_otp: undefined }), logistics).canResend).toBe(true);
+    expect(timelineView(shipping({ pickup_otp: undefined }), readLogistics({ id: "l1", data: { status: "pickup_scheduled" } }))).toMatchObject({ otpLabel: null, otpState: null, canResend: false });
+  });
+
   it("hides the code once verified and completes on stored", () => {
     const verified = timelineView(shipping({ status: "verified" }), readLogistics({ id: "l1", data: { status: "pickup_completed" } }));
-    expect(verified).toMatchObject({ otpLabel: "OTP verified", otpCode: "", canResend: false });
+    expect(verified).toMatchObject({ otpLabel: "OTP verified", otpState: "verified", otpCode: "", canResend: false });
     const stored = timelineView(shipping(), readLogistics({ id: "l1", data: { state: "stored" } }));
     expect(stored.complete).toBe(true);
     expect(stored.steps.every((step) => step.done && !step.current)).toBe(true);

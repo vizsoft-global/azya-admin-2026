@@ -527,6 +527,7 @@ export const ar: Record<string, string> = {
   "None yet": "لا شيء بعد",
   "{count} wrong attempts so far": "{count} محاولة خاطئة حتى الآن",
   "Copy the code": "نسخ الرمز",
+  "A code was sent for this request, but it could not be loaded here. Check the email it was sent to.": "أُرسل رمز لهذا الطلب، لكن تعذّر تحميله هنا. راجع البريد الإلكتروني الذي أُرسل إليه.",
   "No code is held here: the request already existed at Store Valley, or the code was not returned.": "لا يوجد رمز محفوظ هنا: الطلب كان موجودًا مسبقًا لدى Store Valley، أو لم يُرجَع الرمز.",
   "Asking…": "جارٍ السؤال…",
   "Ask Store Valley now": "اسأل Store Valley الآن",

@@ -86,5 +86,5 @@ For each test: the reference, the Store Valley ID, the final status and the stoc
 ## Afterwards
 
 - **Tools > Look up** finds any reference or Store Valley ID on Store Valley's side.
-- **Tools > Remove test records** deletes the panel's own records of a run, including the codes. It does **not** cancel anything at Store Valley. Requests of tests 1, 3, 4 and 5 can only be cancelled by Store Valley.
+- **Tools > Remove test records** deletes the panel's own records of a run. It does **not** cancel anything at Store Valley. Requests of tests 1, 3, 4 and 5 can only be cancelled by Store Valley.
 - To repeat a test, press **Start a new run**: a request cannot be created twice under the same reference.

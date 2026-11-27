@@ -12,6 +12,7 @@ import {
   outcomePatch,
   receivedPatch,
   rejectPatch,
+  returnCodeText,
   returnCounts,
   returnForScope,
   type Approver,
@@ -134,6 +135,21 @@ function fakes(options: { order?: Dict | null; existing?: SvResponse; post?: SvR
   return { deps, calls, saved, accepted };
 }
 
+describe("the pickup code of an accepted return", () => {
+  it("shows the code an old return still holds", () => {
+    expect(returnCodeText(" 123456 ", ["RET-1"], { "RET-1": "999999" })).toBe("123456");
+  });
+  it("shows the fetched code, and names the pickup when there are several codes", () => {
+    expect(returnCodeText(undefined, ["RET-1"], { "RET-1": "482913" })).toBe("482913");
+    expect(returnCodeText("", ["RET-1", "RET-2"], { "RET-1": "482913", "RET-2": "482913" })).toBe("482913");
+    expect(returnCodeText("", ["RET-1", "RET-2", "RET-3"], { "RET-1": "482913", "RET-3": "771100" })).toBe("RET-1: 482913, RET-3: 771100");
+  });
+  it("is empty when nothing is at hand", () => {
+    expect(returnCodeText("", ["RET-1"], {})).toBe("");
+    expect(returnCodeText(null, [], { "RET-1": "482913" })).toBe("");
+  });
+});
+
 describe("approving a return", () => {
   it("books the pickup with the real address and the customer's email, then accepts", async () => {
     const { deps, calls, saved, accepted } = fakes();
@@ -159,8 +175,10 @@ describe("approving a return", () => {
 
     expect(saved).toEqual(["RET-SV-9"]);
     expect(accepted).toEqual([acceptPatch({ trackingIds: ["RET-SV-9"], otp: "482913" }, who, "NOW")]);
-    expect(accepted[0]).toMatchObject({ status: "Accepted", store_valley_request_ids: ["RET-SV-9"], pickup_otp: "482913", logistics_status: "return_initiated", approver_info: { uid: "s1" } });
+    expect(accepted[0]).toMatchObject({ status: "Accepted", store_valley_request_ids: ["RET-SV-9"], has_code: true, logistics_status: "return_initiated", approver_info: { uid: "s1" } });
     expect(JSON.stringify(accepted)).not.toContain("Approved");
+    // The code is shown to the person approving, never saved on the return.
+    expect(JSON.stringify(accepted)).not.toContain("482913");
   });
 
   it("reuses a pickup that is already booked instead of booking twice", async () => {
@@ -169,6 +187,7 @@ describe("approving a return", () => {
     expect(result).toMatchObject({ ok: true, trackingIds: ["RET-SV-9"], otp: "" });
     expect(calls.map((call) => call.method)).toEqual(["GET"]);
     expect(accepted[0]).not.toHaveProperty("pickup_otp");
+    expect(accepted[0]).not.toHaveProperty("has_code");
   });
 
   it("books one pickup per original delivery", async () => {

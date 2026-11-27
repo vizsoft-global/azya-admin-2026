@@ -13,7 +13,9 @@ import { useDocRow, useQueryRows } from "@/lib/firestore-ui";
 import { formatDate, toNumber } from "@/lib/format";
 import { tx } from "@/lib/i18n/tx";
 import type { StatusTone } from "@/lib/status";
+import { codeOf } from "@/lib/store-valley/codes";
 import { inventoryDocId, storeValleyInventoryCollection } from "@/lib/store-valley/inventory";
+import { useCodeLookup } from "@/lib/use-codes";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
 import { statusLabel, text, type Dict } from "./model";
@@ -522,6 +524,12 @@ function TestCard({ def, run, data, who, environment, checking, record, wrongLoc
   const [returnType, setReturnType] = useState<ReturnType>("return");
   const isReturn = def.key === "t5_return";
   const own = record ? events[record.docId] : undefined;
+  // The code is kept by the back office and fetched here; a record made before that change still holds it.
+  const codeIds = record ? [record.trackingId, record.deliveryOrderId] : [];
+  const lookup = useCodeLookup(codeIds, Boolean(record) && !record?.code);
+  // What Store Valley's answer carried when this card created the request, until the fetched one arrives.
+  const [madeCode, setMadeCode] = useState("");
+  const code = record ? codeOf(record.code, codeIds, lookup.codes) || madeCode : "";
   const evidence = evidenceOf(record, own);
   const checks = checksFor(def.key, { record, events: own, stockNow, wrongLocation, ownDeliveryIds: ownIds });
   const verdict = overall(checks);
@@ -561,6 +569,7 @@ function TestCard({ def, run, data, who, environment, checking, record, wrongLoc
     await guarded("start", async () => {
       const source = isReturn && delivery ? { sourceOrderId: delivery.trackingId, originalSource: delivery.originalSource, returnType } : undefined;
       const done = await startTest({ key: def.key, run, data, startedBy: who, source });
+      setMadeCode(done.code.trim());
       toast.success(done.reused ? tx("Store Valley already had {reference}; it is now recorded here.", { reference: referenceOf(run, def.key) }) : tx("Request created. Store Valley ID {id}.", { id: done.trackingId }));
       await onStock().catch(() => null);
     });
@@ -667,16 +676,22 @@ function TestCard({ def, run, data, who, environment, checking, record, wrongLoc
 
           <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2 text-[13px]">
             <span className="text-muted-foreground">{tx("Code")}</span>
-            {record.code ? (
+            {code ? (
               <>
                 <span className="text-base font-semibold tracking-widest text-foreground tabular-nums">
-                  <Ltr>{record.code}</Ltr>
+                  <Ltr>{code}</Ltr>
                 </span>
-                <CopyButton value={record.code} label={tx("Copy the code")} />
+                <CopyButton value={code} label={tx("Copy the code")} />
                 <span className="min-w-0 flex-1 basis-60 text-[12px] text-muted-foreground">{tx(def.codeFor)}</span>
               </>
             ) : (
-              <span className="text-[12px] text-muted-foreground">{tx("No code is held here: the request already existed at Store Valley, or the code was not returned.")}</span>
+              <span className="text-[12px] text-muted-foreground">
+                {lookup.loading
+                  ? tx("Loading the code…")
+                  : record.hasCode
+                    ? tx("A code was sent for this request, but it could not be loaded here. Check the email it was sent to.")
+                    : tx("No code is held here: the request already existed at Store Valley, or the code was not returned.")}
+              </span>
             )}
           </div>
 

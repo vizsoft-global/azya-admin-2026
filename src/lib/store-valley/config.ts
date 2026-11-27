@@ -6,6 +6,7 @@ export const StoreValleyConfig = {
   proxyCallableName: "storeValleyProxy",
   syncInventoryCallableName: "storeValleySyncInventory",
   resendPickupOtpCallableName: "storeValleyResendPickupOtp",
+  codeCallableName: "storeValleyCode",
   reserveWarehouseStockCallableName: "reserveWarehouseStock",
   releaseWarehouseStockCallableName: "releaseWarehouseStock",
   backfillWarehouseReservationsCallableName: "backfillWarehouseReservations",

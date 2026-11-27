@@ -98,19 +98,30 @@ export function customerShipmentOtpLabel({
   return `OTP : ${otp}`;
 }
 
+/** What the request list and the timeline say about a pickup code. */
+export const CODE_SENT_LABEL = txKey("Code sent");
+
+/**
+ * `hasCode` says a code was made although its text is not at hand (it lives in
+ * the back office's private store): the label is then "Code sent".
+ */
 export function otpRowLabel({
   pickupOtp,
+  hasCode = false,
   fulfillStatus,
   otpVerificationStatus = "",
   intakeStatus = "",
 }: {
   pickupOtp: string;
+  hasCode?: boolean;
   fulfillStatus: string;
   otpVerificationStatus?: string;
   intakeStatus?: string;
 }) {
+  const code = pickupOtp.trim();
+  const exists = code !== "" || hasCode;
   if (
-    !pickupOtp.trim() &&
+    !exists &&
     !isFulfillComplete(fulfillStatus) &&
     !isOtpVerified({ otpVerificationStatus, fulfillStatus, intakeStatus })
   ) {
@@ -119,22 +130,28 @@ export function otpRowLabel({
   if (isOtpVerified({ otpVerificationStatus, fulfillStatus, intakeStatus })) {
     return "OTP verified";
   }
-  if (fulfillStatus === "DeliveryPartnerAssigned" && pickupOtp.trim()) {
-    return `OTP ${pickupOtp.trim()}`;
+  if (fulfillStatus === "DeliveryPartnerAssigned" && code) {
+    return `OTP ${code}`;
+  }
+  if (fulfillStatus === "DeliveryPartnerAssigned" && exists) {
+    return CODE_SENT_LABEL;
   }
   return null;
 }
 
+/** A code can be sent again while one exists (its text need not be at hand) and it is not verified yet. */
 export function canResendPickupOtp({
   pickupOtp,
+  hasCode = false,
   otpVerificationStatus = "",
   intakeStatus = "",
 }: {
   pickupOtp: string;
+  hasCode?: boolean;
   otpVerificationStatus?: string;
   intakeStatus?: string;
 }) {
-  if (!pickupOtp.trim()) return false;
+  if (!pickupOtp.trim() && !hasCode) return false;
   return !isOtpVerified({ otpVerificationStatus, intakeStatus });
 }
 

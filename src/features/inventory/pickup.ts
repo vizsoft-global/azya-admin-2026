@@ -177,7 +177,11 @@ function addressFields(prefix: string, address: AddressView): Patch {
   };
 }
 
-/** What every request in the batch gets once the warehouse has accepted the pickup. */
+/**
+ * What every request in the batch gets once the warehouse has accepted the pickup.
+ * The code itself is not saved here (anyone can read these records): the request
+ * only notes that one exists, and screens fetch it from the back office.
+ */
 export function pickupRequestPatch(input: {
   deliveryRef: unknown;
   deliveryId: number | string;
@@ -193,7 +197,7 @@ export function pickupRequestPatch(input: {
     "request_delivery_info.delivery_ref": input.deliveryRef,
     "request_delivery_info.delivery_id": String(input.deliveryId),
     "request_delivery_info.delivery_tracking_id": input.trackingId,
-    "request_delivery_info.pickup_otp": input.pickupOtp,
+    "request_delivery_info.has_code": input.pickupOtp.trim() !== "",
     "request_delivery_info.updated_at": NOW,
     ...addressFields("request_delivery_info.pickup_address", input.pickup),
     ...addressFields("request_delivery_info.delivery_address", input.warehouse),
