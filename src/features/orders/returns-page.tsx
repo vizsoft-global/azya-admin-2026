@@ -15,6 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useDocRow, useQueryRows, type Row } from "@/lib/firestore-ui";
 import { formatDate, formatMoney, toDate, toNumber } from "@/lib/format";
 import { tx } from "@/lib/i18n/tx";
+import { useCodes } from "@/lib/use-codes";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { approveReturn, markReturnReceived, rejectReturn, saveReturnOutcome } from "./data";
 import { addressLine, dict, isCompleteAddress, lineQty, readAddress, statusLabel, text } from "./model";
@@ -30,6 +31,7 @@ import {
   hasOutcome,
   inReturnTab,
   outcomePatch,
+  returnCodeText,
   returnCounts,
   returnForScope,
   returnLines,
@@ -139,6 +141,8 @@ function ReturnDetail({ ret }: { ret: Row }) {
   const [dialog, setDialog] = useState<"approve" | "reject" | "outcome" | "received" | null>(null);
   const lines = returnLines(data);
   const requestIds = Array.isArray(data.store_valley_request_ids) ? data.store_valley_request_ids.map(text).filter(Boolean) : [];
+  // The pickup code is kept by the back office; only staff ask for it, and an old return may still hold it.
+  const codes = useCodes(requestIds, staff && returnStatus(data) === "Accepted" && !text(data.pickup_otp));
 
   async function approve() {
     const result = await approveReturn(ret, scope);
@@ -215,7 +219,7 @@ function ReturnDetail({ ret }: { ret: Row }) {
             {staff ? (
               <>
                 <Fact label={tx("Tracking")} ltr>{requestIds.join(", ") || "—"}</Fact>
-                <Fact label={tx("Pickup code")} ltr>{text(data.pickup_otp) || "—"}</Fact>
+                <Fact label={tx("Pickup code")} ltr>{returnCodeText(data.pickup_otp, requestIds, codes) || "—"}</Fact>
                 <Fact label={tx("Approved by")}>{text(dict(data.approver_info).user_name) || text(dict(data.approver_info).user_email) || "—"}</Fact>
               </>
             ) : null}

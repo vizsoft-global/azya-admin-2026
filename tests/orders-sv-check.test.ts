@@ -193,6 +193,11 @@ describe("the stored state of a run", () => {
     const read = record({ test_key: "t2_delivery", reference: "AZT-1125A-DLV", swftTrackID: "O1", status: "outForDelivery", pickup_otp: "123456", baseline_stock: 21, sent: { packaging_profile: "AZY-PKG-STD-01" }, otp_verification_status: "verified", otp_failed_attempts: 2, proof_photo_url: "https://p", original_source_location_id: "WH-KWT-MAIN" });
     expect(read).toMatchObject({ run: "1125A", key: "t2_delivery", reference: "AZT-1125A-DLV", trackingId: "O1", status: "out_for_delivery", code: "123456", baseline: 21, otpStatus: "verified", otpFailedAttempts: 2, hasPhoto: true, hasSignature: false, originalSource: "WH-KWT-MAIN", ordersNow: null });
   });
+  it("knows a code exists without the record holding it", () => {
+    expect(record({ test_key: "t1_intake", swftTrackID: "R1", has_code: true })).toMatchObject({ code: "", hasCode: true });
+    expect(record({ test_key: "t1_intake", swftTrackID: "R1", otp_sent_at: new Date(2026, 10, 27) }).hasCode).toBe(true);
+    expect(record({ test_key: "t1_intake", swftTrackID: "R1" }).hasCode).toBe(false);
+  });
   it("orders runs newest first and finds a test's record", () => {
     const records = [record({ test_key: "t1_intake", started_at: new Date(2026, 10, 24) }, "a"), readRecord({ id: "b", data: { test_run: "1125B", test_key: "t1_intake", started_at: new Date(2026, 10, 25, 12) } }), record({ test_key: "t2_delivery", started_at: new Date(2026, 10, 25, 9) }, "c")];
     expect(runsOf(records)).toEqual(["1125B", "1125A"]);
@@ -204,7 +209,10 @@ describe("the stored state of a run", () => {
   it("builds what is written when a test starts", () => {
     expect(startedPatch({ run: "1125A", key: "t5_return", reference: "AZT-1125A-RET", baseline: 11, startedBy: "admin@azyaa.test", sent: { quantity: 1 }, now: "NOW", ordersBefore: ["O1"] })).toEqual({ selftest: true, test_run: "1125A", test_key: "t5_return", reference: "AZT-1125A-RET", baseline_stock: 11, started_at: "NOW", started_by: "admin@azyaa.test", sent: { quantity: 1 }, orders_before: ["O1"] });
     expect(ownSnapshot("/pickup-requests", { request_id: "R1", external_request_id: "AZT-1125A-DSG", status: "request_created" }, "", "NOW")).toMatchObject({ swftTrackID: "R1", name: "store_valley", status: "request_created", resource_path: "/pickup-requests" });
-    expect(ownSnapshot("/orders", { order_id: "O1" }, "654321", "NOW").pickup_otp).toBe("654321");
+    // The code is never written to the record, only that one exists.
+    expect(ownSnapshot("/orders", { order_id: "O1" }, "654321", "NOW")).toMatchObject({ has_code: true });
+    expect(JSON.stringify(ownSnapshot("/orders", { order_id: "O1" }, "654321", "NOW"))).not.toContain("654321");
+    expect(ownSnapshot("/orders", { order_id: "O1" }, "", "NOW")).not.toHaveProperty("has_code");
     const refusal = wrongLocationRecord({ run: "1125A", reference: "AZT-1125A-RETX", answer: { status: 400, body: { message: "Source location mismatch" } }, startedBy: "a", now: "NOW" });
     expect(refusal).toMatchObject({ name: SELFTEST_RECORD_NAME, selftest: true, test_key: WRONG_LOCATION_KEY, swftTrackID: "", result_status: 400, result_message: "Source location mismatch" });
   });

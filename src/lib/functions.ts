@@ -57,6 +57,16 @@ export function resendPickupOtp(input: Record<string, unknown>) {
   return callFunction(StoreValleyConfig.resendPickupOtpCallableName, input);
 }
 
+/**
+ * The delivery and pickup codes of some Store Valley tracking ids, from the
+ * back office's private store (the codes are no longer kept in records the
+ * browser can read). Staff only; a designer gets only codes addressed to them.
+ * Answers `{ codes: { [trackingId]: { code, otp_type, sent_at } } }`.
+ */
+export function storeValleyCode(trackingIds: string[]) {
+  return callFunction(StoreValleyConfig.codeCallableName, { trackingIds });
+}
+
 export function storeValleyProxy(input: {
   method: string;
   path: string;

@@ -1,5 +1,6 @@
 import { toDate, toNumber } from "@/lib/format";
 import { tx, txKey } from "@/lib/i18n/tx";
+import { recordHasCode } from "@/lib/store-valley/codes";
 import { StoreValleyConfig } from "@/lib/store-valley/config";
 import { dict, dicts, text, type Dict } from "./model";
 
@@ -481,8 +482,10 @@ export type TestRecord = {
   otpFailedAttempts: number;
   hasPhoto: boolean;
   hasSignature: boolean;
-  /** The code to hand over. Empty when the request was found already existing. */
+  /** The code itself, only on records written before codes moved to the back office's private store. */
   code: string;
+  /** A code was made for this request; the page fetches it from the back office. */
+  hasCode: boolean;
   baseline: number | null;
   startedAt: Date | null;
   startedBy: string;
@@ -524,6 +527,7 @@ export function readRecord(row: { id: string; data: Dict }): TestRecord {
     hasPhoto: own.hasPhoto || polled.has_photo === true,
     hasSignature: own.hasSignature || polled.has_signature === true,
     code: text(data.pickup_otp),
+    hasCode: recordHasCode(data),
     baseline: toNumber(data.baseline_stock),
     startedAt: toDate(data.started_at),
     startedBy: text(data.started_by),
@@ -891,7 +895,8 @@ export function ownSnapshot(path: string, body: Dict, code: string, now: unknown
     original_source_location_id: text(body.original_source_location_id) || null,
     client_order_id: text(body.client_order_id) || null,
     resource_path: path,
-    ...(code ? { pickup_otp: code } : {}),
+    // The code itself is never written here (anyone can read these records): the back office keeps it.
+    ...(code ? { has_code: true } : {}),
   };
 }
 

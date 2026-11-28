@@ -73,7 +73,10 @@ export type DeliveryInfoView = {
   refId: string;
   deliveryId: string;
   trackingId: string;
+  /** The code itself, on records written before codes moved to the back office's private store. */
   pickupOtp: string;
+  /** A pickup code was made for this request (`has_code`, or an old record that still holds the code). */
+  hasCode: boolean;
   /** `status` on the delivery info holds the OTP state ("verified" once the driver confirmed it). */
   otpStatus: string;
   packageCount: number;
@@ -90,6 +93,7 @@ function readDeliveryInfo(value: unknown): DeliveryInfoView {
     deliveryId: text(data.delivery_id),
     trackingId: text(data.delivery_tracking_id),
     pickupOtp: text(data.pickup_otp),
+    hasCode: data.has_code === true || text(data.pickup_otp).trim() !== "",
     otpStatus: text(data.status),
     packageCount: int(data.packageCount),
     notes: text(data.notes),

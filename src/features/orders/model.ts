@@ -126,7 +126,8 @@ export const isDeliveredStatus = (status: unknown) => ["delivered", "completed"]
 /** A request that is neither missing, failed nor cancelled is still open. */
 export const isOpenRequest = (status: unknown) => Boolean(lower(status)) && lower(status) !== "failed" && !isCancelledStatus(status);
 
-export type Shipment = { trackingId: string; type: string; status: string; productIds: string[]; otp: string; deliveryDocId: string; cancelled: boolean; delivered: boolean };
+/** `otp` is the code itself on entries written before codes moved to the back office's private store; `hasCode` says one was made. */
+export type Shipment = { trackingId: string; type: string; status: string; productIds: string[]; otp: string; hasCode: boolean; deliveryDocId: string; cancelled: boolean; delivered: boolean };
 
 /** The entries of `delivery_info_list`: one per Store Valley delivery or pickup request. */
 export function shipments(order: Dict): Shipment[] {
@@ -136,6 +137,7 @@ export function shipments(order: Dict): Shipment[] {
     status: text(entry.status),
     productIds: Array.isArray(entry.product_ids) ? entry.product_ids.map(text).filter(Boolean) : [],
     otp: text(entry.pickup_otp),
+    hasCode: entry.has_code === true || text(entry.pickup_otp).trim() !== "",
     deliveryDocId: text(dict(entry.delivery_ref).id),
     cancelled: isCancelledStatus(entry.status),
     delivered: isDeliveredStatus(entry.status),

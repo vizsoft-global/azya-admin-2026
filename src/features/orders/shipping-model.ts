@@ -223,7 +223,8 @@ export function withRequestRecorded(order: Dict, input: { group: RequestGroup; t
     delivery_type: input.deliveryType,
     product_ids: productIds,
     delivery_ref: input.deliveryRef,
-    pickup_otp: input.otp || null,
+    // The code itself is never saved on the order (anyone can read orders): only that one exists.
+    has_code: input.otp.trim() !== "",
     created_at: input.now,
     updated_at: input.now,
   };

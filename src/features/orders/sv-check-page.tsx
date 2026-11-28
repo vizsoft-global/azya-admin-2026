@@ -13,7 +13,9 @@ import { useDocRow, useQueryRows } from "@/lib/firestore-ui";
 import { formatDate, toNumber } from "@/lib/format";
 import { tx } from "@/lib/i18n/tx";
 import type { StatusTone } from "@/lib/status";
+import { codeOf } from "@/lib/store-valley/codes";
 import { inventoryDocId, storeValleyInventoryCollection } from "@/lib/store-valley/inventory";
+import { useCodeLookup } from "@/lib/use-codes";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
 import { statusLabel, text, type Dict } from "./model";
@@ -54,7 +56,7 @@ import {
   type TestDef,
   type TestRecord,
 } from "./sv-check";
-import { askNow, cancelTestDelivery, latestDeliveries, loadEvents, lookUp, readStockNow, refreshStockCopy, removeTestRecords, runConnectionChecks, runWrongLocation, sendSignedTestUpdate, startTest, type ConnectionResult, type LookupHit } from "./sv-check-data";
+import { askNow, cancelTestDelivery, latestDeliveries, loadEvents, lookUp, moveOldCodes, readStockNow, refreshStockCopy, removeTestRecords, runConnectionChecks, runWrongLocation, sendSignedTestUpdate, startTest, type ConnectionResult, type MoveCodesResult, type LookupHit } from "./sv-check-data";
 
 const SAVED_DATA = "azyaa.sv-check.test-data";
 const message = (error: unknown) => (error instanceof Error ? error.message : tx("unknown error"));
@@ -522,6 +524,12 @@ function TestCard({ def, run, data, who, environment, checking, record, wrongLoc
   const [returnType, setReturnType] = useState<ReturnType>("return");
   const isReturn = def.key === "t5_return";
   const own = record ? events[record.docId] : undefined;
+  // The code is kept by the back office and fetched here; a record made before that change still holds it.
+  const codeIds = record ? [record.trackingId, record.deliveryOrderId] : [];
+  const lookup = useCodeLookup(codeIds, Boolean(record) && !record?.code);
+  // What Store Valley's answer carried when this card created the request, until the fetched one arrives.
+  const [madeCode, setMadeCode] = useState("");
+  const code = record ? codeOf(record.code, codeIds, lookup.codes) || madeCode : "";
   const evidence = evidenceOf(record, own);
   const checks = checksFor(def.key, { record, events: own, stockNow, wrongLocation, ownDeliveryIds: ownIds });
   const verdict = overall(checks);
@@ -561,6 +569,7 @@ function TestCard({ def, run, data, who, environment, checking, record, wrongLoc
     await guarded("start", async () => {
       const source = isReturn && delivery ? { sourceOrderId: delivery.trackingId, originalSource: delivery.originalSource, returnType } : undefined;
       const done = await startTest({ key: def.key, run, data, startedBy: who, source });
+      setMadeCode(done.code.trim());
       toast.success(done.reused ? tx("Store Valley already had {reference}; it is now recorded here.", { reference: referenceOf(run, def.key) }) : tx("Request created. Store Valley ID {id}.", { id: done.trackingId }));
       await onStock().catch(() => null);
     });
@@ -667,16 +676,22 @@ function TestCard({ def, run, data, who, environment, checking, record, wrongLoc
 
           <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2 text-[13px]">
             <span className="text-muted-foreground">{tx("Code")}</span>
-            {record.code ? (
+            {code ? (
               <>
                 <span className="text-base font-semibold tracking-widest text-foreground tabular-nums">
-                  <Ltr>{record.code}</Ltr>
+                  <Ltr>{code}</Ltr>
                 </span>
-                <CopyButton value={record.code} label={tx("Copy the code")} />
+                <CopyButton value={code} label={tx("Copy the code")} />
                 <span className="min-w-0 flex-1 basis-60 text-[12px] text-muted-foreground">{tx(def.codeFor)}</span>
               </>
             ) : (
-              <span className="text-[12px] text-muted-foreground">{tx("No code is held here: the request already existed at Store Valley, or the code was not returned.")}</span>
+              <span className="text-[12px] text-muted-foreground">
+                {lookup.loading
+                  ? tx("Loading the code…")
+                  : record.hasCode
+                    ? tx("A code was sent for this request, but it could not be loaded here. Check the email it was sent to.")
+                    : tx("No code is held here: the request already existed at Store Valley, or the code was not returned.")}
+              </span>
             )}
           </div>
 
@@ -717,6 +732,7 @@ function ToolsSection({ records, runs, run }: { records: TestRecord[]; runs: str
   const [latest, setLatest] = useState<Dict[] | null>(null);
   const [chosen, setChosen] = useState("");
   const removeRun = chosen || (runs.includes(run) ? run : (runs[0] ?? ""));
+  const [moved, setMoved] = useState<MoveCodesResult | null>(null);
 
   async function guarded(name: string, work: () => Promise<void>) {
     setBusy(name);
@@ -744,6 +760,25 @@ function ToolsSection({ records, runs, run }: { records: TestRecord[]; runs: str
       const removed = await removeTestRecords(list);
       setChosen("");
       toast.success(tx("{count} test records removed.", { count: removed }));
+    });
+  }
+
+  async function countOldCodes() {
+    await guarded("count-codes", async () => setMoved(await moveOldCodes(true)));
+  }
+
+  async function moveCodes() {
+    const sure = await confirm({
+      title: tx("Move the old codes to the private store?"),
+      description: tx("Codes saved on orders, restock requests, returns and Store Valley records are copied to the store only the back office can read, then removed from those records. Staff keep seeing them through the panel. This cannot be undone from the panel."),
+      confirmLabel: tx("Move codes"),
+      cancelLabel: tx("Cancel"),
+    });
+    if (!sure) return;
+    await guarded("move-codes", async () => {
+      const result = await moveOldCodes(false);
+      setMoved(result);
+      toast.success(tx("Old codes moved."));
     });
   }
 
@@ -807,6 +842,27 @@ function ToolsSection({ records, runs, run }: { records: TestRecord[]; runs: str
           {busy === "remove" ? tx("Removing…") : tx("Remove test records")}
         </Button>
         <span className="min-w-0 flex-1 basis-60 text-[12px] text-muted-foreground">{tx("This only deletes the panel's own test records. It does not cancel anything at Store Valley.")}</span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+        <Button variant="outline" className="bg-card" disabled={Boolean(busy)} onClick={() => void countOldCodes()}>
+          {busy === "count-codes" ? tx("Counting…") : tx("Count old codes")}
+        </Button>
+        <Button variant="outline" className="bg-card" disabled={Boolean(busy)} onClick={() => void moveCodes()}>
+          {busy === "move-codes" ? tx("Moving…") : tx("Move old codes")}
+        </Button>
+        <span className="min-w-0 flex-1 basis-60 text-[12px] text-muted-foreground">
+          {moved
+            ? tx("{state}: {logistics} Store Valley records, {orders} orders, {movements} restock requests, {returns} returns. Left alone (no tracking number): {skipped}.", {
+                state: moved.dryRun ? tx("Still holding a code") : tx("Moved"),
+                logistics: moved.logistics,
+                orders: moved.orders,
+                movements: moved.movements,
+                returns: moved.returns,
+                skipped: moved.skipped,
+              })
+            : tx("One-time step: older records still carry their code in the open. Count first, then move.")}
+        </span>
       </div>
     </Section>
   );

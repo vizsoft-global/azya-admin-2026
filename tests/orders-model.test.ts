@@ -200,6 +200,10 @@ describe("marking a line ready", () => {
 
 describe("cancelling a delivery", () => {
   const sent = order({ delivery_info_list: [{ delivery_tracking_id: "T1", delivery_type: "ready", status: "REQUESTED", product_ids: ["P1"] }, { delivery_tracking_id: "T2", delivery_type: "custom", status: "REQUESTED", product_ids: ["P2"] }] });
+  it("reads whether a delivery has a code, from the mark or an old saved code", () => {
+    const list = shipments(order({ delivery_info_list: [{ delivery_tracking_id: "T1", has_code: true }, { delivery_tracking_id: "T2", pickup_otp: "123456" }, { delivery_tracking_id: "T3", pickup_otp: null }] }));
+    expect(list.map((item) => [item.trackingId, item.hasCode, item.otp])).toEqual([["T1", true, ""], ["T2", true, "123456"], ["T3", false, ""]]);
+  });
   it("is for a super admin, on warehouse deliveries that are still open", () => {
     const [ready, custom] = shipments(sent);
     expect(canCancelShipment(admin, ready)).toBe(true);

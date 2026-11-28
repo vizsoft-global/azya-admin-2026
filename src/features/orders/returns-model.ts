@@ -284,13 +284,28 @@ export function returnNotify(input: { userId: string; address: Address }): Dict 
   return { otpType: "return_pickup", ...(input.userId ? { userId: input.userId } : {}), phone: input.address.phone, ...(input.address.email ? { email: input.address.email } : {}) };
 }
 
+/**
+ * The pickup code line of an accepted return. An old return still holds one code;
+ * otherwise the codes come from the back office, one per booked pickup, and are
+ * listed with their tracking id when the pickups do not share one code.
+ */
+export function returnCodeText(stored: unknown, trackingIds: string[], fetched: Record<string, string>): string {
+  const old = text(stored).trim();
+  if (old) return old;
+  const found = trackingIds.filter((id) => fetched[id]).map((id) => ({ id, code: fetched[id] }));
+  if (!found.length) return "";
+  if (new Set(found.map((item) => item.code)).size === 1) return found[0].code;
+  return found.map((item) => `${item.id}: ${item.code}`).join(", ");
+}
+
 export function acceptPatch(result: { trackingIds: string[]; otp: string }, who: Approver, now: unknown): Dict {
   return {
     updated_at: now,
     status: RETURN_STATUS.accepted,
     approver_info: approverInfo(who),
     store_valley_request_ids: result.trackingIds,
-    ...(result.otp ? { pickup_otp: result.otp } : {}),
+    // The code itself is never saved on the return (anyone can read returns): only that one exists.
+    ...(result.otp ? { has_code: true } : {}),
     logistics_status: "return_initiated",
   };
 }

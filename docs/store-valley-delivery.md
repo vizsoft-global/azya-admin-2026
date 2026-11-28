@@ -82,6 +82,7 @@ Every delivery and pickup needs a 6-digit code as proof of handover.
 - Store Valley is given the code too. The driver types in what the customer tells them, and Store Valley only lets the delivery finish if it matches.
 - For a restock pickup the code goes to the designer, who gives it to the driver.
 - Staff can send a restock pickup code again from the request screen.
+- **Where the code is kept:** in a private store that only the back office can read. It is not written on the order, the return, the restock request or Store Valley's answer; those only note that a code exists. Staff see a code in the panel, which asks the back office for it. A designer is given only the codes that were sent to them, and the customer's delivery code is shown only to a super admin. (This is the fix for item 2 under "What needs attention". It is written but not yet released; until it is, the codes are still on those records.)
 
 ## How Azyaa hears back
 
@@ -138,6 +139,7 @@ Store Valley is given Azyaa's own reference for every request, so both sides can
 | `store_valley_delivery_jobs` | The to-do notes: one per shipment, with status (queued, processing, requested, failed, cancelled), attempts and last error |
 | `delivery` | One record per shipment or pickup, with tracking number and status |
 | `logistics_response` | Store Valley's answer to each request, and its latest status and proof photo links |
+| `store_valley_codes` | The delivery and pickup codes, one per request. Private: only the back office can read it, and staff see codes through the panel. (Not yet released.) |
 | `store_valley_inventory` | The copy of warehouse stock, one row per product |
 | `store_valley_webhook_events` | The ids of updates already processed, so none is applied twice |
 
@@ -155,20 +157,21 @@ Store Valley is given Azyaa's own reference for every request, so both sides can
 
 In order of importance. Details are in the audit that came with this document.
 
-1. **Anyone with an Azyaa login can use the Store Valley key.** The back office programs only check that the caller is signed in, not that they are staff. A customer account could book or cancel deliveries, or release reserved stock.
-2. **Delivery codes can be read without logging in.** The codes are saved in `logistics_response` and on the order, and both are open to read (and to change) by anyone on the internet.
+1. ~~**Anyone with an Azyaa login can use the Store Valley key.**~~ **Fixed on 25 November 2026.** The back office programs now refuse anyone who is not panel staff.
+2. **Delivery codes can be read without logging in.** The codes are saved on Store Valley's answers (`logistics_response`), on the order, on the restock request and on the return, and all four are open to read (and to change) by anyone on the internet. **Fix written, not yet released:** the codes move to a private store, the panel stops saving them, and the access rules are tightened. It goes out in four steps, in this order: back office, panel, moving the old codes, then the rules.
 3. **The joint testing is not finished.** The five staging tests have not been signed off, and real products and most designers are not yet registered with Store Valley, so real orders cannot ship through it.
-4. **A customer can get a delivery code for a request Store Valley then refuses.** The code is emailed before Store Valley answers, and each retry emails a new one.
+4. ~~**A customer can get a delivery code for a request Store Valley then refuses.**~~ **Fixed on 25 November 2026.** The code is now sent only after Store Valley accepts the request.
 5. **Four older delivery programs are still running** on the live project (`createReadyDeliveryRequests`, `createCustomDeliveryRequests`, `syncDeliveryToOrders`, `inventoryUpdatePostDelivery`). Their code is not in any of the three repositories, and the first two wake up on every order change, the same as the Store Valley programs.
 6. **The settings store is being retired by Google in March 2027.** The key and secret must be moved to the newer secrets store before then, or releases will stop working.
-7. If a customer has no email on the order, the code email is addressed to their phone number and never arrives. The app notification still goes out.
+7. ~~If a customer has no email on the order, the code email is addressed to their phone number and never arrives.~~ **Fixed on 25 November 2026.** No email is written without a real email address; the app notification still goes out.
 
 ## Before switching to Store Valley's real system
 
 - [ ] Store Valley gives the production key and production address, and registers the production web address for updates with a new signing secret.
 - [ ] Every designer who sells has a Store Valley designer id on their account.
 - [ ] Every warehouse product exists at Store Valley with the same product id and SKU, and its stock shows in Inventory after a refresh.
-- [ ] Items 1 and 2 above are fixed.
+- [x] Item 1 above is fixed (25 November 2026).
+- [ ] Item 2 above is released (the fix is written).
 - [ ] The five flows are run once each on staging and signed off by both sides. How to run them from the panel: [store-valley-staging-tests.md](store-valley-staging-tests.md).
 - [ ] The fallback test designer `DSN-KWT-0001` is removed or replaced.
 - [ ] The four older delivery programs are identified and switched off if no longer needed.

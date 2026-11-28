@@ -16,7 +16,9 @@ import { useDocRow, useQueryRows } from "@/lib/firestore-ui";
 import { formatDate, formatMoney } from "@/lib/format";
 import { tx, txKey } from "@/lib/i18n/tx";
 import { orderLinesInScope } from "@/lib/role-scope";
+import { codeOf } from "@/lib/store-valley/codes";
 import { customerShipmentOtpLabel } from "@/lib/store-valley/intake-tracking";
+import { useCodes } from "@/lib/use-codes";
 import { useRoleScope } from "@/lib/use-role-scope";
 import { cn } from "@/lib/utils";
 import { cancelShipment, markLineReady, releaseStock, retryStockReservation, runRetry, savePaymentComment, useDeliveries } from "./data";
@@ -273,7 +275,9 @@ function ShipmentCard({ orderId, shipment, delivery }: { orderId: string; shipme
   const logistics = useQueryRows("logistics_response", { where: [["swftTrackID", "==", shipment.trackingId]], limit: 1, enabled: admin && Boolean(shipment.trackingId) }).rows[0]?.data;
   const status = text(delivery?.status) || shipment.status;
   const otpStatus = text(delivery?.otp_verification_status) || text(logistics?.otp_verification_status);
-  const otp = customerShipmentOtpLabel({ pickupOtp: shipment.otp || text(logistics?.pickup_otp), otpVerificationStatus: otpStatus, deliveryStatus: status.toLowerCase() });
+  // The code is kept by the back office; an old order or record may still hold it.
+  const codes = useCodes([shipment.trackingId], admin);
+  const otp = customerShipmentOtpLabel({ pickupOtp: codeOf(shipment.otp || text(logistics?.pickup_otp), [shipment.trackingId], codes), otpVerificationStatus: otpStatus, deliveryStatus: status.toLowerCase() });
   const proof = text(delivery?.proof_photo_url) || text(logistics?.proof_photo_url);
   const steps = dicts(logistics?.time_lines);
 

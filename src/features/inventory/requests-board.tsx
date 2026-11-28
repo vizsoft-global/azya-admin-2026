@@ -83,7 +83,8 @@ type RequestRow = { id: string; view: RequestView };
 
 function otpLabelOf(view: RequestView) {
   if (!isRestock(view.requestType)) return null;
-  return otpRowLabel({ pickupOtp: view.delivery.pickupOtp, fulfillStatus: view.fulfillStatus, otpVerificationStatus: view.delivery.otpStatus });
+  // The list never prints the code: a row only says one was sent, and the request's own page shows it.
+  return otpRowLabel({ pickupOtp: "", hasCode: view.delivery.hasCode, fulfillStatus: view.fulfillStatus, otpVerificationStatus: view.delivery.otpStatus });
 }
 
 /** The requests board, in one of its route-specific cuts. */
@@ -165,7 +166,7 @@ export function RequestsBoard({ variant }: { variant: BoardVariant }) {
               return (
                 <span className="grid gap-0.5">
                   {label ? <StatusBadge value={label} /> : "—"}
-                  {otp ? <span className="text-[11px] text-muted-foreground">{otp === "OTP verified" ? tx("OTP verified") : <span dir="ltr" lang="en">{otp}</span>}</span> : null}
+                  {otp ? <span className="text-[11px] text-muted-foreground">{tx(otp)}</span> : null}
                 </span>
               );
             },
