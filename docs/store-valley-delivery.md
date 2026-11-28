@@ -82,7 +82,7 @@ Every delivery and pickup needs a 6-digit code as proof of handover.
 - Store Valley is given the code too. The driver types in what the customer tells them, and Store Valley only lets the delivery finish if it matches.
 - For a restock pickup the code goes to the designer, who gives it to the driver.
 - Staff can send a restock pickup code again from the request screen.
-- **Where the code is kept:** in a private store that only the back office can read. It is not written on the order, the return, the restock request or Store Valley's answer; those only note that a code exists. Staff see a code in the panel, which asks the back office for it. A designer is given only the codes that were sent to them, and the customer's delivery code is shown only to a super admin. (This is the fix for item 2 under "What needs attention". It is written but not yet released; until it is, the codes are still on those records.)
+- **Where the code is kept:** in a private store that only the back office can read. It is not written on the order, the return, the restock request or Store Valley's answer; those only note that a code exists. Staff see a code in the panel, which asks the back office for it. A designer is given only the codes that were sent to them, and the customer's delivery code is shown only to a super admin. (This is the fix for item 2 under "What needs attention", released on 28 Nov 2026. Codes saved before that date stay on the old records until a super admin presses "Move old codes" on the Store Valley check page.)
 
 ## How Azyaa hears back
 
@@ -139,7 +139,7 @@ Store Valley is given Azyaa's own reference for every request, so both sides can
 | `store_valley_delivery_jobs` | The to-do notes: one per shipment, with status (queued, processing, requested, failed, cancelled), attempts and last error |
 | `delivery` | One record per shipment or pickup, with tracking number and status |
 | `logistics_response` | Store Valley's answer to each request, and its latest status and proof photo links |
-| `store_valley_codes` | The delivery and pickup codes, one per request. Private: only the back office can read it, and staff see codes through the panel. (Not yet released.) |
+| `store_valley_codes` | The delivery and pickup codes, one per request. Private: only the back office can read it, and staff see codes through the panel. Released 28 Nov 2026. |
 | `store_valley_inventory` | The copy of warehouse stock, one row per product |
 | `store_valley_webhook_events` | The ids of updates already processed, so none is applied twice |
 
@@ -158,7 +158,7 @@ Store Valley is given Azyaa's own reference for every request, so both sides can
 In order of importance. Details are in the audit that came with this document.
 
 1. ~~**Anyone with an Azyaa login can use the Store Valley key.**~~ **Fixed on 25 November 2026.** The back office programs now refuse anyone who is not panel staff.
-2. **Delivery codes can be read without logging in.** The codes are saved on Store Valley's answers (`logistics_response`), on the order, on the restock request and on the return, and all four are open to read (and to change) by anyone on the internet. **Fix written, not yet released:** the codes move to a private store, the panel stops saving them, and the access rules are tightened. It goes out in four steps, in this order: back office, panel, moving the old codes, then the rules.
+2. **Delivery codes can be read without logging in.** The codes are saved on Store Valley's answers (`logistics_response`), on the order, on the restock request and on the return, and all four are open to read (and to change) by anyone on the internet. **Fixed on 28 Nov 2026:** new codes go to a private store, the panel no longer saves them, and Store Valley's answers (`logistics_response`) and the delivery records (`delivery`) can be read only when signed in and changed only by staff. **One step left:** a super admin presses "Count old codes" and then "Move old codes" on the Store Valley check page, which moves the few codes saved before the fix (4 on Store Valley's answers and 2 on restock requests on 28 Nov 2026, plus any on orders). Orders, restock requests and returns themselves are still open to read and change without logging in; that is the wider rules problem, not yet fixed.
 3. **The joint testing is not finished.** The five staging tests have not been signed off, and real products and most designers are not yet registered with Store Valley, so real orders cannot ship through it.
 4. ~~**A customer can get a delivery code for a request Store Valley then refuses.**~~ **Fixed on 25 November 2026.** The code is now sent only after Store Valley accepts the request.
 5. **Four older delivery programs are still running** on the live project (`createReadyDeliveryRequests`, `createCustomDeliveryRequests`, `syncDeliveryToOrders`, `inventoryUpdatePostDelivery`). Their code is not in any of the three repositories, and the first two wake up on every order change, the same as the Store Valley programs.
